@@ -29,16 +29,25 @@ live docs over training-data recall: fields and semantics evolve.
 
 ## Layout
 
+The repo is a marketplace catalog at the root and a single plugin under
+`plugins/natelandau-toolkit/`. The marketplace's `source: "./plugins/natelandau-toolkit"`
+points Claude Code at the plugin directory.
+
 ```
-.claude-plugin/plugin.json   Plugin manifest (name, description, author)
-hooks/hooks.json             Event registration; references scripts via ${CLAUDE_PLUGIN_ROOT}
-hooks/*.py                   Hook scripts, each a self-contained `uv run --script`
-skills/<name>/SKILL.md       On-demand guidance loaded by the skill router
-skills/<name>/references/    Optional supplementary content for a skill
-commands/<name>.md           Slash commands invoked by the user
-agents/<name>.md             Subagent definitions (currently empty)
-tests/test_*.py              Hook characterization test harnesses (no pytest dep)
+.claude-plugin/marketplace.json                       Marketplace catalog (lists this plugin)
+plugins/natelandau-toolkit/.claude-plugin/plugin.json Plugin manifest (name, description, author, version)
+plugins/natelandau-toolkit/hooks/hooks.json           Event registration; references scripts via ${CLAUDE_PLUGIN_ROOT}
+plugins/natelandau-toolkit/hooks/*.py                 Hook scripts, each a self-contained `uv run --script`
+plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand guidance loaded by the skill router
+plugins/natelandau-toolkit/skills/<name>/references/  Optional supplementary content for a skill
+plugins/natelandau-toolkit/commands/<name>.md         Slash commands invoked by the user
+plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions (currently empty)
+tests/test_*.py                                       Hook characterization test harnesses (no pytest dep)
 ```
+
+`${CLAUDE_PLUGIN_ROOT}` resolves to the installed `plugins/natelandau-toolkit/`
+directory, so plugin-internal references like `${CLAUDE_PLUGIN_ROOT}/hooks/foo.py`
+are written relative to the plugin root, not the repo root.
 
 When users enable this plugin, Claude Code clones the repo into
 `~/.claude/plugins/...`, sets the `CLAUDE_PLUGIN_ROOT` environment
@@ -215,8 +224,8 @@ keyed by the `id` field, so each case shows up as its own pytest item
 
 ## Adding a new hook
 
-1. Drop `hooks/<your_hook>.py` in place. Make it executable.
-2. Register it in `hooks/hooks.json` under the matching event:
+1. Drop `plugins/natelandau-toolkit/hooks/<your_hook>.py` in place. Make it executable.
+2. Register it in `plugins/natelandau-toolkit/hooks/hooks.json` under the matching event:
     ```json
     "<EventName>": [
       {
@@ -240,22 +249,23 @@ keyed by the `id` field, so each case shows up as its own pytest item
 
 1. Invoke the `skill-creator` skill to draft the skill, including
    frontmatter and "Use when ..." description.
-2. Save it as `skills/<name>/SKILL.md`. Add `skills/<name>/references/*.md`
-   for any longer supplementary content.
+2. Save it as `plugins/natelandau-toolkit/skills/<name>/SKILL.md`. Add
+   `plugins/natelandau-toolkit/skills/<name>/references/*.md` for any longer
+   supplementary content.
 3. Restart Claude Code or reload skills so the router picks up the new
    entry.
 
 ## Adding a new command
 
-1. Create `commands/<name>.md` with frontmatter (`description`, optional
-   `argument-hint`) and the command body. The body is the prompt the
-   command sends when invoked.
+1. Create `plugins/natelandau-toolkit/commands/<name>.md` with frontmatter
+   (`description`, optional `argument-hint`) and the command body. The body
+   is the prompt the command sends when invoked.
 2. The command becomes available as `/<name>` after Claude Code reloads.
 
 ## Adding a new agent
 
-1. Create `agents/<name>.md` with subagent frontmatter per the Claude
-   Code plugins reference.
+1. Create `plugins/natelandau-toolkit/agents/<name>.md` with subagent
+   frontmatter per the Claude Code plugins reference.
 2. Reference and dispatch via the `Agent` tool with `subagent_type=<name>`.
 
 ## Hook input/output reference

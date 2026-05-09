@@ -1,0 +1,14 @@
+{
+  "name": "natelandau-cc-plugin",
+  "owner": {
+    "name": "Nathaniel Landau"
+  },
+  "description": "Personal Claude Code toolkit distributed as a single plugin.",
+  "plugins": [
+    {
+      "name": "natelandau-toolkit",
+      "source": "./plugins/natelandau-toolkit",
+      "description": "Personal Claude Code toolkit: hooks, skills, and slash commands for my setup."
+    }
+  ]
+}

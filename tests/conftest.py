@@ -55,4 +55,4 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
 @pytest.fixture(scope="session")
 def hooks_dir() -> Path:
     """Resolve the plugin's hooks directory."""
-    return Path(__file__).resolve().parent.parent / "hooks"
+    return Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit" / "hooks"
