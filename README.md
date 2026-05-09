@@ -82,13 +82,14 @@ commit, but you can run them manually too.
 ### Project layout
 
 ```
-.claude-plugin/plugin.json   Plugin manifest
-hooks/hooks.json             Event registration
-hooks/*.py                   Hook scripts (uv run --script)
-skills/<name>/SKILL.md       On-demand skill content
-commands/<name>.md           Slash commands
-agents/<name>.md             Subagent definitions (currently empty)
-tests/test_*.py              Pytest suite for the hooks
+.claude-plugin/marketplace.json                       Marketplace catalog
+plugins/natelandau-toolkit/.claude-plugin/plugin.json Plugin manifest
+plugins/natelandau-toolkit/hooks/hooks.json           Event registration
+plugins/natelandau-toolkit/hooks/*.py                 Hook scripts (uv run --script)
+plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand skill content
+plugins/natelandau-toolkit/commands/<name>.md         Slash commands
+plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions (currently empty)
+tests/test_*.py                                       Pytest suite for the hooks
 ```
 
 ### Adding a hook, skill, or command

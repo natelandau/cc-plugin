@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit"
 PLUGIN_ROOT_PREFIX = "${CLAUDE_PLUGIN_ROOT}/"
 
 # Documented in CLAUDE.md: transfer-context.md predates the frontmatter
