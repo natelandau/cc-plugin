@@ -5,6 +5,7 @@ on:
     workflow_dispatch:
     push:
         paths:
+            - ".github/workflows/reusable-tests.yml"
             - ".github/workflows/automated-tests.yml"
             - ".github/actions/**"
             - "**.py"
@@ -18,6 +19,7 @@ on:
             - reopened
             - synchronize
         paths:
+            - ".github/workflows/reusable-tests.yml"
             - ".github/workflows/automated-tests.yml"
             - ".github/actions/**"
             - "**.py"

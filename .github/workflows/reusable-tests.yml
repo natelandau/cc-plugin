@@ -28,15 +28,7 @@ jobs:
 
             - name: Run tests
               shell: bash
-              run: uv run duty test
-
-            - name: Upload coverage to Codecov
-              if: ${{ inputs.run-coverage && matrix.python-version == '3.13' }}
-              uses: codecov/codecov-action@v6
-              with:
-                  files: .cache/coverage.xml
-              env:
-                  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+              run: uv run pytest tests/
 
     lint-project:
         runs-on: ubuntu-latest
@@ -49,4 +41,9 @@ jobs:
 
             - name: run all linters
               shell: bash
-              run: uv run duty lint
+              run: |
+                  uv run ruff check --config pyproject.toml --no-fix
+                  uv run ruff format
+                  uv run ty check
+                  uv run typos --config .typos.toml
+                  uv run yamllint --config-file .yamllint.yml .
