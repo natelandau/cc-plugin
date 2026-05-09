@@ -98,6 +98,31 @@ and permission-seeking phrases the user has decided are unwanted. Be cautious
 about adding broad patterns (`getting long`, `next session`) since they
 false-positive in legitimate contexts.
 
+### `hooks/protect_secrets.py` (PreToolUse)
+
+Blocks attempts to read, edit, write, or exfiltrate sensitive files via
+the `Read`/`Edit`/`Write`/`Bash` tools. Two flat tuples of `Rule`
+dataclasses drive matching:
+
+- `SENSITIVE_FILES` -- regexes tested against `tool_input.file_path` for
+  Read/Edit/Write. Catches `.env`, SSH private keys, AWS/GCloud/Azure
+  credentials, PEM/key/keystore files, etc.
+- `BASH_PATTERNS` -- regexes tested against the full bash command string.
+  Catches direct reads (`cat .env`), env dumps (`printenv`,
+  `echo $SECRET_KEY`), exfiltration (`scp .env`, `curl -d @.env`), and
+  destructive ops on secret files (`rm .env`, `cp id_rsa`).
+
+Each rule has a `level`: `critical`, `high`, or `strict`. The active
+threshold is read from `CLAUDE_PROTECT_SECRETS_LEVEL` (default `high`)
+and rules above the threshold are skipped. An `ALLOWLIST` of template
+patterns (`.env.example`, `env.sample`, etc.) short-circuits both file
+and bash checks before any rule fires.
+
+Ported from karanb192/claude-code-hooks `protect-secrets.js`. Differences
+from the source: this version uses the repo's `exit 2 + stderr` block
+convention instead of the JS hook's `permissionDecision: deny` JSON, and
+omits the `~/.claude/hooks-logs/` log writer to match other hooks here.
+
 ### `hooks/use_uv.py` (PreToolUse)
 
 Lightweight nudge: detects bash invocations of `python `, `pip install`,
