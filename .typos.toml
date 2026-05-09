@@ -1,0 +1,8 @@
+[default]
+    locale = "en-us"
+
+    [default.extend-words]
+        nin = "nin"
+
+[files]
+    extend-exclude = ["*_cache", ".venv"]
