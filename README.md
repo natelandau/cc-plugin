@@ -19,7 +19,7 @@ commands into a single installable package.
   emitting specific phrases.
 - **Skills** for Python, Bash, git, inline comments, refactoring, and
   documentation writing. Framework-specific skills (Flask, htmx,
-  daisyUI, Beanie ODM, Tortoise ORM, GitHub Actions triage) are
+  daisyUI, Tortoise ORM, GitHub Actions triage) are
   manual-only, invoked with `/<skill-name>`.
 - **Slash commands**, currently just `/create-prd` for turning
   conversation context into a Product Requirements Document.

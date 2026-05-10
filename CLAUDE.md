@@ -194,7 +194,7 @@ description matches user intent. Layout:
   of the router entirely. Its description never loads into the skill
   listing and the user must invoke `/<name>` explicitly. Use it for
   framework- or project-specific skills that apply to a small share
-  of work (currently `beanie-odm`, `daisyui`, `flask-development`,
+  of work (currently `daisyui`, `flask-development`,
   `gha`, `htmx-expert`, `tortoise-orm`).
 - Description must read "Use when ..." so the router can match it. The
   more specific the trigger conditions (file extensions, intent verbs,
