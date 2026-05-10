@@ -1,3 +1,10 @@
+## v0.3.0 (2026-05-10)
+
+### Feat
+
+- **skills**: remove beanie-odm
+- **skills**: require manual invocation for niche skills
+
 ## v0.2.0 (2026-05-09)
 
 ### Feat
