@@ -26,6 +26,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/enforce_commit_message.py",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "Stop": [
