@@ -33,12 +33,49 @@ commands into a single installable package.
 ## Installation
 
 This is a Claude Code plugin, so install it through Claude Code itself
-rather than copying files into `~/.claude/`.
+rather than copying files into `~/.claude/`. Run these commands inside
+Claude Code:
 
-Use the `/plugin` command in Claude Code to add this repository as a
-plugin source. See the
-[Claude Code plugin docs](https://code.claude.com/docs/en/plugins.md)
-for the current command syntax.
+1. Add this repository as a marketplace:
+
+   ```
+   /plugin marketplace add natelandau/cc-plugin
+   ```
+
+2. Install the plugin from that marketplace:
+
+   ```
+   /plugin install natelandau-toolkit@natelandau-cc-plugin
+   ```
+
+3. Reload plugins so the hooks, skills, and commands activate without
+   restarting:
+
+   ```
+   /reload-plugins
+   ```
+
+The plugin installs to user scope by default, so it's available across
+all your projects. To pick a different scope or browse interactively,
+run `/plugin` and use the **Discover** and **Installed** tabs.
+
+### Managing the plugin later
+
+Use these commands to disable, re-enable, or remove the plugin without
+touching the marketplace:
+
+```
+/plugin disable natelandau-toolkit@natelandau-cc-plugin
+/plugin enable natelandau-toolkit@natelandau-cc-plugin
+/plugin uninstall natelandau-toolkit@natelandau-cc-plugin
+```
+
+To refresh the marketplace after upstream changes, run
+`/plugin marketplace update natelandau-cc-plugin`. To remove the
+marketplace entirely (which also uninstalls the plugin), run
+`/plugin marketplace remove natelandau-cc-plugin`.
+
+### How install paths resolve
 
 When the plugin is enabled, Claude Code clones the repo into
 `~/.claude/plugins/...` and sets `CLAUDE_PLUGIN_ROOT` to that path. All
