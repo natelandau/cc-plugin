@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,6 +11,12 @@ import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+
+# Strip GIT_* vars so subprocess git commands don't inherit state from a parent
+# pre-commit run (GIT_INDEX_FILE, GIT_DIR, etc. would point the ephemeral repo
+# at the outer repo's index and break tree-building).
+_CLEAN_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 
 @pytest.fixture(scope="session")
@@ -28,6 +35,7 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
             ["git", "init", "-q", "-b", branch, str(path)],
             check=True,
             capture_output=True,
+            env=_CLEAN_GIT_ENV,
         )
         subprocess.run(
             [
@@ -46,6 +54,7 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
             ],
             check=True,
             capture_output=True,
+            env=_CLEAN_GIT_ENV,
         )
     outside = root / "outside"
     outside.mkdir()
