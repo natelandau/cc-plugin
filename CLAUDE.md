@@ -123,6 +123,48 @@ from the source: this version uses the repo's `exit 2 + stderr` block
 convention instead of the JS hook's `permissionDecision: deny` JSON, and
 omits the `~/.claude/hooks-logs/` log writer to match other hooks here.
 
+### `hooks/enforce_commit_message.py` (PreToolUse)
+
+Validates conventional commit format before `git commit` runs. Inspects
+the bash command for `git commit` invocations carrying `-m`/`--message`,
+extracts the first message value (handling simple quoting and the
+`"$(cat <<TAG ... TAG)"` heredoc form this codebase uses for multi-line
+commits), and checks the first non-empty line against the rules in the
+`git-rules` skill: header <=70 chars, `<type>(<scope>)!?: <subject>`
+grammar with type in a fixed allowlist (`build`, `ci`, `docs`, `feat`,
+`fix`, `perf`, `refactor`, `style`, `test`), optional `!` breaking-change
+marker, lowercase first letter of subject, no trailing whitespace,
+period, `!`, or `?`, no leading WIP/Draft marker, and an imperative-mood
+first word.
+
+The imperative check is a curated denylist (`NON_IMPERATIVE_VERBS`) that
+maps known past-tense, gerund, and third-person-singular forms to their
+imperative root for the suggestion in the block message. Curated rather
+than algorithmic so we never block valid imperatives that happen to end
+in `-ed`/`-ing`/`-s` (`release`, `pass`, `address`, `feed`, `bring`).
+Extend the table when a real false-negative escapes.
+
+The WIP/Draft check (`WIP_MARKER_RE`) catches `wip`, `[wip]`, `draft`,
+`[draft]`, and `(draft)` at the start of the subject, case-insensitive.
+It runs before the lowercase-first-letter check so `WIP add foo`
+produces the more specific marker message rather than `subject-uppercase`.
+Pattern ported from `crate-ci/committed`.
+
+Pass-through cases:
+
+- `git commit` with no `-m`/`--message`. The editor opens; we have no
+  message to inspect.
+- `--fixup` / `--squash` flags. Git auto-generates the message.
+- Messages whose first line begins with a git-auto-generated prefix
+  (`Merge `, `Revert "`, `Revert '`, `fixup!`, `squash!`, `amend!`).
+- Multiple `-m` args. Only the first is the subject; subsequent args
+  are body paragraphs which the project conventions do not constrain.
+
+The `GIT_COMMIT_RE` is not anchored to a command-start position, so a
+literal `git commit` substring inside an echoed string can false-positive.
+In practice agents execute commits rather than echo them, and the cost of
+a spurious block is just retyping the message.
+
 ### `hooks/use_uv.py` (PreToolUse)
 
 Lightweight nudge: detects bash invocations of `python `, `pip install`,
