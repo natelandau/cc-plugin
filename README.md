@@ -17,9 +17,10 @@ commands into a single installable package.
 - **Hooks** that block destructive git commands, protect `main`/`master`
   from edits, nudge Claude toward `uv run`, and stop the assistant from
   emitting specific phrases.
-- **Skills** for Python, Bash, git, inline comments, GitHub Actions
-  triage, refactoring, documentation writing, and several frameworks
-  (Flask, htmx, daisyUI, Beanie ODM, Tortoise ORM).
+- **Skills** for Python, Bash, git, inline comments, refactoring, and
+  documentation writing. Framework-specific skills (Flask, htmx,
+  daisyUI, Beanie ODM, Tortoise ORM, GitHub Actions triage) are
+  manual-only, invoked with `/<skill-name>`.
 - **Slash commands**, currently just `/create-prd` for turning
   conversation context into a Product Requirements Document.
 

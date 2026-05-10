@@ -190,6 +190,12 @@ description matches user intent. Layout:
   `python-standards`. Use it when a skill is tied to a specific file
   type so the router triggers on file edits, not just intent
   matching. Documented at <https://code.claude.com/docs/en/skills.md>.
+- The optional `disable-model-invocation: true` field opts a skill out
+  of the router entirely. Its description never loads into the skill
+  listing and the user must invoke `/<name>` explicitly. Use it for
+  framework- or project-specific skills that apply to a small share
+  of work (currently `beanie-odm`, `daisyui`, `flask-development`,
+  `gha`, `htmx-expert`, `tortoise-orm`).
 - Description must read "Use when ..." so the router can match it. The
   more specific the trigger conditions (file extensions, intent verbs,
   tool names), the more reliably it loads.

@@ -1,6 +1,7 @@
 ---
 name: tortoise-orm
 description: "Build Python applications using Tortoise ORM v1.x, the async Python ORM inspired by Django. Use when writing or modifying Tortoise Model definitions, queries, relations (ForeignKeyField, ManyToManyField, OneToOneField), transactions, signals, validators, Pydantic integration, or Tortoise initialization. Also use when the user mentions Tortoise ORM, tortoise-orm, async ORM with asyncpg/asyncmy, fields.ForeignKeyField, fields.ManyToManyField, prefetch_related, select_related, Tortoise.init, RegisterTortoise, tortoise.contrib.pydantic, or any Tortoise ORM patterns, even if they don't explicitly say 'Tortoise.' Covers the full lifecycle, model definition, CRUD, relations, querying, transactions, signals, migrations, testing, and Pydantic serialization."
+disable-model-invocation: true
 ---
 
 # Tortoise ORM v1.x

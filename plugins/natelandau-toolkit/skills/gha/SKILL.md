@@ -2,6 +2,7 @@
 name: gha
 description: Analyze GitHub Actions failures and identify root causes. Use when asked to investigate a CI/CD GitHub Actions failure and recommend a fix.
 argument-hint: <url>
+disable-model-invocation: true
 ---
 
 Investigate this GitHub Actions URL: $ARGUMENTS

@@ -1,6 +1,7 @@
 ---
 name: htmx-expert
 description: Use when writing, debugging, or reviewing htmx attributes (hx-get, hx-post, hx-swap, hx-target, hx-trigger, hx-boost), AJAX interactions, server-side HTML fragment responses, out-of-band swaps, htmx events, loading indicators, or hypermedia-driven patterns. Also use when the user mentions htmx class names like htmx-indicator, htmx-request, or any hx-* attributes, even if they don't explicitly say "htmx."
+disable-model-invocation: true
 ---
 
 # htmx Expert

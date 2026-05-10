@@ -1,6 +1,7 @@
 ---
 name: beanie-odm
 description: "Build Python applications using Beanie, the async MongoDB ODM built on Pydantic. Use when writing or modifying Beanie Document models, queries, updates, linked/embedded documents, aggregations, or init_beanie setup. Also use when the user mentions Beanie, MongoDB with Pydantic, Link[], BackLink, fetch_links, beanie.operators, or any Beanie ODM patterns, even if they don't explicitly say 'Beanie.' Covers the full lifecycle, document definition, CRUD, relations, query operators, update operators, aggregation, and state management."
+disable-model-invocation: true
 ---
 
 # Beanie ODM

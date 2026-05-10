@@ -1,6 +1,7 @@
 ---
 name: flask-development
 description: Build Python web applications with Flask 3+, using the application factory pattern and Blueprints. Use when developing Flask projects — blueprint structure, routes, authentication, error handling, working with sessions, implementing forms, configuring flask extensions, Jinja2 templates, CLI commands, logging, security, and deployment. Also use when the user mentions Flask routes, blueprints, app factory, Flask-Login, Flask-WTF, or any Flask extension, even if they don't explicitly say "Flask development."
+disable-model-invocation: true
 ---
 
 # Flask Development Skill

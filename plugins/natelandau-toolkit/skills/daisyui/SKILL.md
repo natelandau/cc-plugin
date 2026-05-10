@@ -1,6 +1,7 @@
 ---
 name: daisyui
 description: Complete guide for building UIs with daisyUI v5 and Tailwind CSS, components, forms, theming, and responsive design. Use when building any user interface with daisyUI or Tailwind CSS, implementing UI components (buttons, cards, modals, tables, navbars), creating forms (inputs, selects, textareas, validation), configuring themes, or migrating from daisyUI v4 to v5. Also use when the user mentions daisyUI class names like btn, card, fieldset, input, select, or any daisyUI component patterns.
+disable-model-invocation: true
 ---
 
 # daisyUI v5
