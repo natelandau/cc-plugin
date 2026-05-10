@@ -1,7 +1,7 @@
 ---
 name: create-prd
 description: Generate a comprehensive Product Requirements Document (PRD) from conversation context
-arguments: output_file
+argument-hint: output_file
 ---
 
 # Create PRD: Generate Product Requirements Document
