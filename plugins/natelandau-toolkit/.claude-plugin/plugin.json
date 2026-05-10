@@ -1,6 +1,6 @@
 {
   "name": "natelandau-toolkit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Personal Claude Code toolkit: hooks, skills, and slash commands for my setup.",
   "author": {
     "name": "Nathaniel Landau"
