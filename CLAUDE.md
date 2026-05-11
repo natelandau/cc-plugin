@@ -146,14 +146,23 @@ Blocks system-destructive bash commands across several categories:
   `gh repo delete --yes`).
 - `sudo rm`, `docker prune`, `crontab -r`.
 
-Matches against `tool_input.command` for Bash. A single flat
-`BASH_PATTERNS` tuple of `Rule` dataclasses drives matching, in
-declaration order, first-match-wins. Each rule has a `level`:
-`critical`, `high`, or `strict`. The active threshold is read from
+Matches against `tool_input.command` for Bash. Rule data lives in
+`hooks/protect_system.rules.toml` (sibling file, `[[rule]]` array of
+tables with `level`, `id`, `pattern`, `reason`). The hook loads and
+validates it on every invocation via `_load_rules()`; a malformed or
+missing TOML exits 1 with stderr (non-blocking error, protection
+disabled for that call). Iteration is in declaration order,
+first-match-wins. Each rule has a `level`: `critical`, `high`, or
+`strict`. The active threshold is read from
 `CLAUDE_PROTECT_SYSTEM_LEVEL` (default `high`) and rules above the
 threshold are skipped. No allowlist; targeted ops on safe paths
 (`/tmp/...`, `node_modules`, `.worktrees/...`) pass naturally because
 the patterns are scoped to dangerous targets.
+
+To add a rule, append a `[[rule]]` table to the TOML. Use TOML
+literal strings (`'...'`) for the `pattern` so regex backslashes
+pass through verbatim; patterns containing a `'` need the multi-line
+literal form (`'''...'''`).
 
 Scope notes worth knowing:
 
@@ -313,11 +322,24 @@ described in the Claude Code plugins reference. Currently empty.
 
 ### Rule data
 
-Both rule-driven hooks (`enforce_branch_protection.py`,
-`stop_phrase_guard.py`) use the same shape: a `@dataclass(frozen=True, slots=True)`
-holding the pattern + metadata, then a tuple of instances. Iteration is
-in declaration order; first match wins. Don't introduce a `RuleCategory`
-enum or other dispatch indirection, flat tuples per category are simpler.
+Rule-driven hooks use a `@dataclass(frozen=True, slots=True)` holding
+the pattern + metadata, with iteration in declaration order and
+first-match-wins. Two storage shapes are in use:
+
+- In-script tuple: `enforce_branch_protection.py`,
+  `stop_phrase_guard.py`, and `protect_secrets.py` define a flat
+  tuple of `Rule` instances at module scope.
+- Sibling TOML: `protect_system.py` reads
+  `protect_system.rules.toml` at invocation via `_load_rules()`,
+  validating that each entry carries the four required string fields
+  and a known `level`. Failure to load exits 1 (non-blocking) with a
+  stderr message.
+
+The TOML pattern is the newer convention and is on track to replace
+the in-script tuples in the other rule-driven hooks once it has
+settled. Don't introduce a `RuleCategory` enum or other dispatch
+indirection in either shape, flat collections per category are
+simpler.
 
 ### Style (applies to every component type)
 
@@ -356,6 +378,47 @@ To add a hook test, append a `Case(...)` to the `CASES` tuple in the
 relevant file. Cases are parametrized via `@pytest.mark.parametrize`,
 keyed by the `id` field, so each case shows up as its own pytest item
 (`tests/test_x.py::test_y[case-id]`) and fails independently.
+
+### Safety: never run destructive commands, even in tests
+
+The hooks in this plugin block destructive operations. Their tests and
+any ad-hoc smoke checks must exercise that gate without ever putting a
+real destructive command anywhere it could execute. Plan for the
+worst case in both directions: **assume the hook fails to block, and
+assume the command will succeed.**
+
+Concrete rules:
+
+- Tests feed bash strings to the hook **as data on stdin** (see the
+  existing `_bash(cmd)` helpers). They never invoke the dangerous
+  payload via `subprocess`, `os.system`, a shell, or any other path
+  that could actually run it. A test that "verifies" a block by
+  shelling out to `rm -rf ~` is one regex tweak away from wiping a
+  home directory.
+- Never smoke-test a hook by typing the dangerous command into a real
+  Claude Code session ("let's see if it blocks `rm -rf /etc`"). If
+  the hook is broken or not yet installed, the command runs. Use the
+  pytest suite, which only ever passes the string to the hook as
+  input.
+- When validating a new pattern manually, pipe a JSON payload into
+  the hook directly:
+
+    ```bash
+    echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf ~"}}' \
+      | plugins/natelandau-toolkit/hooks/protect_system.py
+    echo "exit: $?"
+    ```
+
+  This invokes the hook script in isolation, never a shell that would
+  interpret the payload. Exit `2` means the block fired.
+- Cloud / IaC payloads (`terraform destroy --auto-approve`,
+  `aws s3 rb --force`, `gh repo delete --yes`) are especially
+  dangerous because they target real remote state. Same rule: only
+  ever as a string fed to the hook, never as an executed command.
+- If a test case needs a "passes through" assertion, pick a benign
+  payload (`echo hello`, `ls /tmp`), not a defanged-looking
+  destructive command (`rm -rf /tmp/probably-safe`). A typo or copy
+  paste shouldn't be load-bearing.
 
 ## Adding a new hook
 

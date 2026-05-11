@@ -39,6 +39,10 @@ Override the level with `CLAUDE_PROTECT_SYSTEM_LEVEL`.
 Secret reads and git destructive ops are intentionally not duplicated
 here; see `protect_secrets.py` and `enforce_branch_protection.py`.
 
+Rule data lives in `protect_system.rules.toml` next to this file; the
+script loads it on every invocation. Edit that file to add, remove, or
+tune a rule.
+
 Adapted from karanb192/claude-code-hooks `block-dangerous-commands.js`.
 """
 
@@ -48,11 +52,19 @@ import json
 import os
 import re
 import sys
+import tomllib
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
 DEFAULT_LEVEL = "high"
 LEVEL_ENV_VAR = "CLAUDE_PROTECT_SYSTEM_LEVEL"
+RULES_FILE = Path(__file__).parent / "protect_system.rules.toml"
+RULE_FIELDS = frozenset({"level", "id", "pattern", "reason"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,52 +84,70 @@ class Rule:
     reason: str
 
 
-# === RULE DEFINITIONS ===
-#
-# To add a rule, append a Rule(...) to the tuple below. First match
-# wins; iteration is in declaration order. Rules whose `level` is
-# above the active threshold are skipped.
-#
-# `# fmt: off` keeps the table column-aligned so the rules read as a
-# scannable matrix. When adding a rule whose id or pattern is longer
-# than the current column, widen every row to match.
+def _require_str(entry: Mapping[str, object], key: str, idx: int) -> str:
+    """Return entry[key] as a str or raise TypeError naming the offender.
 
-# fmt: off
-# Bash command rules: matched against the full command string.
-BASH_PATTERNS: tuple[Rule, ...] = (
-    # CRITICAL: catastrophic and largely unrecoverable.
-    Rule("critical", "rm-home",             r"\brm\b\s+(?:-\S+\s+)*[\"']?~/?[\"']?(?:\s|$|[;&|])",                                   "rm targeting home directory"),
-    Rule("critical", "rm-home-var",         r"\brm\b\s+(?:-\S+\s+)*[\"']?\$HOME/?[\"']?(?:\s|$|[;&|])",                              "rm targeting $HOME"),
-    Rule("critical", "rm-home-trailing",    r"\brm\b\s+\S.*\s[\"']?(?:~/?|\$HOME/?)[\"']?(?:\s*$|[;&|])",                            "rm with trailing ~ or $HOME"),
-    Rule("critical", "rm-root",             r"\brm\b\s+(?:-\S+\s+)+/(?:\*|\s|$|[;&|])",                                              "rm targeting root filesystem"),
-    Rule("critical", "rm-system",           r"\brm\b\s+(?:-\S+\s+)*/(?:etc|usr|var|bin|sbin|lib|boot|dev|proc|sys)(?:/|\s|$|[;&|])", "rm targeting system directory"),
-    Rule("critical", "rm-cwd",              r"\brm\b\s+(?:-\S+\s+)*(?:\./?|\*|\./\*)(?:\s|$|[;&|])",                                 "rm of '.' or '*' wipes CWD contents"),
-    Rule("critical", "dd-disk",             r"\bdd\b[^;|&]+\bof=/dev/(?:sd[a-z]|nvme\d+n\d+|hd[a-z]|vd[a-z]|xvd[a-z])",              "dd writing to disk device"),
-    Rule("critical", "mkfs-disk",           r"\bmkfs(?:\.\w+)?\b[^;|&]+/dev/(?:sd[a-z]|nvme\d+n\d+|hd[a-z]|vd[a-z])",                "mkfs formatting disk device"),
-    Rule("critical", "fork-bomb",           r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*&[^}]*\}",                                         "fork bomb"),
-    Rule("critical", "kill-init",           r"\bkill\b\s+(?:-\S+\s+)*1(?:\s|$|[;&|])",                                               "kill signal to PID 1 panics init"),
-    Rule("critical", "kill-all",            r"\bkill\b\s+-\S+(?:\s+\S+)*\s+-1(?:\s|$|[;&|])",                                        "kill -1 signals every process"),
-    Rule("critical", "pkill-init",          r"\b(?:pkill|killall)\b[^;|&]*\b(?:init|systemd|launchd)(?:\s|$|[;&|])",                 "killing init/systemd/launchd crashes the system"),
-    Rule("critical", "sysrq-trigger",       r">\s*/proc/sysrq-trigger",                                                              "writing to sysrq-trigger crashes the kernel"),
-    Rule("critical", "csrutil-disable",     r"\bcsrutil\s+(?:disable|clear)\b",                                                      "csrutil disable turns off macOS SIP"),
-    Rule("critical", "nvram-clear",         r"\bnvram\b[^;|&]*\s-c\b",                                                               "nvram -c clears macOS NVRAM"),
-    Rule("critical", "tmutil-delete",       r"\btmutil\s+(?:delete|deletelocalsnapshots)\b",                                         "tmutil destroys Time Machine snapshots"),
-    Rule("critical", "diskutil-erase",      r"\bdiskutil\s+(?:eraseDisk|eraseVolume|zeroDisk|secureErase)\b",                        "diskutil erase wipes the disk"),
-    # HIGH: significant, hard-to-reverse damage.
-    Rule("high",     "curl-pipe-sh",        r"\b(?:curl|wget)\b[^;&]*\|\s*(?:sudo\s+)?(?:bash|zsh|sh)\b",                            "piping remote script to shell (RCE risk)"),
-    Rule("high",     "chmod-world",         r"\bchmod\b[^;|&]*\b0?777\b",                                                            "chmod 777 grants world write"),
-    Rule("high",     "docker-vol-rm",       r"\bdocker\s+volume\s+(?:rm|prune)\b",                                                   "docker volume deletion loses data"),
-    Rule("high",     "terraform-destroy",   r"\bterraform\s+destroy\b[^;|&]*--?auto-approve\b",                                      "terraform destroy --auto-approve tears down infra"),
-    Rule("high",     "aws-s3-rb-force",     r"\baws\s+s3\s+rb\b[^;|&]*--force\b",                                                    "aws s3 rb --force recursively deletes bucket"),
-    Rule("high",     "aws-s3-rm-recursive", r"\baws\s+s3\s+rm\b(?=[^;|&]*--recursive)(?=[^;|&]*s3://)",                              "aws s3 rm --recursive wipes bucket contents"),
-    Rule("high",     "gcloud-delete-quiet", r"\bgcloud\b[^;|&]*\bdelete\b[^;|&]*(?:-q\b|--quiet\b)",                                 "gcloud delete --quiet bypasses confirmation"),
-    Rule("high",     "gh-repo-delete",      r"\bgh\s+repo\s+delete\b[^;|&]*--yes\b",                                                 "gh repo delete --yes destroys the repository"),
-    # STRICT: cautionary, often legitimate.
-    Rule("strict",   "sudo-rm",             r"\bsudo\b[^;|&]*\brm\b",                                                                "sudo rm has elevated privileges"),
-    Rule("strict",   "docker-prune",        r"\bdocker\s+(?:system|image|container|builder)\s+prune\b",                              "docker prune removes images/containers"),
-    Rule("strict",   "crontab-r",           r"\bcrontab\b[^;|&]*\s-\S*r(?:\s|$|[;&|])",                                              "crontab -r removes all cron jobs"),
-)
-# fmt: on
+    The TOML loader yields `object`-typed values, so every required field
+    is unwrapped through this helper before reaching the Rule constructor.
+    Keeps the type narrowing in one place and gives a uniform error shape.
+    """
+    value = entry[key]
+    if not isinstance(value, str):
+        msg = f"rule[{idx}].{key} must be a string, got {type(value).__name__}"
+        raise TypeError(msg)
+    return value
+
+
+def _load_rules(path: Path) -> tuple[Rule, ...]:
+    """Parse the rules TOML file into an ordered tuple of Rule entries.
+
+    Validate that every entry carries exactly the required string fields
+    and that `level` is a known threshold, so a typo in TOML surfaces as
+    a clear error instead of a Rule built with non-string fields.
+
+    Args:
+        path: Location of the rules TOML file.
+
+    Returns:
+        Rules in declaration order, ready for first-match-wins iteration.
+    """
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+    entries = data.get("rule")
+    if not isinstance(entries, list):
+        msg = "missing top-level 'rule' array"
+        raise TypeError(msg)
+    rules: list[Rule] = []
+    for idx, raw_entry in enumerate(entries):
+        if not isinstance(raw_entry, dict):
+            msg = f"rule[{idx}] is not a table"
+            raise TypeError(msg)
+        # tomllib types entries as dict[str, Any]; cast to a covariant
+        # Mapping so _require_str can read fields without ty rejecting the
+        # invariant dict generic.
+        entry = cast("Mapping[str, object]", raw_entry)
+        keys = entry.keys()
+        missing = RULE_FIELDS - keys
+        if missing:
+            msg = f"rule[{idx}] missing fields: {sorted(missing)}"
+            raise ValueError(msg)
+        extra = keys - RULE_FIELDS
+        if extra:
+            msg = f"rule[{idx}] has unexpected fields: {sorted(extra)}"
+            raise ValueError(msg)
+        level = _require_str(entry, "level", idx)
+        if level not in LEVELS:
+            msg = f"rule[{idx}] has unknown level {level!r}"
+            raise ValueError(msg)
+        rules.append(
+            Rule(
+                level=level,
+                id=_require_str(entry, "id", idx),
+                pattern=_require_str(entry, "pattern", idx),
+                reason=_require_str(entry, "reason", idx),
+            )
+        )
+    return tuple(rules)
 
 
 def _active_threshold() -> int:
@@ -159,7 +189,18 @@ def main() -> None:
     if not command:
         sys.exit(0)
 
-    rule = _first_match(command, BASH_PATTERNS, _active_threshold())
+    # Load rules at invocation, not import, so a malformed TOML surfaces a
+    # focused error message rather than a confusing import-time traceback.
+    try:
+        rules = _load_rules(RULES_FILE)
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
+        print(  # noqa: T201
+            f"protect_system: failed to load {RULES_FILE.name}: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    rule = _first_match(command, rules, _active_threshold())
     if rule:
         _block(rule)
     sys.exit(0)

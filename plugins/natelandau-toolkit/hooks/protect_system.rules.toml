@@ -1,0 +1,187 @@
+# Rules for protect_system.py. The hook loads this file at runtime and
+# matches each entry's `pattern` (regex, re.IGNORECASE) against the bash
+# command string. First match wins; iteration follows file order. Rules
+# whose `level` is above the active threshold (CLAUDE_PROTECT_SYSTEM_LEVEL)
+# are skipped.
+#
+# Required fields per rule: level, id, pattern, reason.
+# `level` must be one of: critical, high, strict.
+#
+# Pattern strings are TOML literals (single-quoted) so regex backslashes
+# pass through verbatim. The three rm-home patterns include a single quote
+# inside the regex character class, so they use the multi-line literal form
+# ('''...''').
+
+# === CRITICAL: catastrophic and largely unrecoverable. ===
+
+[[rule]]
+    id      = "rm-home"
+    level   = "critical"
+    pattern = '''\brm\b\s+(?:-\S+\s+)*[\"']?~/?[\"']?(?:\s|$|[;&|])'''
+    reason  = "rm targeting home directory"
+
+[[rule]]
+    id      = "rm-home-var"
+    level   = "critical"
+    pattern = '''\brm\b\s+(?:-\S+\s+)*[\"']?\$HOME/?[\"']?(?:\s|$|[;&|])'''
+    reason  = "rm targeting $HOME"
+
+[[rule]]
+    id      = "rm-home-trailing"
+    level   = "critical"
+    pattern = '''\brm\b\s+\S.*\s[\"']?(?:~/?|\$HOME/?)[\"']?(?:\s*$|[;&|])'''
+    reason  = "rm with trailing ~ or $HOME"
+
+[[rule]]
+    id      = "rm-root"
+    level   = "critical"
+    pattern = '\brm\b\s+(?:-\S+\s+)+/(?:\*|\s|$|[;&|])'
+    reason  = "rm targeting root filesystem"
+
+[[rule]]
+    id      = "rm-system"
+    level   = "critical"
+    pattern = '\brm\b\s+(?:-\S+\s+)*/(?:etc|usr|var|bin|sbin|lib|boot|dev|proc|sys)(?:/|\s|$|[;&|])'
+    reason  = "rm targeting system directory"
+
+[[rule]]
+    id      = "rm-cwd"
+    level   = "critical"
+    pattern = '\brm\b\s+(?:-\S+\s+)*(?:\./?|\*|\./\*)(?:\s|$|[;&|])'
+    reason  = "rm of '.' or '*' wipes CWD contents"
+
+[[rule]]
+    id      = "dd-disk"
+    level   = "critical"
+    pattern = '\bdd\b[^;|&]+\bof=/dev/(?:sd[a-z]|nvme\d+n\d+|hd[a-z]|vd[a-z]|xvd[a-z])'
+    reason  = "dd writing to disk device"
+
+[[rule]]
+    id      = "mkfs-disk"
+    level   = "critical"
+    pattern = '\bmkfs(?:\.\w+)?\b[^;|&]+/dev/(?:sd[a-z]|nvme\d+n\d+|hd[a-z]|vd[a-z])'
+    reason  = "mkfs formatting disk device"
+
+[[rule]]
+    id      = "fork-bomb"
+    level   = "critical"
+    pattern = ':\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*&[^}]*\}'
+    reason  = "fork bomb"
+
+[[rule]]
+    id      = "kill-init"
+    level   = "critical"
+    pattern = '\bkill\b\s+(?:-\S+\s+)*1(?:\s|$|[;&|])'
+    reason  = "kill signal to PID 1 panics init"
+
+[[rule]]
+    id      = "kill-all"
+    level   = "critical"
+    pattern = '\bkill\b\s+-\S+(?:\s+\S+)*\s+-1(?:\s|$|[;&|])'
+    reason  = "kill -1 signals every process"
+
+[[rule]]
+    id      = "pkill-init"
+    level   = "critical"
+    pattern = '\b(?:pkill|killall)\b[^;|&]*\b(?:init|systemd|launchd)(?:\s|$|[;&|])'
+    reason  = "killing init/systemd/launchd crashes the system"
+
+[[rule]]
+    id      = "sysrq-trigger"
+    level   = "critical"
+    pattern = '>\s*/proc/sysrq-trigger'
+    reason  = "writing to sysrq-trigger crashes the kernel"
+
+[[rule]]
+    id      = "csrutil-disable"
+    level   = "critical"
+    pattern = '\bcsrutil\s+(?:disable|clear)\b'
+    reason  = "csrutil disable turns off macOS SIP"
+
+[[rule]]
+    id      = "nvram-clear"
+    level   = "critical"
+    pattern = '\bnvram\b[^;|&]*\s-c\b'
+    reason  = "nvram -c clears macOS NVRAM"
+
+[[rule]]
+    id      = "tmutil-delete"
+    level   = "critical"
+    pattern = '\btmutil\s+(?:delete|deletelocalsnapshots)\b'
+    reason  = "tmutil destroys Time Machine snapshots"
+
+[[rule]]
+    id      = "diskutil-erase"
+    level   = "critical"
+    pattern = '\bdiskutil\s+(?:eraseDisk|eraseVolume|zeroDisk|secureErase)\b'
+    reason  = "diskutil erase wipes the disk"
+
+    # === HIGH: significant, hard-to-reverse damage. ===
+
+[[rule]]
+    id      = "curl-pipe-sh"
+    level   = "high"
+    pattern = '\b(?:curl|wget)\b[^;&]*\|\s*(?:sudo\s+)?(?:bash|zsh|sh)\b'
+    reason  = "piping remote script to shell (RCE risk)"
+
+[[rule]]
+    id      = "chmod-world"
+    level   = "high"
+    pattern = '\bchmod\b[^;|&]*\b0?777\b'
+    reason  = "chmod 777 grants world write"
+
+[[rule]]
+    id      = "docker-vol-rm"
+    level   = "high"
+    pattern = '\bdocker\s+volume\s+(?:rm|prune)\b'
+    reason  = "docker volume deletion loses data"
+
+[[rule]]
+    id      = "terraform-destroy"
+    level   = "high"
+    pattern = '\bterraform\s+destroy\b[^;|&]*--?auto-approve\b'
+    reason  = "terraform destroy --auto-approve tears down infra"
+
+[[rule]]
+    id      = "aws-s3-rb-force"
+    level   = "high"
+    pattern = '\baws\s+s3\s+rb\b[^;|&]*--force\b'
+    reason  = "aws s3 rb --force recursively deletes bucket"
+
+[[rule]]
+    id      = "aws-s3-rm-recursive"
+    level   = "high"
+    pattern = '\baws\s+s3\s+rm\b(?=[^;|&]*--recursive)(?=[^;|&]*s3://)'
+    reason  = "aws s3 rm --recursive wipes bucket contents"
+
+[[rule]]
+    id      = "gcloud-delete-quiet"
+    level   = "high"
+    pattern = '\bgcloud\b[^;|&]*\bdelete\b[^;|&]*(?:-q\b|--quiet\b)'
+    reason  = "gcloud delete --quiet bypasses confirmation"
+
+[[rule]]
+    id      = "gh-repo-delete"
+    level   = "high"
+    pattern = '\bgh\s+repo\s+delete\b[^;|&]*--yes\b'
+    reason  = "gh repo delete --yes destroys the repository"
+
+    # === STRICT: cautionary, often legitimate. ===
+
+[[rule]]
+    id      = "sudo-rm"
+    level   = "strict"
+    pattern = '\bsudo\b[^;|&]*\brm\b'
+    reason  = "sudo rm has elevated privileges"
+
+[[rule]]
+    id      = "docker-prune"
+    level   = "strict"
+    pattern = '\bdocker\s+(?:system|image|container|builder)\s+prune\b'
+    reason  = "docker prune removes images/containers"
+
+[[rule]]
+    id      = "crontab-r"
+    level   = "strict"
+    pattern = '\bcrontab\b[^;|&]*\s-\S*r(?:\s|$|[;&|])'
+    reason  = "crontab -r removes all cron jobs"
