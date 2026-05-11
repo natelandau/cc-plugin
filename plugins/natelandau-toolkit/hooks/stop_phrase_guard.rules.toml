@@ -1,0 +1,168 @@
+# Violations for stop_phrase_guard.py. The Stop hook loads this file at
+# invocation, compiles each `pattern` (regex, re.IGNORECASE), and tests
+# the assistant's most recent turn text against them. First match wins;
+# iteration follows file order. The matched `correction` is returned to
+# Claude Code as the block reason with a `STOP HOOK VIOLATION:` prefix.
+#
+# Required fields per violation: pattern, correction.
+#
+# Pattern strings are TOML literals (single-quoted) so regex backslashes
+# pass through verbatim. Correction strings use the basic (double-quoted)
+# form so apostrophes in the prose are unescaped.
+
+# =============================================================================
+# Ownership dodging: #1 problem, dismissing failures as not-my-fault.
+# =============================================================================
+
+[[violation]]
+    pattern    = 'pre-existing'
+    correction = "NOTHING IS PRE-EXISTING. All builds and tests are green upstream. If something fails, YOUR work caused it. Investigate and fix it. Never dismiss a failure as pre-existing."
+
+[[violation]]
+    pattern    = 'not from my changes'
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
+
+[[violation]]
+    pattern    = 'not my change'
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
+
+[[violation]]
+    pattern    = 'not caused by my'
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
+
+[[violation]]
+    pattern    = 'not introduced by my'
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
+
+[[violation]]
+    pattern    = 'already existed before'
+    correction = "NOTHING IS PRE-EXISTING. If you found it broken, fix it or explain exactly what is wrong and what the fix requires."
+
+[[violation]]
+    pattern    = 'before my changes'
+    correction = "NOTHING IS PRE-EXISTING. There is no 'before your changes', you own the codebase as it is now."
+
+[[violation]]
+    pattern    = 'prior to my changes'
+    correction = "NOTHING IS PRE-EXISTING. There is no 'prior to your changes.'"
+
+[[violation]]
+    pattern    = 'unrelated to my changes'
+    correction = "NOTHING IS PRE-EXISTING. If it is broken, fix it. If you broke it, fix it. Nothing is unrelated."
+
+[[violation]]
+    pattern    = 'an existing issue'
+    correction = "NOTHING IS PRE-EXISTING. Investigate and fix, or explain exactly what is wrong."
+
+[[violation]]
+    pattern    = 'existing bug'
+    correction = "NOTHING IS PRE-EXISTING. Investigate and fix."
+
+# =============================================================================
+# Known-limitation dodging.
+# =============================================================================
+
+[[violation]]
+    pattern    = 'known limitation'
+    correction = "NO KNOWN LIMITATIONS (CLAUDE.md golden rule). Investigate whether it is fixable. Either fix it or explain the specific technical reason it cannot be fixed right now."
+
+[[violation]]
+    pattern    = 'known issue'
+    correction = "NO KNOWN LIMITATIONS. Explain the specific technical reason or fix it."
+
+[[violation]]
+    pattern    = 'future work'
+    correction = "NO KNOWN LIMITATIONS. Fix it now or describe exactly what the fix requires, not as a TODO but as a technical explanation."
+
+[[violation]]
+    pattern    = 'left as an exercise'
+    correction = "NO KNOWN LIMITATIONS. Do the work."
+
+# =============================================================================
+# Permission-seeking mid-task: if the only possible answer is "yes,
+# obviously, you haven't finished yet", don't ask.
+# =============================================================================
+
+[[violation]]
+    pattern    = 'want to continue.*or '
+    correction = "Do not ask. The task is not done. Continue working."
+
+[[violation]]
+    pattern    = 'or save it for'
+    correction = "Do not ask. The task is not done. Continue working."
+
+[[violation]]
+    pattern    = 'should I continue'
+    correction = "Do not ask. If the task is not done, continue. The user will interrupt if they want you to stop."
+
+[[violation]]
+    pattern    = 'shall I continue'
+    correction = "Do not ask. Continue working until the task is complete."
+
+[[violation]]
+    pattern    = 'shall I proceed'
+    correction = "Do not ask. Proceed."
+
+[[violation]]
+    pattern    = 'would you like me to continue'
+    correction = "Do not ask. Continue."
+
+[[violation]]
+    pattern    = 'would you like to continue'
+    correction = "Do not ask. Continue."
+
+[[violation]]
+    pattern    = 'want me to keep going'
+    correction = "Do not ask. Keep going."
+
+[[violation]]
+    pattern    = 'want me to continue'
+    correction = "Do not ask. Continue."
+
+[[violation]]
+    pattern    = 'should I keep going'
+    correction = "Do not ask. Keep going."
+
+[[violation]]
+    pattern    = 'save it for next time'
+    correction = "There is no 'next time.' Sessions are unlimited. Continue working."
+
+[[violation]]
+    pattern    = 'in the next session'
+    correction = "There is no 'next session.' This session is unlimited. Continue working."
+
+[[violation]]
+    pattern    = 'next session'
+    correction = "There is no 'next session.' This session is unlimited. Continue working."
+
+[[violation]]
+    pattern    = 'next conversation'
+    correction = "There is no 'next conversation.' Continue working."
+
+[[violation]]
+    pattern    = 'pick this up later'
+    correction = "There is no 'later.' Continue working now."
+
+[[violation]]
+    pattern    = 'come back to this'
+    correction = "There is no 'coming back.' Continue working now."
+
+[[violation]]
+    pattern    = 'continue in a follow-up'
+    correction = "There is no 'follow-up.' Continue now."
+
+[[violation]]
+    pattern    = 'pause here'
+    correction = "Do not pause. The task is not done. Continue."
+
+[[violation]]
+    pattern    = 'stop here for now'
+    correction = "Do not stop. The task is not done. Continue."
+
+[[violation]]
+    pattern    = 'wrap up for now'
+    correction = "Do not wrap up. The task is not done. Continue."
+
+[[violation]]
+    pattern    = 'call it here'
+    correction = "Do not stop. Continue working."
