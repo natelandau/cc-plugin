@@ -1,3 +1,9 @@
+## v0.3.1 (2026-05-10)
+
+### Fix
+
+- **skills**: remove skills that should be rules
+
 ## v0.3.0 (2026-05-10)
 
 ### Feat
