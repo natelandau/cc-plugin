@@ -1,5 +1,5 @@
 {
-  "description": "Branch-protection, uv-nudge, and stop-phrase-guard hooks.",
+  "description": "Branch-protection, secrets-protection, system-protection, commit-message, uv-nudge, and stop-phrase-guard hooks.",
   "hooks": {
     "PreToolUse": [
       {
@@ -33,6 +33,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/enforce_commit_message.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/protect_system.py",
             "timeout": 5
           }
         ]
