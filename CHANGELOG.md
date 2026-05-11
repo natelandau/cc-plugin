@@ -1,3 +1,14 @@
+## v0.4.0 (2026-05-11)
+
+### Feat
+
+- **skill**: add nclutils skill
+- **hooks**: add protect_system for destructive commands (#5)
+
+### Refactor
+
+- **hooks**: externalize rule data to sibling TOML files (#6)
+
 ## v0.3.1 (2026-05-10)
 
 ### Fix
