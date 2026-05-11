@@ -101,22 +101,29 @@ false-positive in legitimate contexts.
 ### `hooks/protect_secrets.py` (PreToolUse)
 
 Blocks attempts to read, edit, write, or exfiltrate sensitive files via
-the `Read`/`Edit`/`Write`/`Bash` tools. Two flat tuples of `Rule`
-dataclasses drive matching:
+the `Read`/`Edit`/`Write`/`Bash` tools. Rule data lives in
+`hooks/protect_secrets.rules.toml` (sibling file) and is loaded and
+validated on every invocation via `_load_rules()` into a frozen
+`RuleSet` containing three pieces:
 
-- `SENSITIVE_FILES` -- regexes tested against `tool_input.file_path` for
-  Read/Edit/Write. Catches `.env`, SSH private keys, AWS/GCloud/Azure
-  credentials, PEM/key/keystore files, etc.
-- `BASH_PATTERNS` -- regexes tested against the full bash command string.
-  Catches direct reads (`cat .env`), env dumps (`printenv`,
-  `echo $SECRET_KEY`), exfiltration (`scp .env`, `curl -d @.env`), and
-  destructive ops on secret files (`rm .env`, `cp id_rsa`).
+- `allowlist` -- regex strings tested against both file paths and bash
+  commands. A match short-circuits the rest of the check; used for
+  templates like `.env.example`, `env.sample`.
+- `[[sensitive_file]]` -- `Rule` tables tested against
+  `tool_input.file_path` for Read/Edit/Write. Catches `.env`, SSH
+  private keys, AWS/GCloud/Azure credentials, PEM/key/keystore files,
+  etc.
+- `[[bash_pattern]]` -- `Rule` tables tested against the full bash
+  command string. Catches direct reads (`cat .env`), env dumps
+  (`printenv`, `echo $SECRET_KEY`), exfiltration (`scp .env`,
+  `curl -d @.env`), and destructive ops on secret files (`rm .env`,
+  `cp id_rsa`).
 
 Each rule has a `level`: `critical`, `high`, or `strict`. The active
 threshold is read from `CLAUDE_PROTECT_SECRETS_LEVEL` (default `high`)
-and rules above the threshold are skipped. An `ALLOWLIST` of template
-patterns (`.env.example`, `env.sample`, etc.) short-circuits both file
-and bash checks before any rule fires.
+and rules above the threshold are skipped. A malformed or missing
+TOML exits 1 with stderr (non-blocking error, protection disabled for
+that call).
 
 Ported from karanb192/claude-code-hooks `protect-secrets.js`. Differences
 from the source: this version uses the repo's `exit 2 + stderr` block
@@ -326,14 +333,17 @@ Rule-driven hooks use a `@dataclass(frozen=True, slots=True)` holding
 the pattern + metadata, with iteration in declaration order and
 first-match-wins. Two storage shapes are in use:
 
-- In-script tuple: `enforce_branch_protection.py`,
-  `stop_phrase_guard.py`, and `protect_secrets.py` define a flat
-  tuple of `Rule` instances at module scope.
-- Sibling TOML: `protect_system.py` reads
-  `protect_system.rules.toml` at invocation via `_load_rules()`,
-  validating that each entry carries the four required string fields
-  and a known `level`. Failure to load exits 1 (non-blocking) with a
-  stderr message.
+- In-script tuple: `enforce_branch_protection.py` and
+  `stop_phrase_guard.py` define a flat tuple of `Rule` instances at
+  module scope.
+- Sibling TOML: `protect_system.py` and `protect_secrets.py` read
+  `<hook>.rules.toml` at invocation via `_load_rules()`, validating
+  that each entry carries the four required string fields and a
+  known `level`. Failure to load exits 1 (non-blocking) with a
+  stderr message. `protect_secrets.rules.toml` additionally holds a
+  top-level `allowlist = [...]` array and two rule sections
+  (`[[sensitive_file]]`, `[[bash_pattern]]`); the loader returns
+  these grouped into a frozen `RuleSet` dataclass.
 
 The TOML pattern is the newer convention and is on track to replace
 the in-script tuples in the other rule-driven hooks once it has

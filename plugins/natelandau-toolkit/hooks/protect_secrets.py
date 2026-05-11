@@ -22,6 +22,10 @@ Three escalating thresholds gate which rules apply:
 
 Override the level with the `CLAUDE_PROTECT_SECRETS_LEVEL` env var.
 
+Rule data (allowlist, sensitive-file rules, bash-command rules) lives in
+`protect_secrets.rules.toml` next to this file; the script loads it on
+every invocation. Edit that file to add, remove, or tune a rule.
+
 Ported from karanb192/claude-code-hooks `protect-secrets.js`.
 """
 
@@ -31,11 +35,19 @@ import json
 import os
 import re
 import sys
+import tomllib
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
 DEFAULT_LEVEL = "high"
 LEVEL_ENV_VAR = "CLAUDE_PROTECT_SECRETS_LEVEL"
+RULES_FILE = Path(__file__).parent / "protect_secrets.rules.toml"
+RULE_FIELDS = frozenset({"level", "id", "pattern", "reason"})
 
 # Maps a tool name to the verb used in the user-facing block message.
 ACTION_VERBS: dict[str, str] = {
@@ -44,21 +56,6 @@ ACTION_VERBS: dict[str, str] = {
     "Write": "write to",
     "Bash": "execute",
 }
-
-# Templates and example files that are always safe. Tested against both
-# file paths (Read/Edit/Write) and the entire bash command string. The
-# string-end anchors mean a bash command like `cat .env.example` is
-# allowlisted but `cat .env.example .env` is not, so the second file is
-# still checked by the sensitive-file rules.
-ALLOWLIST: tuple[str, ...] = (
-    r"\.env\.example$",
-    r"\.env\.sample$",
-    r"\.env\.template$",
-    r"\.env\.schema$",
-    r"\.env\.defaults$",
-    r"(?:^|/)env\.example$",
-    r"(?:^|/)example\.env$",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,92 +75,110 @@ class Rule:
     reason: str
 
 
-# === RULE DEFINITIONS ===
-#
-# To add a rule, append a Rule(...) to the appropriate tuple below.
-# First match wins; iteration is in declaration order. Rules whose
-# `level` is above the active threshold are skipped.
-#
-# `# fmt: off` keeps the tables column-aligned so the rules read as a
-# scannable matrix. When adding a rule whose id or pattern is longer than
-# the current column, widen every row in that table to match.
+@dataclass(frozen=True, slots=True)
+class RuleSet:
+    """Bundle of rule data loaded from the sibling TOML.
 
-# fmt: off
-# Sensitive file rules: matched against file_path of Read/Edit/Write.
-SENSITIVE_FILES: tuple[Rule, ...] = (
-    # CRITICAL
-    Rule("critical", "env-file",             r"(?:^|/)\.env(?:\.[^/]*)?$",                          ".env file contains secrets"),
-    Rule("critical", "envrc",                r"(?:^|/)\.envrc$",                                    ".envrc (direnv) contains secrets"),
-    Rule("critical", "ssh-private-key",      r"(?:^|/)\.ssh/id_[^/]+$",                             "SSH private key"),
-    Rule("critical", "ssh-private-key-bare", r"(?:^|/)(id_rsa|id_ed25519|id_ecdsa|id_dsa)$",        "SSH private key"),
-    Rule("critical", "ssh-authorized",       r"(?:^|/)\.ssh/authorized_keys$",                      "SSH authorized_keys"),
-    Rule("critical", "aws-credentials",      r"(?:^|/)\.aws/credentials$",                          "AWS credentials file"),
-    Rule("critical", "aws-config",           r"(?:^|/)\.aws/config$",                               "AWS config may contain secrets"),
-    Rule("critical", "kube-config",          r"(?:^|/)\.kube/config$",                              "Kubernetes config contains credentials"),
-    Rule("critical", "pem-key",              r"\.pem$",                                             "PEM key file"),
-    Rule("critical", "key-file",             r"\.key$",                                             "Key file"),
-    Rule("critical", "p12-key",              r"\.(p12|pfx)$",                                       "PKCS12 key file"),
-    # HIGH
-    Rule("high",     "credentials-json",     r"(?:^|/)credentials\.json$",                          "Credentials file"),
-    Rule("high",     "secrets-file",         r"(?:^|/)(secrets?|credentials?)\.(json|ya?ml|toml)$", "Secrets configuration file"),
-    Rule("high",     "service-account",      r"service[_-]?account.*\.json$",                       "GCP service account key"),
-    Rule("high",     "gcloud-creds",         r"(?:^|/)\.config/gcloud/.*(credentials|tokens)",      "GCloud credentials"),
-    Rule("high",     "azure-creds",          r"(?:^|/)\.azure/(credentials|accessTokens)",          "Azure credentials"),
-    Rule("high",     "docker-config",        r"(?:^|/)\.docker/config\.json$",                      "Docker config may contain registry auth"),
-    Rule("high",     "netrc",                r"(?:^|/)\.netrc$",                                    ".netrc contains credentials"),
-    Rule("high",     "npmrc",                r"(?:^|/)\.npmrc$",                                    ".npmrc may contain auth tokens"),
-    Rule("high",     "pypirc",               r"(?:^|/)\.pypirc$",                                   ".pypirc contains PyPI credentials"),
-    Rule("high",     "gem-creds",            r"(?:^|/)\.gem/credentials$",                          "RubyGems credentials"),
-    Rule("high",     "vault-token",          r"(?:^|/)(\.vault-token|vault-token)$",                "Vault token file"),
-    Rule("high",     "keystore",             r"\.(keystore|jks)$",                                  "Java keystore"),
-    Rule("high",     "htpasswd",             r"(?:^|/)\.?htpasswd$",                                "htpasswd contains hashed passwords"),
-    Rule("high",     "pgpass",               r"(?:^|/)\.pgpass$",                                   "PostgreSQL password file"),
-    Rule("high",     "my-cnf",               r"(?:^|/)\.my\.cnf$",                                  "MySQL config may contain password"),
-    # STRICT
-    Rule("strict",   "database-config",      r"(?:^|/)(?:config/)?database\.(json|ya?ml)$",         "Database config may contain passwords"),
-    Rule("strict",   "ssh-known-hosts",      r"(?:^|/)\.ssh/known_hosts$",                          "SSH known_hosts reveals infrastructure"),
-    Rule("strict",   "gitconfig",            r"(?:^|/)\.gitconfig$",                                ".gitconfig may contain credentials"),
-    Rule("strict",   "curlrc",               r"(?:^|/)\.curlrc$",                                   ".curlrc may contain auth"),
-)
+    Groups the three pieces of rule data so a single `_load_rules()` call
+    parses the file once and the caller threads one value through main()
+    instead of three.
+    """
 
-# Bash command rules: matched against the full command string.
-BASH_PATTERNS: tuple[Rule, ...] = (
-    # CRITICAL: direct reads of secret files.
-    Rule("critical", "cat-env",           r"\b(cat|less|head|tail|more|bat|view)\s+[^|;]*\.env\b", "Reading .env file exposes secrets"),
-    Rule("critical", "cat-ssh-key",       r"\b(cat|less|head|tail|more|bat)\s+[^|;]*(id_rsa|id_ed25519|id_ecdsa|id_dsa|\.pem|\.key)\b", "Reading private key"),
-    Rule("critical", "cat-aws-creds",     r"\b(cat|less|head|tail|more)\s+[^|;]*\.aws/credentials", "Reading AWS credentials"),
-    # HIGH: environment exposure.
-    Rule("high",     "env-dump",          r"\bprintenv\b|(?:^|[;&|]\s*)env\s*(?:$|[;&|])", "Environment dump may expose secrets"),
-    Rule("high",     "echo-secret-var",   r"\becho\b[^;|&]*\$\{?[A-Za-z_]*(?:SECRET|KEY|TOKEN|PASSWORD|PASSW|CREDENTIAL|API_KEY|AUTH|PRIVATE)[A-Za-z_]*\}?", "Echoing secret variable"),
-    Rule("high",     "printf-secret-var", r"\bprintf\b[^;|&]*\$\{?[A-Za-z_]*(?:SECRET|KEY|TOKEN|PASSWORD|CREDENTIAL|API_KEY|AUTH|PRIVATE)[A-Za-z_]*\}?", "Printing secret variable"),
-    Rule("high",     "cat-secrets-file",  r"\b(cat|less|head|tail|more)\s+[^|;]*(credentials?|secrets?)\.(json|ya?ml|toml)", "Reading secrets file"),
-    Rule("high",     "cat-netrc",         r"\b(cat|less|head|tail|more)\s+[^|;]*\.netrc", "Reading .netrc credentials"),
-    Rule("high",     "source-env",        r"\bsource\s+[^|;]*\.env\b|(?:^|[;&|]\s*)\.\s+[^|;]*\.env\b", "Sourcing .env loads secrets"),
-    Rule("high",     "export-cat-env",    r"export\s+.*\$\(cat\s+[^)]*\.env", "Exporting secrets from .env"),
-    # HIGH: exfiltration.
-    Rule("high",     "curl-upload-env",   r"\bcurl\b[^;|&]*(-d\s*@|-F\s*[^=]+=@|--data[^=]*=@)[^;|&]*(\.env|credentials|secrets|id_rsa|\.pem|\.key)", "Uploading secrets via curl"),
-    Rule("high",     "curl-post-secrets", r"\bcurl\b[^;|&]*-X\s*POST[^;|&]*(\.env|credentials|secrets)", "POSTing secrets via curl"),
-    Rule("high",     "wget-post-secrets", r"\bwget\b[^;|&]*--post-file[^;|&]*(\.env|credentials|secrets)", "POSTing secrets via wget"),
-    Rule("high",     "scp-secrets",       r"\bscp\b[^;|&]*(\.env|credentials|secrets|id_rsa|\.pem|\.key)[^;|&]+:", "Copying secrets via scp"),
-    Rule("high",     "rsync-secrets",     r"\brsync\b[^;|&]*(\.env|credentials|secrets|id_rsa)[^;|&]+:", "Syncing secrets via rsync"),
-    Rule("high",     "nc-secrets",        r"\bnc\b[^;|&]*<[^;|&]*(\.env|credentials|secrets|id_rsa)", "Exfiltrating secrets via netcat"),
-    # HIGH: copy/move/delete of secret files.
-    Rule("high",     "cp-env",            r"\bcp\b[^;|&]*\.env\b", "Copying .env file"),
-    Rule("high",     "cp-ssh-key",        r"\bcp\b[^;|&]*(id_rsa|id_ed25519|\.pem|\.key)\b", "Copying private key"),
-    Rule("high",     "mv-env",            r"\bmv\b[^;|&]*\.env\b", "Moving .env file"),
-    Rule("high",     "rm-ssh-key",        r"\brm\b[^;|&]*(id_rsa|id_ed25519|id_ecdsa|authorized_keys)", "Deleting SSH key"),
-    Rule("high",     "rm-env",            r"\brm\b.*\.env\b", "Deleting .env file"),
-    Rule("high",     "rm-aws-creds",      r"\brm\b[^;|&]*\.aws/credentials", "Deleting AWS credentials"),
-    Rule("high",     "truncate-secrets",  r"\btruncate\b.*\.(env|pem|key)\b|(?:^|[;&|]\s*)>\s*\.env\b", "Truncating secrets file"),
-    # HIGH: process environ + indirect access.
-    Rule("high",     "proc-environ",      r"/proc/[^/]*/environ", "Reading process environment"),
-    Rule("high",     "xargs-cat-env",     r"xargs.*cat|\.env.*xargs", "Reading .env via xargs"),
-    Rule("high",     "find-exec-cat-env", r"find\b.*\.env.*-exec|find\b.*-exec.*(cat|less)", "Finding and reading .env files"),
-    # STRICT
-    Rule("strict",   "grep-password",     r"\bgrep\b[^|;]*(-r|--recursive)[^|;]*(password|secret|api.?key|token|credential)", "Grep for secrets may expose them"),
-    Rule("strict",   "base64-secrets",    r"\bbase64\b[^|;]*(\.env|credentials|secrets|id_rsa|\.pem)", "Base64 encoding secrets"),
-)
-# fmt: on
+    allowlist: tuple[str, ...]
+    sensitive_files: tuple[Rule, ...]
+    bash_patterns: tuple[Rule, ...]
+
+
+def _require_str(entry: Mapping[str, object], key: str, idx: int, section: str) -> str:
+    """Return entry[key] as a str or raise TypeError naming the offender.
+
+    The TOML loader yields `object`-typed values, so every required field
+    is unwrapped through this helper before reaching the Rule constructor.
+    Keeps the type narrowing in one place and gives a uniform error shape.
+    """
+    value = entry[key]
+    if not isinstance(value, str):
+        msg = f"{section}[{idx}].{key} must be a string, got {type(value).__name__}"
+        raise TypeError(msg)
+    return value
+
+
+def _parse_rule_list(raw: object, section: str) -> tuple[Rule, ...]:
+    """Validate and convert a TOML array-of-tables into a tuple of Rule.
+
+    Reused for both `[[sensitive_file]]` and `[[bash_pattern]]` because they
+    share the same field schema.
+    """
+    if not isinstance(raw, list):
+        msg = f"missing or non-array '{section}' section"
+        raise TypeError(msg)
+    rules: list[Rule] = []
+    for idx, raw_entry in enumerate(raw):
+        if not isinstance(raw_entry, dict):
+            msg = f"{section}[{idx}] is not a table"
+            raise TypeError(msg)
+        # tomllib types entries as dict[str, Any]; cast to a covariant
+        # Mapping so _require_str can read fields without ty rejecting the
+        # invariant dict generic.
+        entry = cast("Mapping[str, object]", raw_entry)
+        keys = entry.keys()
+        missing = RULE_FIELDS - keys
+        if missing:
+            msg = f"{section}[{idx}] missing fields: {sorted(missing)}"
+            raise ValueError(msg)
+        extra = keys - RULE_FIELDS
+        if extra:
+            msg = f"{section}[{idx}] has unexpected fields: {sorted(extra)}"
+            raise ValueError(msg)
+        level = _require_str(entry, "level", idx, section)
+        if level not in LEVELS:
+            msg = f"{section}[{idx}] has unknown level {level!r}"
+            raise ValueError(msg)
+        rules.append(
+            Rule(
+                level=level,
+                id=_require_str(entry, "id", idx, section),
+                pattern=_require_str(entry, "pattern", idx, section),
+                reason=_require_str(entry, "reason", idx, section),
+            )
+        )
+    return tuple(rules)
+
+
+def _load_rules(path: Path) -> RuleSet:
+    """Parse the rules TOML file into an immutable RuleSet.
+
+    Validate that the allowlist is a list of strings and that each rule
+    section carries the required string fields with a known `level`, so
+    a typo in TOML surfaces as a clear error instead of a Rule built
+    from non-string fields.
+
+    Args:
+        path: Location of the rules TOML file.
+
+    Returns:
+        Allowlist plus sensitive-file and bash-command rules, each in
+        declaration order for first-match-wins iteration.
+    """
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    raw_allowlist = data.get("allowlist")
+    if not isinstance(raw_allowlist, list):
+        msg = "missing or non-array 'allowlist' section"
+        raise TypeError(msg)
+    allowlist: list[str] = []
+    for idx, entry in enumerate(raw_allowlist):
+        if not isinstance(entry, str):
+            msg = f"allowlist[{idx}] must be a string, got {type(entry).__name__}"
+            raise TypeError(msg)
+        allowlist.append(entry)
+
+    return RuleSet(
+        allowlist=tuple(allowlist),
+        sensitive_files=_parse_rule_list(data.get("sensitive_file"), "sensitive_file"),
+        bash_patterns=_parse_rule_list(data.get("bash_pattern"), "bash_pattern"),
+    )
 
 
 def _active_threshold() -> int:
@@ -172,9 +187,9 @@ def _active_threshold() -> int:
     return LEVELS.get(raw, LEVELS[DEFAULT_LEVEL])
 
 
-def _is_allowlisted(text: str) -> bool:
+def _is_allowlisted(text: str, allowlist: tuple[str, ...]) -> bool:
     """Check if the input matches any safe-template pattern."""
-    return any(re.search(p, text, re.IGNORECASE) for p in ALLOWLIST)
+    return any(re.search(p, text, re.IGNORECASE) for p in allowlist)
 
 
 def _first_match(text: str, rules: tuple[Rule, ...], threshold: int) -> Rule | None:
@@ -205,24 +220,38 @@ def main() -> None:
 
     tool_name: str = data.get("tool_name", "")
     tool_input: dict = data.get("tool_input") or {}
+
+    if tool_name not in ("Read", "Edit", "Write", "Bash"):
+        sys.exit(0)
+
+    # Load rules at invocation, not import, so a malformed TOML surfaces a
+    # focused error message rather than a confusing import-time traceback.
+    try:
+        rules = _load_rules(RULES_FILE)
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
+        print(  # noqa: T201
+            f"protect_secrets: failed to load {RULES_FILE.name}: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     threshold = _active_threshold()
 
     if tool_name in ("Read", "Edit", "Write"):
         file_path = tool_input.get("file_path", "")
-        if not file_path or _is_allowlisted(file_path):
+        if not file_path or _is_allowlisted(file_path, rules.allowlist):
             sys.exit(0)
-        rule = _first_match(file_path, SENSITIVE_FILES, threshold)
+        rule = _first_match(file_path, rules.sensitive_files, threshold)
         if rule:
             _block(rule, ACTION_VERBS[tool_name])
         sys.exit(0)
 
-    if tool_name == "Bash":
-        command = tool_input.get("command", "")
-        if not command or _is_allowlisted(command):
-            sys.exit(0)
-        rule = _first_match(command, BASH_PATTERNS, threshold)
-        if rule:
-            _block(rule, ACTION_VERBS["Bash"])
+    command = tool_input.get("command", "")
+    if not command or _is_allowlisted(command, rules.allowlist):
+        sys.exit(0)
+    rule = _first_match(command, rules.bash_patterns, threshold)
+    if rule:
+        _block(rule, ACTION_VERBS["Bash"])
 
     sys.exit(0)
 
