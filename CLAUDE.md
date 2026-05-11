@@ -24,8 +24,7 @@ fields, and semantics rather than memory:
 | Skill format and authoring                         | <https://code.claude.com/docs/en/skills.md>            |
 | Subagent definitions                               | <https://code.claude.com/docs/en/sub-agents.md>        |
 
-Slash commands are covered under the plugins reference. Always prefer the
-live docs over training-data recall: fields and semantics evolve.
+Slash commands are covered in the plugins reference.
 
 ## Layout
 
@@ -41,277 +40,147 @@ plugins/natelandau-toolkit/hooks/*.py                 Hook scripts, each a self-
 plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand guidance loaded by the skill router
 plugins/natelandau-toolkit/skills/<name>/references/  Optional supplementary content for a skill
 plugins/natelandau-toolkit/commands/<name>.md         Slash commands invoked by the user
-plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions (currently empty)
+plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions
 tests/test_*.py                                       Hook characterization test harnesses (no pytest dep)
 ```
 
-`${CLAUDE_PLUGIN_ROOT}` resolves to the installed `plugins/natelandau-toolkit/`
-directory, so plugin-internal references like `${CLAUDE_PLUGIN_ROOT}/hooks/foo.py`
-are written relative to the plugin root, not the repo root.
-
-When users enable this plugin, Claude Code clones the repo into
-`~/.claude/plugins/...`, sets the `CLAUDE_PLUGIN_ROOT` environment
-variable to that cloned path, and loads each component declared in
-the manifest and component dirs. Hook commands in `hooks/hooks.json`
-and any other path-bearing config should reference scripts via
-`${CLAUDE_PLUGIN_ROOT}/...` so they resolve correctly regardless of
+On install, Claude Code clones the repo under `~/.claude/plugins/...` and
+sets `${CLAUDE_PLUGIN_ROOT}` to the installed `plugins/natelandau-toolkit/`
+directory. All path-bearing config (`hooks.json`, etc.) must reference
+scripts via `${CLAUDE_PLUGIN_ROOT}/...` so they resolve regardless of
 install location.
 
 ## Hooks
 
+Each hook is a self-contained `uv run --script` registered in
+`hooks/hooks.json`. Read the script docstring + sibling `.rules.toml`
+for behavior; the notes below cover only non-obvious gotchas,
+cross-component decisions, and design rationale.
+
 ### `hooks/enforce_branch_protection.py` (PreToolUse)
 
-Blocks two classes of action:
+Blocks destructive git ops on any branch and file modifications on
+`main`/`master`. Non-obvious carve-outs:
 
-1. **Destructive git commands** on every branch: force push (flag or
-   `+refspec` form), `reset --hard`, `clean -f`, `checkout .`, `restore .`,
-   `rebase --no-verify`, `branch -D main|master`.
-2. **File modifications on protected branches** (`main`, `master`):
-   `Edit`/`Write`/`NotebookEdit` tools, plus bash file mutators (`rm`, `mv`,
-   `sed -i`, `tee`, `>` and `>>` redirects, etc.). Pure git read commands
-   pass through. `/tmp/*`-only file ops pass through. Linked worktrees pass
-   through (so editing inside `.worktrees/<branch>/` while the parent repo
-   is on master is fine). In-progress squash merges allow `git commit`.
+- Linked worktrees pass through, so editing inside
+  `.worktrees/<branch>/` while the parent repo is on `master` works.
+- In-progress squash merges allow `git commit` on a protected branch.
+- `/tmp/*`-only file ops pass through.
 
-Rule data lives in two flat tuples (`DESTRUCTIVE_RULES`,
-`PROTECTED_FILE_MOD_RULES`) of `Rule` dataclasses. To add a rule, append
-to the appropriate tuple. See the `Rule` docstring for field semantics.
+Rule data is two in-script tuples (`DESTRUCTIVE_RULES`,
+`PROTECTED_FILE_MOD_RULES`). Kept in-script rather than TOML because
+the bypass logic (worktree/squash/`/tmp` detection) lives alongside
+the rules.
 
 ### `hooks/stop_phrase_guard.py` (Stop)
 
-Reads the most recent assistant text turn from `transcript_path` (the JSONL
-session log Claude Code passes to Stop hooks), runs it against a list of
-violation patterns derived from CLAUDE.md golden rules ("ownership dodging",
-"known limitation dodging", "permission-seeking mid-task"), and on the
-first match emits `{"decision":"block","reason":"STOP HOOK VIOLATION: ..."}`
-to stdout. Claude Code reads the decision and forces the assistant to keep
-working with the correction as next instruction.
+Blocks Stop turns whose assistant text matches a pattern in
+`stop_phrase_guard.rules.toml`.
 
-**Critical gotcha:** Stop hook input does NOT provide a `last_assistant_message`
-field. The official `hookify` plugin reads `transcript_path` and so does
-this hook. If you ever see code reaching for `last_assistant_message`, it's
-broken and exits 0 silently.
+**Critical gotcha:** Stop hook input does NOT provide a
+`last_assistant_message` field. The hook reads `transcript_path`
+instead (see "Stop hook transcript shape" below). Any code reaching
+for `last_assistant_message` is broken and exits 0 silently.
 
-Violation data lives in `hooks/stop_phrase_guard.rules.toml` (sibling
-file, `[[violation]]` array of tables with `pattern` and `correction`).
-The hook loads, validates, and pre-compiles each pattern on every
-invocation via `_load_violations()`; a malformed or missing TOML
-exits 1 with stderr (non-blocking error, no block fires for that
-turn). Iteration is in declaration order, first-match-wins.
-Patterns are case-insensitive regex applied to the concatenated text
-of the assistant's most recent turn. Patterns are deliberately a mix
-of ownership-dodging and permission-seeking phrases the user has
-decided are unwanted. Be cautious about adding broad patterns
-(`getting long`, `next session`) since they false-positive in
-legitimate contexts.
+Be cautious about broad patterns (`getting long`, `next session`);
+they false-positive in legitimate contexts.
 
 ### `hooks/protect_secrets.py` (PreToolUse)
 
-Blocks attempts to read, edit, write, or exfiltrate sensitive files via
-the `Read`/`Edit`/`Write`/`Bash` tools. Rule data lives in
-`hooks/protect_secrets.rules.toml` (sibling file) and is loaded and
-validated on every invocation via `_load_rules()` into a frozen
-`RuleSet` containing three pieces:
-
-- `allowlist` -- regex strings tested against both file paths and bash
-  commands. A match short-circuits the rest of the check; used for
-  templates like `.env.example`, `env.sample`.
-- `[[sensitive_file]]` -- `Rule` tables tested against
-  `tool_input.file_path` for Read/Edit/Write. Catches `.env`, SSH
-  private keys, AWS/GCloud/Azure credentials, PEM/key/keystore files,
-  etc.
-- `[[bash_pattern]]` -- `Rule` tables tested against the full bash
-  command string. Catches direct reads (`cat .env`), env dumps
-  (`printenv`, `echo $SECRET_KEY`), exfiltration (`scp .env`,
-  `curl -d @.env`), and destructive ops on secret files (`rm .env`,
-  `cp id_rsa`).
-
-Each rule has a `level`: `critical`, `high`, or `strict`. The active
-threshold is read from `CLAUDE_PROTECT_SECRETS_LEVEL` (default `high`)
-and rules above the threshold are skipped. A malformed or missing
-TOML exits 1 with stderr (non-blocking error, protection disabled for
-that call).
-
-Ported from karanb192/claude-code-hooks `protect-secrets.js`. Differences
-from the source: this version uses the repo's `exit 2 + stderr` block
-convention instead of the JS hook's `permissionDecision: deny` JSON, and
-omits the `~/.claude/hooks-logs/` log writer to match other hooks here.
+Blocks reads/edits/writes/exfiltration of sensitive files. Rules in
+`protect_secrets.rules.toml`; threshold via
+`CLAUDE_PROTECT_SECRETS_LEVEL` (default `high`).
 
 ### `hooks/protect_system.py` (PreToolUse)
 
-Blocks system-destructive bash commands across several categories:
+Blocks system-destructive Bash. Rules in `protect_system.rules.toml`;
+threshold via `CLAUDE_PROTECT_SYSTEM_LEVEL` (default `high`). No
+allowlist; patterns are scoped to dangerous targets so safe paths
+(`/tmp/...`, `node_modules`, `.worktrees/...`) pass naturally.
 
-- Mass `rm` of home/root/system directories (`rm -rf ~`,
-  `rm -rf /etc`), or of CWD via `rm .` / `rm *`.
-- Disk wipes (`dd of=/dev/sda`, `mkfs.ext4 /dev/sda`,
-  `diskutil eraseDisk`).
-- Init / kernel-panic triggers (`kill -9 1`, `kill -9 -1`,
-  `pkill -9 init`, `killall systemd`, writes to
-  `/proc/sysrq-trigger`).
-- macOS system-integrity ops (`csrutil disable`, `nvram -c`,
-  `tmutil delete`).
-- Fork bombs.
-- Piping remote scripts to a shell (`curl ... | sh`).
-- `chmod 777`.
-- Docker volume deletion (`docker volume rm/prune`).
-- Cloud / IaC catastrophes that carry explicit auto-confirm flags
-  (`terraform destroy --auto-approve`, `aws s3 rb --force`,
-  `aws s3 rm --recursive` against `s3://`, `gcloud ... delete --quiet`,
-  `gh repo delete --yes`).
-- `sudo rm`, `docker prune`, `crontab -r`.
+TOML authoring: use literal strings (`'...'`) for `pattern` so regex
+backslashes pass through verbatim; patterns containing `'` need
+triple-quoted literals (`'''...'''`).
 
-Matches against `tool_input.command` for Bash. Rule data lives in
-`hooks/protect_system.rules.toml` (sibling file, `[[rule]]` array of
-tables with `level`, `id`, `pattern`, `reason`). The hook loads and
-validates it on every invocation via `_load_rules()`; a malformed or
-missing TOML exits 1 with stderr (non-blocking error, protection
-disabled for that call). Iteration is in declaration order,
-first-match-wins. Each rule has a `level`: `critical`, `high`, or
-`strict`. The active threshold is read from
-`CLAUDE_PROTECT_SYSTEM_LEVEL` (default `high`) and rules above the
-threshold are skipped. No allowlist; targeted ops on safe paths
-(`/tmp/...`, `node_modules`, `.worktrees/...`) pass naturally because
-the patterns are scoped to dangerous targets.
-
-To add a rule, append a `[[rule]]` table to the TOML. Use TOML
-literal strings (`'...'`) for the `pattern` so regex backslashes
-pass through verbatim; patterns containing a `'` need the multi-line
-literal form (`'''...'''`).
-
-Scope notes worth knowing:
+Non-obvious scope decisions in current rules:
 
 - `rm-system` covers `/etc`, `/usr`, `/var`, `/bin`, `/sbin`, `/lib`,
   `/boot`, `/dev`, `/proc`, `/sys`. `/var/log/...` deletions are
-  collateral damage, the trade-off is keeping `rm -rf /var` blocked.
+  collateral damage; the trade-off is keeping `rm -rf /var` blocked.
 - `rm-cwd` blocks `rm .`, `rm ./`, `rm *`, `rm ./*`. Targeted globs
-  like `rm *.log` and explicit subdirs (`rm -rf ./build`) pass.
-- `rm-home` only catches `~` or `$HOME` as the rm target itself, not
-  subpaths (`rm -rf ~/.cache` is allowed).
+  (`rm *.log`) and explicit subdirs (`rm -rf ./build`) pass.
+- `rm-home` only catches `~` or `$HOME` as the rm target itself;
+  `rm -rf ~/.cache` is allowed.
 - `kill-init` matches `kill ... 1` (PID 1 as a positional arg).
   `kill 12345` passes; `kill 1` and `kill -9 1` block.
-- `kill-all` requires a signal flag *before* the `-1` target, so
+- `kill-all` requires a signal flag _before_ the `-1` target, so
   `kill -1 12345` (SIGHUP to a real PID) passes while `kill -9 -1`
   blocks.
-- `pkill-init` requires the daemon name as a whole word at end of
-  arg, so `killall systemd-journald` and `pkill -f launchctl` pass.
-- The cloud rules require the explicit `--auto-approve` / `--force` /
-  `--recursive` / `--quiet` / `--yes` flag. Interactive variants of
-  `terraform destroy`, `gh repo delete`, etc., pass through; the
-  user's terminal still prompts.
+- `pkill-init` requires the daemon name as a whole word at end of arg,
+  so `killall systemd-journald` and `pkill -f launchctl` pass.
+- Cloud rules require the explicit `--auto-approve` / `--force` /
+  `--recursive` / `--quiet` / `--yes` flag; interactive variants pass.
 
 Secret-handling and git destructive ops are intentionally not
 duplicated; those live in `protect_secrets.py` and
 `enforce_branch_protection.py`.
 
-Adapted from karanb192/claude-code-hooks `block-dangerous-commands.js`.
-Same `exit 2 + stderr` and no-log-writer conventions as the other
-hooks here; subset of the source ruleset, with patterns that overlap
-existing hooks dropped and a few false-positive cases tightened.
-
 ### `hooks/enforce_commit_message.py` (PreToolUse)
 
-Validates conventional commit format before `git commit` runs. Inspects
-the bash command for `git commit` invocations carrying `-m`/`--message`,
-extracts the first message value (handling simple quoting and the
-`"$(cat <<TAG ... TAG)"` heredoc form this codebase uses for multi-line
-commits), and checks the first non-empty line against the rules in the
-`git-rules` skill: header <=70 chars, `<type>(<scope>)!?: <subject>`
-grammar with type in a fixed allowlist (`build`, `ci`, `docs`, `feat`,
-`fix`, `perf`, `refactor`, `style`, `test`), optional `!` breaking-change
-marker, lowercase first letter of subject, no trailing whitespace,
-period, `!`, or `?`, no leading WIP/Draft marker, and an imperative-mood
-first word.
+Validates conventional-commit format before `git commit`. Gotchas:
 
-The imperative check is a curated denylist (`NON_IMPERATIVE_VERBS`) that
-maps known past-tense, gerund, and third-person-singular forms to their
-imperative root for the suggestion in the block message. Curated rather
-than algorithmic so we never block valid imperatives that happen to end
-in `-ed`/`-ing`/`-s` (`release`, `pass`, `address`, `feed`, `bring`).
-Extend the table when a real false-negative escapes.
+- The imperative check (`NON_IMPERATIVE_VERBS`) is a curated denylist
+  rather than algorithmic, so valid imperatives that happen to end in
+  `-ed`/`-ing`/`-s` (`release`, `pass`, `address`, `feed`, `bring`)
+  don't false-positive. Extend the table when a real false-negative
+  escapes.
+- The WIP/Draft check runs before the lowercase-first-letter check so
+  `WIP add foo` produces the marker message rather than
+  `subject-uppercase`.
 
-The WIP/Draft check (`WIP_MARKER_RE`) catches `wip`, `[wip]`, `draft`,
-`[draft]`, and `(draft)` at the start of the subject, case-insensitive.
-It runs before the lowercase-first-letter check so `WIP add foo`
-produces the more specific marker message rather than `subject-uppercase`.
-Pattern ported from `crate-ci/committed`.
+Pass-through cases (deliberately not validated):
 
-Pass-through cases:
-
-- `git commit` with no `-m`/`--message`. The editor opens; we have no
-  message to inspect.
-- `--fixup` / `--squash` flags. Git auto-generates the message.
-- Messages whose first line begins with a git-auto-generated prefix
-  (`Merge `, `Revert "`, `Revert '`, `fixup!`, `squash!`, `amend!`).
-- Multiple `-m` args. Only the first is the subject; subsequent args
-  are body paragraphs which the project conventions do not constrain.
-
-The `GIT_COMMIT_RE` is not anchored to a command-start position, so a
-literal `git commit` substring inside an echoed string can false-positive.
-In practice agents execute commits rather than echo them, and the cost of
-a spurious block is just retyping the message.
+- `git commit` with no `-m`/`--message` (editor opens; no message to inspect).
+- `--fixup` / `--squash` (git auto-generates the message).
+- First line starts with a git-auto prefix (`Merge `, `Revert "`,
+  `Revert '`, `fixup!`, `squash!`, `amend!`).
+- Multiple `-m` args (only the first is the subject; rest is body).
 
 ### `hooks/use_uv.py` (PreToolUse)
 
-Lightweight nudge: detects bash invocations of `python `, `pip install`,
-`pytest`, or `ruff` and emits a `hookSpecificOutput.additionalContext` JSON
-payload on stdout (exit 0). Claude Code injects that context into the
-model's next turn so the model actually sees the nudge and switches to
-`uv run`. The previous version used exit 1 with stderr, which per the
-hooks spec only reaches the human terminal, so it never nudged Claude.
+Nudges `python`/`pip install`/`pytest`/`ruff` toward `uv run`.
+Non-blocking; emits via `hookSpecificOutput.additionalContext` on
+stdout (exit 0). Exit-1 + stderr would only reach the human terminal,
+not the model.
 
 ## Skills
 
-Skills are auto-loaded by Claude Code's skill router whenever the
-description matches user intent. Layout:
+Skills are auto-loaded by Claude Code's skill router when the
+description matches user intent. Conventions specific to this repo:
 
-- `skills/<name>/SKILL.md` is the entry file (filename must be exactly `SKILL.md`).
-- Optional `skills/<name>/references/*.md` for supplementary content the
-  skill body can link to.
-- Required frontmatter fields are `name` and `description`. The
-  optional `argument-hint` field is also recognized (the ported `gha`
-  skill uses it).
-- The optional `paths:` field (glob string or YAML list) scopes
-  auto-loading to matching files, e.g. `paths: "**/*.py"` on
-  `python-standards`. Use it when a skill is tied to a specific file
-  type so the router triggers on file edits, not just intent
-  matching. Documented at <https://code.claude.com/docs/en/skills.md>.
-- The optional `disable-model-invocation: true` field opts a skill out
-  of the router entirely. Its description never loads into the skill
-  listing and the user must invoke `/<name>` explicitly. Use it for
-  framework- or project-specific skills that apply to a small share
-  of work (currently `daisyui`, `flask-development`,
-  `gha`, `htmx-expert`, `tortoise-orm`).
-- Description must read "Use when ..." so the router can match it. The
-  more specific the trigger conditions (file extensions, intent verbs,
-  tool names), the more reliably it loads.
+- Entry file must be exactly `skills/<name>/SKILL.md`. Optional
+  `references/*.md` siblings for longer content the body links to.
+- Description must start "Use when ..." for reliable router matching.
+  Tighten triggers (file extensions, intent verbs, tool names) until
+  the skill loads when it should and stays quiet when it shouldn't.
+- Use `paths:` (glob) to scope auto-loading to specific file types.
+- Use `disable-model-invocation: true` for framework- or
+  project-specific skills that apply to a small share of work; the
+  user invokes `/<name>` explicitly.
 
-Use the `skill-creator` skill (already on the user's machine) when authoring
-or revising a skill. Do not handcraft frontmatter from scratch.
-
-The four "rule-derived" skills (`python-standards`, `bash-standards`,
-`git-rules`, `inline-comments`) replace what used to be `@`-imported rule
-fragments in the user's global `~/.claude/CLAUDE.md`. They switch from
-always-on to on-demand routing; if a rule isn't triggering when it
-should, tighten the description.
+Use the `skill-creator` skill when authoring or revising a skill; do
+not handcraft frontmatter from scratch.
 
 ## Commands
 
-Slash commands live as flat markdown files at `commands/<name>.md`.
-The filename (without `.md`) is the command name; `commands/foo.md` is
-invoked as `/foo`. Frontmatter supports `description` and the optional
-`argument-hint`. Note that `create-prd.md` uses a non-standard
-`arguments:` field; it works because the body reads `$ARGUMENTS` directly,
-but is not the documented field name.
-
-The other shipped command, `transfer-context.md`, predates the
-convention and has no frontmatter at all. It still works because
-Claude Code falls back to filename for the command name. New
-commands should include the frontmatter.
+Slash commands live as flat markdown files at `commands/<name>.md` and
+are invoked as `/<name>`. Frontmatter: `name`, `description`, optional
+`argument-hint`. Body reads `$ARGUMENTS` for user-supplied input.
 
 ## Agents
 
-Subagent definitions go at `agents/<name>.md` with frontmatter as
-described in the Claude Code plugins reference. Currently empty.
+Subagent definitions go at `agents/<name>.md` with frontmatter per the
+Claude Code plugins reference.
 
 ## Conventions
 
@@ -322,11 +191,10 @@ described in the Claude Code plugins reference. Currently empty.
   package dependencies.
 - All scripts must be executable (`chmod +x`). git tracks the mode bit;
   preserve it when copying.
-- Read JSON from stdin via `json.load(sys.stdin)`. Field names per the
-  Claude Code hooks reference: `tool_name`, `tool_input`, `cwd`,
-  `transcript_path`, `stop_hook_active`, etc. **Not** `tool` or
-  `parameters`, those are wrong (a previous version of `use_uv.py`
-  used them and silently did nothing).
+- Read JSON from stdin via `json.load(sys.stdin)`. Field names are
+  `tool_name`, `tool_input`, `cwd`, `transcript_path`,
+  `stop_hook_active`, etc., per the hooks reference. **Not** `tool` or
+  `parameters`. A hook keyed on those names silently does nothing.
 - Exit code semantics:
     - `0` = allow, optionally with stdout text printed as advisory
     - `2` = block, with stderr text fed back to the model
@@ -336,41 +204,18 @@ described in the Claude Code plugins reference. Currently empty.
 
 ### Rule data
 
-Rule-driven hooks use a `@dataclass(frozen=True, slots=True)` holding
-the pattern + metadata, with iteration in declaration order and
-first-match-wins. Two storage shapes are in use:
-
-- In-script tuple: `enforce_branch_protection.py` defines a flat
-  tuple of `Rule` instances at module scope. Bypass logic
-  (worktree detection, squash-merge detection, /tmp targeting) lives
-  alongside the rules in Python, so externalizing it would split
-  one tight unit; left in-script intentionally.
-- Sibling TOML: `protect_system.py`, `protect_secrets.py`, and
-  `stop_phrase_guard.py` read `<hook>.rules.toml` at invocation via a
-  small loader (`_load_rules()` / `_load_violations()`) that
-  validates each entry's required string fields and (where
-  applicable) a known `level`. Failure to load exits 1 (non-blocking)
-  with a stderr message. `protect_secrets.rules.toml` additionally
-  holds a top-level `allowlist = [...]` array and two rule sections
-  (`[[sensitive_file]]`, `[[bash_pattern]]`); its loader returns a
-  frozen `RuleSet` dataclass grouping the three pieces.
-  `stop_phrase_guard.rules.toml` uses a two-field schema
-  (`pattern`, `correction`) and pre-compiles each regex during load.
-
-The TOML pattern is the newer convention and is on track to replace
-the in-script tuples in the other rule-driven hooks once it has
-settled. Don't introduce a `RuleCategory` enum or other dispatch
-indirection in either shape, flat collections per category are
-simpler.
+Rule-driven hooks use `@dataclass(frozen=True, slots=True)` holding
+pattern + metadata; iteration is declaration order, first-match-wins.
+Two storage shapes coexist: in-script tuples
+(`enforce_branch_protection.py`, kept in Python because bypass logic
+lives alongside) and sibling `<hook>.rules.toml` loaded on every
+invocation via `_load_rules()` / `_load_violations()`. Load failure
+exits 1 non-blocking with stderr. Keep collections flat per category;
+do not introduce dispatch indirection.
 
 ### Style (applies to every component type)
 
 - Run `ruff check`, `ruff format`, and `ty check` after editing any python file.
-- No em-dashes anywhere (in comments, docstrings, correction strings,
-  SKILL.md bodies, or CLAUDE.md). Use commas, periods, regular hyphens,
-  or rewrite.
-- Comments explain _why_, not _what_. Don't paraphrase the code.
-- Skill descriptions follow "Use when ..." phrasing for reliable routing.
 - `docs/` is gitignored. Spec and plan documents created during
   brainstorming and planning live there but are not committed; they
   are session-local artifacts.
@@ -384,22 +229,18 @@ uv run pytest
 uv run pytest tests/test_branch_protection.py
 ```
 
-Hook paths resolve via the session-scoped `hooks_dir` fixture in
-`tests/conftest.py`, so tests run from any cwd. The same conftest
-defines a session-scoped `repos` fixture that builds two ephemeral git
-repos (master, feat) plus a non-repo dir, reused across all
-branch_protection cases. `test_stop_phrase_guard.py` uses pytest's
-built-in `tmp_path` for per-test transcript files.
+Tests resolve hook paths via session-scoped fixtures in
+`tests/conftest.py` (`hooks_dir`, plus a `repos` fixture that builds
+ephemeral master/feat repos for branch-protection cases), so tests run
+from any cwd. Skills and commands have no test harness here; they're
+content not code.
 
-**Always run the relevant suite before committing a change to a hook.** The
-test infrastructure is the safety net for behavior preservation across
-refactors. Skills and commands have no test harness convention here, they
-are content not code.
+**Always run the relevant suite before committing a change to a hook.**
 
 To add a hook test, append a `Case(...)` to the `CASES` tuple in the
-relevant file. Cases are parametrized via `@pytest.mark.parametrize`,
-keyed by the `id` field, so each case shows up as its own pytest item
-(`tests/test_x.py::test_y[case-id]`) and fails independently.
+matching file. Cases are parametrized so each appears as its own
+pytest item (`tests/test_x.py::test_y[case-id]`) and fails
+independently.
 
 ### Safety: never run destructive commands, even in tests
 
@@ -431,8 +272,9 @@ Concrete rules:
     echo "exit: $?"
     ```
 
-  This invokes the hook script in isolation, never a shell that would
-  interpret the payload. Exit `2` means the block fired.
+    This invokes the hook script in isolation, never a shell that would
+    interpret the payload. Exit `2` means the block fired.
+
 - Cloud / IaC payloads (`terraform destroy --auto-approve`,
   `aws s3 rb --force`, `gh repo delete --yes`) are especially
   dangerous because they target real remote state. Same rule: only
@@ -442,10 +284,12 @@ Concrete rules:
   destructive command (`rm -rf /tmp/probably-safe`). A typo or copy
   paste shouldn't be load-bearing.
 
-## Adding a new hook
+## Adding components
 
-1. Drop `plugins/natelandau-toolkit/hooks/<your_hook>.py` in place. Make it executable.
-2. Register it in `plugins/natelandau-toolkit/hooks/hooks.json` under the matching event:
+**New hook:**
+
+1. Drop `hooks/<your_hook>.py` in place, make it executable.
+2. Register it in `hooks/hooks.json` under the matching event:
     ```json
     "<EventName>": [
       {
@@ -460,49 +304,30 @@ Concrete rules:
       }
     ]
     ```
-3. Add `tests/test_<your_hook>.py` mirroring the existing pytest modules
-   (parametrized `CASES` tuple, dataclass case shape, subprocess-based
-   invocation of the hook script).
+3. Add `tests/test_<your_hook>.py` mirroring existing modules
+   (parametrized `CASES` tuple, dataclass case shape, subprocess
+   invocation).
 4. Run `uv run pytest`, then `uv run ruff check && uv run ruff format`.
 
-## Adding a new skill
+**New skill:** Invoke the `skill-creator` skill to draft frontmatter and
+the "Use when ..." description, then save as
+`skills/<name>/SKILL.md` (+ optional `references/*.md`).
 
-1. Invoke the `skill-creator` skill to draft the skill, including
-   frontmatter and "Use when ..." description.
-2. Save it as `plugins/natelandau-toolkit/skills/<name>/SKILL.md`. Add
-   `plugins/natelandau-toolkit/skills/<name>/references/*.md` for any longer
-   supplementary content.
-3. Restart Claude Code or reload skills so the router picks up the new
-   entry.
+**New command:** Create `commands/<name>.md` with frontmatter
+(`name`, `description`, optional `argument-hint`) and the prompt body.
+Becomes `/<name>` after reload.
 
-## Adding a new command
+**New agent:** Create `agents/<name>.md` with subagent frontmatter per
+the plugins reference; dispatch via `Agent` tool with
+`subagent_type=<name>`.
 
-1. Create `plugins/natelandau-toolkit/commands/<name>.md` with frontmatter
-   (`description`, optional `argument-hint`) and the command body. The body
-   is the prompt the command sends when invoked.
-2. The command becomes available as `/<name>` after Claude Code reloads.
+## Stop hook transcript shape
 
-## Adding a new agent
-
-1. Create `plugins/natelandau-toolkit/agents/<name>.md` with subagent
-   frontmatter per the Claude Code plugins reference.
-2. Reference and dispatch via the `Agent` tool with `subagent_type=<name>`.
-
-## Hook input/output reference
-
-Authoritative source: <https://code.claude.com/docs/en/hooks.md>. Key fields
-this plugin actually uses:
-
-| Field              | Events     | Notes                                                                                    |
-| ------------------ | ---------- | ---------------------------------------------------------------------------------------- |
-| `tool_name`        | PreToolUse | `Bash`, `Edit`, `Write`, `NotebookEdit`, `Read`, etc.                                    |
-| `tool_input`       | PreToolUse | Tool-specific; e.g. `{"command": "..."}` for Bash, `{"file_path": "..."}` for Edit/Write |
-| `cwd`              | all        | Session working directory                                                                |
-| `transcript_path`  | Stop       | Path to JSONL session transcript; tail it for the last assistant turn                    |
-| `stop_hook_active` | Stop       | True if the Stop hook already fired this turn; bail to avoid loops                       |
-
-JSONL transcript entries use:
-
-- `type: "assistant"` at top level for assistant turns
-- `message.content` is a list of blocks, each `{"type": "text", "text": "..."}` or `{"type": "tool_use", ...}`
-- Concatenate the `text` fields of `text`-typed blocks to get the full message text
+Field reference for hook payloads is at
+<https://code.claude.com/docs/en/hooks.md>. The non-obvious bit is the
+Stop transcript: `transcript_path` points at a JSONL file. Assistant
+turns have `type: "assistant"` at top level; the message text is the
+concatenation of `text` fields across `{"type":"text", ...}` blocks in
+`message.content` (other block types like `tool_use` are interleaved
+and should be skipped). Also bail early if `stop_hook_active` is true
+to avoid re-fire loops.
