@@ -92,11 +92,18 @@ field. The official `hookify` plugin reads `transcript_path` and so does
 this hook. If you ever see code reaching for `last_assistant_message`, it's
 broken and exits 0 silently.
 
-Patterns live in a `Violation` dataclass tuple. They are case-insensitive
-regex; first match wins. Patterns are deliberately a mix of ownership-dodging
-and permission-seeking phrases the user has decided are unwanted. Be cautious
-about adding broad patterns (`getting long`, `next session`) since they
-false-positive in legitimate contexts.
+Violation data lives in `hooks/stop_phrase_guard.rules.toml` (sibling
+file, `[[violation]]` array of tables with `pattern` and `correction`).
+The hook loads, validates, and pre-compiles each pattern on every
+invocation via `_load_violations()`; a malformed or missing TOML
+exits 1 with stderr (non-blocking error, no block fires for that
+turn). Iteration is in declaration order, first-match-wins.
+Patterns are case-insensitive regex applied to the concatenated text
+of the assistant's most recent turn. Patterns are deliberately a mix
+of ownership-dodging and permission-seeking phrases the user has
+decided are unwanted. Be cautious about adding broad patterns
+(`getting long`, `next session`) since they false-positive in
+legitimate contexts.
 
 ### `hooks/protect_secrets.py` (PreToolUse)
 
@@ -333,17 +340,22 @@ Rule-driven hooks use a `@dataclass(frozen=True, slots=True)` holding
 the pattern + metadata, with iteration in declaration order and
 first-match-wins. Two storage shapes are in use:
 
-- In-script tuple: `enforce_branch_protection.py` and
-  `stop_phrase_guard.py` define a flat tuple of `Rule` instances at
-  module scope.
-- Sibling TOML: `protect_system.py` and `protect_secrets.py` read
-  `<hook>.rules.toml` at invocation via `_load_rules()`, validating
-  that each entry carries the four required string fields and a
-  known `level`. Failure to load exits 1 (non-blocking) with a
-  stderr message. `protect_secrets.rules.toml` additionally holds a
-  top-level `allowlist = [...]` array and two rule sections
-  (`[[sensitive_file]]`, `[[bash_pattern]]`); the loader returns
-  these grouped into a frozen `RuleSet` dataclass.
+- In-script tuple: `enforce_branch_protection.py` defines a flat
+  tuple of `Rule` instances at module scope. Bypass logic
+  (worktree detection, squash-merge detection, /tmp targeting) lives
+  alongside the rules in Python, so externalizing it would split
+  one tight unit; left in-script intentionally.
+- Sibling TOML: `protect_system.py`, `protect_secrets.py`, and
+  `stop_phrase_guard.py` read `<hook>.rules.toml` at invocation via a
+  small loader (`_load_rules()` / `_load_violations()`) that
+  validates each entry's required string fields and (where
+  applicable) a known `level`. Failure to load exits 1 (non-blocking)
+  with a stderr message. `protect_secrets.rules.toml` additionally
+  holds a top-level `allowlist = [...]` array and two rule sections
+  (`[[sensitive_file]]`, `[[bash_pattern]]`); its loader returns a
+  frozen `RuleSet` dataclass grouping the three pieces.
+  `stop_phrase_guard.rules.toml` uses a two-field schema
+  (`pattern`, `correction`) and pre-compiles each regex during load.
 
 The TOML pattern is the newer convention and is on track to replace
 the in-script tuples in the other rule-driven hooks once it has
