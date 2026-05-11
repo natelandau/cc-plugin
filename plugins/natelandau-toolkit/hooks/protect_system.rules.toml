@@ -136,6 +136,7 @@
     pattern = '\bdocker\s+volume\s+(?:rm|prune)\b'
     reason  = "docker volume deletion loses data"
 
+# `--?auto-approve`: Terraform also accepts the single-dash `-auto-approve` form.
 [[rule]]
     id      = "terraform-destroy"
     level   = "high"
@@ -148,6 +149,8 @@
     pattern = '\baws\s+s3\s+rb\b[^;|&]*--force\b'
     reason  = "aws s3 rb --force recursively deletes bucket"
 
+# Two lookaheads require both `--recursive` and an `s3://` URI in any order,
+# without consuming them, so the rule fires regardless of arg ordering.
 [[rule]]
     id      = "aws-s3-rm-recursive"
     level   = "high"
@@ -180,6 +183,8 @@
     pattern = '\bdocker\s+(?:system|image|container|builder)\s+prune\b'
     reason  = "docker prune removes images/containers"
 
+# `\s-\S*r` catches `-r` bundled with other short flags (`-ir`, `-ur`),
+# not just the bare `-r` form.
 [[rule]]
     id      = "crontab-r"
     level   = "strict"
