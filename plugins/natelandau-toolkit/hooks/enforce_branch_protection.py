@@ -132,7 +132,9 @@ PROTECTED_FILE_MOD_RULES: tuple[Rule, ...] = (
     Rule(pattern=r"\bcurl\b.*\s-[oO]\b"),
     Rule(pattern=r"^\s*wget\b"),
     Rule(pattern=r"\btee\b"),
-    Rule(pattern=r"(?<![>&])\s*>(?!&)", match_full=True),
+    # Excludes /dev/null targets so noise-suppression idioms like
+    # `cmd 2>/dev/null` and `cmd > /dev/null 2>&1` pass through.
+    Rule(pattern=r"(?<![>&])\s*>(?!&)(?!\s*/dev/null\b)", match_full=True),
 )
 
 

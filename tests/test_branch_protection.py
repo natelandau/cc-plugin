@@ -255,6 +255,30 @@ CASES: tuple[Case, ...] = (
         make_payload=lambda r: _bash("git status 2>&1", cwd=r["master"]),
         expect_exit=0,
     ),
+    Case(
+        id="find pipe grep with 2>/dev/null allowed on master",
+        make_payload=lambda r: _bash(
+            f'find {r["master"]} -type f -name "*.py" | xargs grep -l "x" 2>/dev/null',
+            cwd=r["master"],
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="redirect to /dev/null allowed on master",
+        make_payload=lambda r: _bash("cmd > /dev/null", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="redirect to /dev/null 2>&1 allowed on master",
+        make_payload=lambda r: _bash("cmd > /dev/null 2>&1", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="stderr redirect to real file 2>err.log on master blocked",
+        make_payload=lambda r: _bash("cmd 2>err.log", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
     # Protected branch: /tmp escape
     Case(
         id="rm /tmp/foo on master allowed",

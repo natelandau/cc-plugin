@@ -123,6 +123,68 @@ from the source: this version uses the repo's `exit 2 + stderr` block
 convention instead of the JS hook's `permissionDecision: deny` JSON, and
 omits the `~/.claude/hooks-logs/` log writer to match other hooks here.
 
+### `hooks/protect_system.py` (PreToolUse)
+
+Blocks system-destructive bash commands across several categories:
+
+- Mass `rm` of home/root/system directories (`rm -rf ~`,
+  `rm -rf /etc`), or of CWD via `rm .` / `rm *`.
+- Disk wipes (`dd of=/dev/sda`, `mkfs.ext4 /dev/sda`,
+  `diskutil eraseDisk`).
+- Init / kernel-panic triggers (`kill -9 1`, `kill -9 -1`,
+  `pkill -9 init`, `killall systemd`, writes to
+  `/proc/sysrq-trigger`).
+- macOS system-integrity ops (`csrutil disable`, `nvram -c`,
+  `tmutil delete`).
+- Fork bombs.
+- Piping remote scripts to a shell (`curl ... | sh`).
+- `chmod 777`.
+- Docker volume deletion (`docker volume rm/prune`).
+- Cloud / IaC catastrophes that carry explicit auto-confirm flags
+  (`terraform destroy --auto-approve`, `aws s3 rb --force`,
+  `aws s3 rm --recursive` against `s3://`, `gcloud ... delete --quiet`,
+  `gh repo delete --yes`).
+- `sudo rm`, `docker prune`, `crontab -r`.
+
+Matches against `tool_input.command` for Bash. A single flat
+`BASH_PATTERNS` tuple of `Rule` dataclasses drives matching, in
+declaration order, first-match-wins. Each rule has a `level`:
+`critical`, `high`, or `strict`. The active threshold is read from
+`CLAUDE_PROTECT_SYSTEM_LEVEL` (default `high`) and rules above the
+threshold are skipped. No allowlist; targeted ops on safe paths
+(`/tmp/...`, `node_modules`, `.worktrees/...`) pass naturally because
+the patterns are scoped to dangerous targets.
+
+Scope notes worth knowing:
+
+- `rm-system` covers `/etc`, `/usr`, `/var`, `/bin`, `/sbin`, `/lib`,
+  `/boot`, `/dev`, `/proc`, `/sys`. `/var/log/...` deletions are
+  collateral damage, the trade-off is keeping `rm -rf /var` blocked.
+- `rm-cwd` blocks `rm .`, `rm ./`, `rm *`, `rm ./*`. Targeted globs
+  like `rm *.log` and explicit subdirs (`rm -rf ./build`) pass.
+- `rm-home` only catches `~` or `$HOME` as the rm target itself, not
+  subpaths (`rm -rf ~/.cache` is allowed).
+- `kill-init` matches `kill ... 1` (PID 1 as a positional arg).
+  `kill 12345` passes; `kill 1` and `kill -9 1` block.
+- `kill-all` requires a signal flag *before* the `-1` target, so
+  `kill -1 12345` (SIGHUP to a real PID) passes while `kill -9 -1`
+  blocks.
+- `pkill-init` requires the daemon name as a whole word at end of
+  arg, so `killall systemd-journald` and `pkill -f launchctl` pass.
+- The cloud rules require the explicit `--auto-approve` / `--force` /
+  `--recursive` / `--quiet` / `--yes` flag. Interactive variants of
+  `terraform destroy`, `gh repo delete`, etc., pass through; the
+  user's terminal still prompts.
+
+Secret-handling and git destructive ops are intentionally not
+duplicated; those live in `protect_secrets.py` and
+`enforce_branch_protection.py`.
+
+Adapted from karanb192/claude-code-hooks `block-dangerous-commands.js`.
+Same `exit 2 + stderr` and no-log-writer conventions as the other
+hooks here; subset of the source ruleset, with patterns that overlap
+existing hooks dropped and a few false-positive cases tightened.
+
 ### `hooks/enforce_commit_message.py` (PreToolUse)
 
 Validates conventional commit format before `git commit` runs. Inspects
