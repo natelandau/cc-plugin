@@ -98,18 +98,21 @@ def _require_str(entry: Mapping[str, object], key: str, idx: int) -> str:
     return value
 
 
-def _load_rules(path: Path) -> tuple[Rule, ...]:
-    """Parse the rules TOML file into an ordered tuple of Rule entries.
+def _load_rules(path: Path) -> tuple[tuple[re.Pattern[str], Rule], ...]:
+    """Parse the rules TOML and pre-compile each pattern.
 
     Validate that every entry carries exactly the required string fields
     and that `level` is a known threshold, so a typo in TOML surfaces as
-    a clear error instead of a Rule built with non-string fields.
+    a clear error instead of a Rule built with non-string fields. Patterns
+    are compiled with `re.IGNORECASE` during load so a malformed regex
+    surfaces here, not in the hot path.
 
     Args:
         path: Location of the rules TOML file.
 
     Returns:
-        Rules in declaration order, ready for first-match-wins iteration.
+        Compiled-pattern + Rule pairs in declaration order, ready for
+        first-match-wins iteration.
     """
     with path.open("rb") as fh:
         data = tomllib.load(fh)
@@ -117,7 +120,7 @@ def _load_rules(path: Path) -> tuple[Rule, ...]:
     if not isinstance(entries, list):
         msg = "missing top-level 'rule' array"
         raise TypeError(msg)
-    rules: list[Rule] = []
+    compiled: list[tuple[re.Pattern[str], Rule]] = []
     for idx, raw_entry in enumerate(entries):
         if not isinstance(raw_entry, dict):
             msg = f"rule[{idx}] is not a table"
@@ -139,15 +142,14 @@ def _load_rules(path: Path) -> tuple[Rule, ...]:
         if level not in LEVELS:
             msg = f"rule[{idx}] has unknown level {level!r}"
             raise ValueError(msg)
-        rules.append(
-            Rule(
-                level=level,
-                id=_require_str(entry, "id", idx),
-                pattern=_require_str(entry, "pattern", idx),
-                reason=_require_str(entry, "reason", idx),
-            )
+        rule = Rule(
+            level=level,
+            id=_require_str(entry, "id", idx),
+            pattern=_require_str(entry, "pattern", idx),
+            reason=_require_str(entry, "reason", idx),
         )
-    return tuple(rules)
+        compiled.append((re.compile(rule.pattern, re.IGNORECASE), rule))
+    return tuple(compiled)
 
 
 def _active_threshold() -> int:
@@ -156,12 +158,16 @@ def _active_threshold() -> int:
     return LEVELS.get(raw, LEVELS[DEFAULT_LEVEL])
 
 
-def _first_match(text: str, rules: tuple[Rule, ...], threshold: int) -> Rule | None:
+def _first_match(
+    text: str,
+    rules: tuple[tuple[re.Pattern[str], Rule], ...],
+    threshold: int,
+) -> Rule | None:
     """Return the first rule firing at or below the active threshold."""
-    for rule in rules:
+    for pat, rule in rules:
         if LEVELS[rule.level] > threshold:
             continue
-        if re.search(rule.pattern, text, re.IGNORECASE):
+        if pat.search(text):
             return rule
     return None
 
@@ -193,7 +199,7 @@ def main() -> None:
     # focused error message rather than a confusing import-time traceback.
     try:
         rules = _load_rules(RULES_FILE)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
         print(  # noqa: T201
             f"protect_system: failed to load {RULES_FILE.name}: {exc}",
             file=sys.stderr,

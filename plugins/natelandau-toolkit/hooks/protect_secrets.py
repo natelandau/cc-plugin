@@ -81,12 +81,14 @@ class RuleSet:
 
     Groups the three pieces of rule data so a single `_load_rules()` call
     parses the file once and the caller threads one value through main()
-    instead of three.
+    instead of three. All regexes are pre-compiled with `re.IGNORECASE`
+    at load time so malformed patterns surface as load errors and the
+    hot path avoids re-compilation on every invocation.
     """
 
-    allowlist: tuple[str, ...]
-    sensitive_files: tuple[Rule, ...]
-    bash_patterns: tuple[Rule, ...]
+    allowlist: tuple[re.Pattern[str], ...]
+    sensitive_files: tuple[tuple[re.Pattern[str], Rule], ...]
+    bash_patterns: tuple[tuple[re.Pattern[str], Rule], ...]
 
 
 def _require_str(entry: Mapping[str, object], key: str, idx: int, section: str) -> str:
@@ -103,16 +105,17 @@ def _require_str(entry: Mapping[str, object], key: str, idx: int, section: str) 
     return value
 
 
-def _parse_rule_list(raw: object, section: str) -> tuple[Rule, ...]:
-    """Validate and convert a TOML array-of-tables into a tuple of Rule.
+def _parse_rule_list(raw: object, section: str) -> tuple[tuple[re.Pattern[str], Rule], ...]:
+    """Validate a TOML array-of-tables into compiled-pattern + Rule pairs.
 
     Reused for both `[[sensitive_file]]` and `[[bash_pattern]]` because they
-    share the same field schema.
+    share the same field schema. Patterns are compiled with `re.IGNORECASE`
+    during load so a bad regex raises here, not in the matching hot path.
     """
     if not isinstance(raw, list):
         msg = f"missing or non-array '{section}' section"
         raise TypeError(msg)
-    rules: list[Rule] = []
+    compiled: list[tuple[re.Pattern[str], Rule]] = []
     for idx, raw_entry in enumerate(raw):
         if not isinstance(raw_entry, dict):
             msg = f"{section}[{idx}] is not a table"
@@ -134,15 +137,14 @@ def _parse_rule_list(raw: object, section: str) -> tuple[Rule, ...]:
         if level not in LEVELS:
             msg = f"{section}[{idx}] has unknown level {level!r}"
             raise ValueError(msg)
-        rules.append(
-            Rule(
-                level=level,
-                id=_require_str(entry, "id", idx, section),
-                pattern=_require_str(entry, "pattern", idx, section),
-                reason=_require_str(entry, "reason", idx, section),
-            )
+        rule = Rule(
+            level=level,
+            id=_require_str(entry, "id", idx, section),
+            pattern=_require_str(entry, "pattern", idx, section),
+            reason=_require_str(entry, "reason", idx, section),
         )
-    return tuple(rules)
+        compiled.append((re.compile(rule.pattern, re.IGNORECASE), rule))
+    return tuple(compiled)
 
 
 def _load_rules(path: Path) -> RuleSet:
@@ -167,12 +169,12 @@ def _load_rules(path: Path) -> RuleSet:
     if not isinstance(raw_allowlist, list):
         msg = "missing or non-array 'allowlist' section"
         raise TypeError(msg)
-    allowlist: list[str] = []
+    allowlist: list[re.Pattern[str]] = []
     for idx, entry in enumerate(raw_allowlist):
         if not isinstance(entry, str):
             msg = f"allowlist[{idx}] must be a string, got {type(entry).__name__}"
             raise TypeError(msg)
-        allowlist.append(entry)
+        allowlist.append(re.compile(entry, re.IGNORECASE))
 
     return RuleSet(
         allowlist=tuple(allowlist),
@@ -187,17 +189,21 @@ def _active_threshold() -> int:
     return LEVELS.get(raw, LEVELS[DEFAULT_LEVEL])
 
 
-def _is_allowlisted(text: str, allowlist: tuple[str, ...]) -> bool:
+def _is_allowlisted(text: str, allowlist: tuple[re.Pattern[str], ...]) -> bool:
     """Check if the input matches any safe-template pattern."""
-    return any(re.search(p, text, re.IGNORECASE) for p in allowlist)
+    return any(p.search(text) for p in allowlist)
 
 
-def _first_match(text: str, rules: tuple[Rule, ...], threshold: int) -> Rule | None:
+def _first_match(
+    text: str,
+    rules: tuple[tuple[re.Pattern[str], Rule], ...],
+    threshold: int,
+) -> Rule | None:
     """Return the first rule firing at or below the active threshold."""
-    for rule in rules:
+    for pat, rule in rules:
         if LEVELS[rule.level] > threshold:
             continue
-        if re.search(rule.pattern, text, re.IGNORECASE):
+        if pat.search(text):
             return rule
     return None
 
@@ -228,7 +234,7 @@ def main() -> None:
     # focused error message rather than a confusing import-time traceback.
     try:
         rules = _load_rules(RULES_FILE)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
         print(  # noqa: T201
             f"protect_secrets: failed to load {RULES_FILE.name}: {exc}",
             file=sys.stderr,

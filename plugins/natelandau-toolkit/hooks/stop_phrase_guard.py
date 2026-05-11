@@ -14,9 +14,10 @@ emits a `{decision: block, reason: ...}` JSON decision. Claude Code
 reads the decision and forces the assistant to keep working with the
 correction as its next instruction.
 
-The `last_assistant_message` field used by the prior bash version of
-this hook does not exist on Stop hook input. The official `hookify`
-plugin reads `transcript_path` instead, and so does this hook.
+`last_assistant_message` does not exist on Stop hook input; the
+assistant turn must be recovered by tailing `transcript_path`. Any
+code reaching for `last_assistant_message` will silently see an empty
+string and never fire.
 
 Violation data lives in `stop_phrase_guard.rules.toml` next to this
 file; the script loads it on every invocation. Edit that file to add,
@@ -123,12 +124,8 @@ def _last_assistant_text(transcript_path: str) -> str:
     list of blocks; we concatenate `text` from every block whose `type`
     is `text` (skipping `tool_use` blocks).
     """
-    p = Path(transcript_path)
-    if not p.is_file():
-        return ""
-
     try:
-        raw = p.read_text(encoding="utf-8", errors="replace")
+        raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
 
