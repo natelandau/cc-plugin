@@ -13,29 +13,34 @@ print(result.stdout)
 
 Takes the command and all its arguments as ONE list. Returns a `CompletedCommand`:
 
-| Field        | Type              | Description                                          |
-| ------------ | ----------------- | ---------------------------------------------------- |
-| `argv`       | `tuple[str, ...]` | Full argument list executed.                         |
-| `returncode` | `int`             | Process exit code.                                   |
-| `stdout`     | `str`             | Captured standard output.                            |
-| `stderr`     | `str`             | Captured standard error (always separate).           |
-| `duration`   | `float`           | Wall-clock seconds the process ran.                  |
-| `cwd`        | `Path \| None`    | Resolved working directory, or `None` if inherited.  |
-| `ok`         | `bool` (property) | `True` when `returncode == 0`.                       |
+| Field          | Type                   | Description                                                      |
+| -------------- | ---------------------- | ---------------------------------------------------------------- |
+| `argv`         | `tuple[str, ...]`      | Full argument list executed.                                     |
+| `returncode`   | `int`                  | Process exit code.                                               |
+| `stdout`       | `str`                  | Captured stdout. Trailing newlines stripped; embedded ones kept. |
+| `stderr`       | `str`                  | Captured stderr (always separate). Trailing newlines stripped.   |
+| `duration`     | `float`                | Wall-clock seconds the process ran.                              |
+| `cwd`          | `Path \| None`         | Resolved working directory, or `None` if inherited.              |
+| `ok`           | `bool` (property)      | `True` when `returncode == 0`.                                   |
+| `command_line` | `str` (property)       | `argv` rendered with `shlex.join`. Shell-safe; copy-pasteable.   |
+| `stdout_lines` | `list[str]` (property) | `stdout.splitlines()` — iterate without splitting manually.      |
+| `stderr_lines` | `list[str]` (property) | `stderr.splitlines()`.                                           |
+
+The trailing newline most commands emit is stripped, so `result.stdout == "hello"` rather than `"hello\n"`. Compare directly; reach for `stdout_lines` / `stderr_lines` to iterate.
 
 ### Options
 
-| Kwarg            | Default     | Behavior                                                                              |
-| ---------------- | ----------- | ------------------------------------------------------------------------------------- |
-| `cwd=`           | `None`      | `Path` / `str` working dir. `None` inherits. `~` expanded. Unreachable → `ShellCommandFailedError` before the process starts. |
-| `env=`           | `None`      | REPLACES child env. Merge with `{**os.environ, ...}` to extend.                       |
-| `input=`         | `None`      | `str` or `bytes` to write to stdin. >~64 KB plus output can deadlock — use shell redirection instead. |
-| `timeout=`       | `None`      | Seconds. Process killed and `ShellCommandTimeoutError` raised on overrun. The error's `result` carries partial output. |
-| `exclude_regex=` | `None`      | Drops matching lines from both streamed output and captured strings.                  |
-| `stream=`        | `False`     | `True` tees stdout/stderr to terminal while still capturing. stdout/stderr drained by separate threads — within each stream order is preserved, but interleaving between them is non-deterministic. For chronological interleaving, run via `sh -c "... 2>&1"`. |
-| `check=`         | `True`      | `False` skips the failure-on-nonzero check. Inspect `result.returncode` yourself.     |
-| `okay_codes=`    | `(0,)`      | Treat additional exit codes as success. E.g. `(0, 1)` for `grep` (1 = no match) or `diff` (1 = differ). |
-| `sudo=`          | `False`     | Prepends `["sudo"]`. Cached credentials used. `sudo -k` never called. Requires interactive TTY or `NOPASSWD` — will hang in non-interactive contexts (CI). |
+| Kwarg            | Default | Behavior                                                                                                                                                                                                                                                        |
+| ---------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cwd=`           | `None`  | `Path` / `str` working dir. `None` inherits. `~` expanded. Unreachable → `ShellCommandFailedError` before the process starts.                                                                                                                                   |
+| `env=`           | `None`  | REPLACES child env. Merge with `{**os.environ, ...}` to extend.                                                                                                                                                                                                 |
+| `input=`         | `None`  | `str` or `bytes` to write to stdin. >~64 KB plus output can deadlock — use shell redirection instead.                                                                                                                                                           |
+| `timeout=`       | `None`  | Seconds. Process killed and `ShellCommandTimeoutError` raised on overrun. The error's `result` carries partial output.                                                                                                                                          |
+| `exclude_regex=` | `None`  | Drops matching lines from both streamed output and captured strings.                                                                                                                                                                                            |
+| `stream=`        | `False` | `True` tees stdout/stderr to terminal while still capturing. stdout/stderr drained by separate threads — within each stream order is preserved, but interleaving between them is non-deterministic. For chronological interleaving, run via `sh -c "... 2>&1"`. |
+| `check=`         | `True`  | `False` skips the failure-on-nonzero check. Inspect `result.returncode` yourself.                                                                                                                                                                               |
+| `okay_codes=`    | `(0,)`  | Treat additional exit codes as success. E.g. `(0, 1)` for `grep` (1 = no match) or `diff` (1 = differ).                                                                                                                                                         |
+| `sudo=`          | `False` | Prepends `["sudo"]`. Cached credentials used. `sudo -k` never called. Requires interactive TTY or `NOPASSWD` — will hang in non-interactive contexts (CI).                                                                                                      |
 
 ## `run_interactive(argv, ...)`
 
@@ -64,12 +69,12 @@ else:
 
 All errors inherit from `ShellCommandError`. Catching the base class handles every failure mode.
 
-| Exception                   | When raised                                                                  | Carries                                                |
-| --------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `ShellCommandError`         | Base class.                                                                  | —                                                      |
-| `ShellCommandNotFoundError` | `argv[0]` is not on PATH.                                                    | message only                                           |
-| `ShellCommandFailedError`   | Process exited outside `okay_codes`, OR `cwd` couldn't be entered.          | `result: CompletedCommand \| None` (`None` when cwd unreachable) |
-| `ShellCommandTimeoutError`  | Process exceeded `timeout=` and was killed.                                  | `result: CompletedCommand` (partial output), `timeout: float` |
+| Exception                   | When raised                                                        | Carries                                                          |
+| --------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `ShellCommandError`         | Base class.                                                        | —                                                                |
+| `ShellCommandNotFoundError` | `argv[0]` is not on PATH.                                          | message only                                                     |
+| `ShellCommandFailedError`   | Process exited outside `okay_codes`, OR `cwd` couldn't be entered. | `result: CompletedCommand \| None` (`None` when cwd unreachable) |
+| `ShellCommandTimeoutError`  | Process exceeded `timeout=` and was killed.                        | `result: CompletedCommand` (partial output), `timeout: float`    |
 
 ```python
 from nclutils.sh import (
