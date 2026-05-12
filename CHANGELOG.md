@@ -1,3 +1,10 @@
+## v0.4.1 (2026-05-12)
+
+### Fix
+
+- **skills**: update nclutils skill to v3.4.0
+- **skills**: update nclutils skill
+
 ## v0.4.0 (2026-05-11)
 
 ### Feat
