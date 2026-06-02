@@ -127,7 +127,11 @@ duplicated; those live in `protect_secrets.py` and
 
 ### `hooks/enforce_commit_message.py` (PreToolUse)
 
-Validates conventional-commit format before `git commit`. Gotchas:
+Validates conventional-commit format before `git commit` and on
+`gh pr create|edit|merge` titles (the PR title/merge-subject is held to
+the same rules as a commit subject). The validation core is shared; a
+second detection path (`GH_PR_RE` + `GH_TITLE_VALUE_RE`) handles the
+`gh pr` flags (`-t`/`--title`, and `-t`/`--subject` for merge). Gotchas:
 
 - The imperative check (`NON_IMPERATIVE_VERBS`) is a curated denylist
   rather than algorithmic, so valid imperatives that happen to end in
@@ -145,6 +149,10 @@ Pass-through cases (deliberately not validated):
 - First line starts with a git-auto prefix (`Merge `, `Revert "`,
   `Revert '`, `fixup!`, `squash!`, `amend!`).
 - Multiple `-m` args (only the first is the subject; rest is body).
+- `gh pr` with no title flag (editor, `--fill`, or merge inherits the
+  PR title) and non-title subcommands (`gh pr view`, `gh pr list`).
+- A chained `git commit ... && gh pr ...` validates only the commit;
+  the PR title is not inspected (the original `git commit` path wins).
 
 ### `hooks/use_uv.py` (PreToolUse)
 

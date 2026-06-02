@@ -356,6 +356,117 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("subject-wip-marker",),
     ),
+    # gh pr: non-validated subcommands and missing-title forms pass through.
+    Case(id="gh pr view allowed", payload=_bash("gh pr view 23"), expect_exit=0),
+    Case(id="gh pr list allowed", payload=_bash("gh pr list"), expect_exit=0),
+    Case(
+        id="gh pr create no title allowed (editor opens)",
+        payload=_bash("gh pr create"),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr create --fill allowed (title from commits)",
+        payload=_bash("gh pr create --fill"),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr edit body only allowed (no title)",
+        payload=_bash('gh pr edit 23 --body "Some description"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr merge no subject allowed (inherits PR title)",
+        payload=_bash("gh pr merge 23 --squash"),
+        expect_exit=0,
+    ),
+    # gh pr: valid conventional titles pass.
+    Case(
+        id="gh pr create valid feat allowed",
+        payload=_bash('gh pr create --title "feat: add new endpoint"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr create valid -t short form allowed",
+        payload=_bash('gh pr create -t "fix: handle null input"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr create valid --title= equals form allowed",
+        payload=_bash('gh pr create --title="docs: clarify install"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr edit valid title allowed",
+        payload=_bash('gh pr edit 23 --title "feat(api): add new endpoint"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr merge valid --subject allowed",
+        payload=_bash('gh pr merge 23 --squash --subject "feat: ship the thing"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="gh pr merge valid -t short subject allowed",
+        payload=_bash('gh pr merge 23 -t "fix: correct merge logic"'),
+        expect_exit=0,
+    ),
+    # gh pr: malformed titles block with the same rules as commits.
+    Case(
+        id="gh pr create missing type blocked",
+        payload=_bash('gh pr create --title "Add new feature"'),
+        expect_exit=2,
+        stderr_contains=("BLOCKED", "bad-format"),
+    ),
+    Case(
+        id="gh pr create bad type blocked",
+        payload=_bash('gh pr create --title "chore: tidy things"'),
+        expect_exit=2,
+        stderr_contains=("bad-type", "chore"),
+    ),
+    Case(
+        id="gh pr create uppercase subject blocked",
+        payload=_bash('gh pr create -t "feat: Add new feature"'),
+        expect_exit=2,
+        stderr_contains=("subject-uppercase",),
+    ),
+    Case(
+        id="gh pr create non-imperative subject blocked",
+        payload=_bash('gh pr create --title "feat: added new feature"'),
+        expect_exit=2,
+        stderr_contains=("subject-not-imperative", "added", "add"),
+    ),
+    Case(
+        id="gh pr edit bad type blocked",
+        payload=_bash('gh pr edit 23 --title "wip: in progress"'),
+        expect_exit=2,
+        stderr_contains=("bad-type", "wip"),
+    ),
+    Case(
+        id="gh pr merge malformed subject blocked",
+        payload=_bash('gh pr merge 23 --subject "Ship it."'),
+        expect_exit=2,
+        stderr_contains=("bad-format",),
+    ),
+    Case(
+        id="gh pr create empty title blocked names PR title",
+        payload=_bash('gh pr create --title ""'),
+        expect_exit=2,
+        stderr_contains=("empty-subject", "PR title"),
+    ),
+    # gh pr: --title takes precedence over --fill, so it is validated.
+    Case(
+        id="gh pr create --fill with bad --title blocked",
+        payload=_bash('gh pr create --fill --title "Add new feature"'),
+        expect_exit=2,
+        stderr_contains=("bad-format",),
+    ),
+    # Precedence: a chained commit+PR validates only the commit (existing
+    # path wins); the PR title is intentionally not inspected here.
+    Case(
+        id="chained git commit and gh pr validates commit only",
+        payload=_bash('git commit -m "feat: add foo" && gh pr create --title "Bad title"'),
+        expect_exit=0,
+    ),
 )
 
 
