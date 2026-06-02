@@ -1,3 +1,10 @@
+## v0.5.0 (2026-06-02)
+
+### Feat
+
+- **hooks**: enforce commit format on gh pr titles
+- **skills**: add tufte visualization skill
+
 ## v0.4.1 (2026-05-12)
 
 ### Fix
