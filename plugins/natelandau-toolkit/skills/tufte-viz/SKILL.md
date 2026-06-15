@@ -9,7 +9,6 @@ description: |
     (5) Reducing chartjunk or improving data-ink ratio
     (6) Planning small multiples or high-density displays
     Applies principles: data-ink ratio, chartjunk elimination, graphical integrity, lie factor, small multiples, and data density.
-disable-model-invocation: true
 ---
 
 # Tufte Visualization Ideation

@@ -1,7 +1,6 @@
 ---
 name: htmx-expert
 description: Use when writing, debugging, or reviewing htmx attributes (hx-get, hx-post, hx-swap, hx-target, hx-trigger, hx-boost), AJAX interactions, server-side HTML fragment responses, out-of-band swaps, htmx events, loading indicators, or hypermedia-driven patterns. Also use when the user mentions htmx class names like htmx-indicator, htmx-request, or any hx-* attributes, even if they don't explicitly say "htmx."
-disable-model-invocation: true
 ---
 
 # htmx Expert
@@ -32,10 +31,12 @@ Servers respond with HTML fragments, not JSON. htmx extends HTML to handle AJAX 
 <body hx-boost="true">
     <!-- All links now use AJAX with push-url, all forms submit via AJAX -->
     <nav>
-        <a href="/dashboard">Dashboard</a>  <!-- AJAX GET, swaps body -->
+        <a href="/dashboard">Dashboard</a>
+        <!-- AJAX GET, swaps body -->
         <a href="/settings">Settings</a>
     </nav>
-    <form action="/login" method="post">  <!-- AJAX POST -->
+    <form action="/login" method="post">
+        <!-- AJAX POST -->
         <input name="user" />
         <button type="submit">Login</button>
     </form>
@@ -85,10 +86,10 @@ Boosted requests swap the `<body>` content and push the URL to browser history. 
 - **hx-validate**: Enable HTML5 validation on non-form elements
 - **hx-disable**: Disable htmx processing on element and descendants
 - **hx-sync**: Coordinate requests between elements to prevent race conditions
+
     ```html
     <!-- Abort in-flight request when a new one starts (good for search/typeahead) -->
-    <input hx-get="/search" hx-trigger="input changed delay:300ms"
-           hx-sync="this:abort" hx-target="#results" />
+    <input hx-get="/search" hx-trigger="input changed delay:300ms" hx-sync="this:abort" hx-target="#results" />
 
     <!-- Queue requests on a form so rapid submits don't race -->
     <form hx-post="/save" hx-sync="this:queue first">...</form>
@@ -96,6 +97,7 @@ Boosted requests swap the `<body>` content and push the URL to browser history. 
     <!-- Drop new requests while one is in flight -->
     <button hx-get="/data" hx-sync="this:drop">Load</button>
     ```
+
     Strategies: `drop` (ignore new), `abort` (cancel old), `replace` (cancel old, send new), `queue first`, `queue last`, `queue all`.
 
 ## Implementation Patterns
@@ -193,8 +195,12 @@ CSS-only spinner (preferred over image files):
     animation: spin 1s linear infinite;
 }
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
 }
 ```
 
