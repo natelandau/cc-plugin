@@ -14,155 +14,167 @@
 # Ownership dodging: #1 problem, dismissing failures as not-my-fault.
 # =============================================================================
 
+# The bare word "pre-existing" appears constantly in legitimate prose
+# (review summaries, discussion of these very rules), so matching it
+# alone false-positives. The dodge we care about is "pre-existing" used
+# to justify NOT fixing/implementing something, so both patterns require
+# an inaction phrase (leaving it, not fixing, untouched, out of scope,
+# lives on main, ...) within ~100 chars of "pre-existing", in either
+# order. `pre.?existing` covers "pre-existing", "pre existing", and
+# "preexisting"; `.{0,100}` stays within a sentence (`.` skips newlines).
 [[violation]]
-    pattern    = 'pre-existing'
-    correction = "NOTHING IS PRE-EXISTING. All builds and tests are green upstream. If something fails, YOUR work caused it. Investigate and fix it. Never dismiss a failure as pre-existing."
+    correction = "NOTHING IS PRE-EXISTING. All builds and tests are green upstream. If something fails, YOUR work caused it - investigate and fix it. If a feature would improve the codebase, add it. Never dismiss anything as pre-existing."
+    pattern    = 'pre.?existing\b.{0,100}\b(leav|left (it|as|the|that)|untouched|out of scope|as.?is|unrelated|not (address|fix|fixing|touch|implement|implementing|mine|worth|going to)|didn.?t (fix|address|touch|implement)|won.?t (fix|address|touch|implement)|ignore|ignoring|skipped|skipping|lives on (main|master)|predates)'
 
 [[violation]]
+    correction = "NOTHING IS PRE-EXISTING. All builds and tests are green upstream. If something fails, YOUR work caused it - investigate and fix it. If a feature would improve the codebase, add it. Never dismiss anything as pre-existing."
+    pattern    = '\b(leav|left (it|as|the|that)|untouched|out of scope|as.?is|unrelated|not (address|fix|fixing|touch|implement|implementing|mine|worth|going to)|didn.?t (fix|address|touch|implement)|won.?t (fix|address|touch|implement)|ignore|ignoring|skipped|skipping|lives on (main|master)|predates).{0,100}pre.?existing\b'
+
+[[violation]]
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
     pattern    = 'not from my changes'
-    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
 
 [[violation]]
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
     pattern    = 'not my change'
-    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
 
 [[violation]]
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
     pattern    = 'not caused by my'
-    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
 
 [[violation]]
+    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
     pattern    = 'not introduced by my'
-    correction = "NOTHING IS PRE-EXISTING. You own every change. Investigate the failure."
 
 [[violation]]
-    pattern    = 'already existed before'
     correction = "NOTHING IS PRE-EXISTING. If you found it broken, fix it or explain exactly what is wrong and what the fix requires."
+    pattern    = 'already existed before'
 
 [[violation]]
-    pattern    = 'before my changes'
     correction = "NOTHING IS PRE-EXISTING. There is no 'before your changes', you own the codebase as it is now."
+    pattern    = 'before my changes'
 
 [[violation]]
-    pattern    = 'prior to my changes'
     correction = "NOTHING IS PRE-EXISTING. There is no 'prior to your changes.'"
+    pattern    = 'prior to my changes'
 
 [[violation]]
-    pattern    = 'unrelated to my changes'
     correction = "NOTHING IS PRE-EXISTING. If it is broken, fix it. If you broke it, fix it. Nothing is unrelated."
+    pattern    = 'unrelated to my changes'
 
 [[violation]]
-    pattern    = 'an existing issue'
     correction = "NOTHING IS PRE-EXISTING. Investigate and fix, or explain exactly what is wrong."
+    pattern    = 'an existing issue'
 
 [[violation]]
-    pattern    = 'existing bug'
     correction = "NOTHING IS PRE-EXISTING. Investigate and fix."
+    pattern    = 'existing bug'
 
-# =============================================================================
-# Known-limitation dodging.
-# =============================================================================
+    # =============================================================================
+    # Known-limitation dodging.
+    # =============================================================================
 
 [[violation]]
-    pattern    = 'known limitation'
     correction = "NO KNOWN LIMITATIONS (CLAUDE.md golden rule). Investigate whether it is fixable. Either fix it or explain the specific technical reason it cannot be fixed right now."
+    pattern    = 'known limitation'
 
 [[violation]]
-    pattern    = 'known issue'
     correction = "NO KNOWN LIMITATIONS. Explain the specific technical reason or fix it."
+    pattern    = 'known issue'
 
 [[violation]]
-    pattern    = 'future work'
     correction = "NO KNOWN LIMITATIONS. Fix it now or describe exactly what the fix requires, not as a TODO but as a technical explanation."
+    pattern    = 'future work'
 
 [[violation]]
-    pattern    = 'left as an exercise'
     correction = "NO KNOWN LIMITATIONS. Do the work."
+    pattern    = 'left as an exercise'
 
-# =============================================================================
-# Permission-seeking mid-task: if the only possible answer is "yes,
-# obviously, you haven't finished yet", don't ask.
-# =============================================================================
+    # =============================================================================
+    # Permission-seeking mid-task: if the only possible answer is "yes,
+    # obviously, you haven't finished yet", don't ask.
+    # =============================================================================
 
 [[violation]]
+    correction = "Do not ask. The task is not done. Continue working."
     pattern    = 'want to continue.*or '
-    correction = "Do not ask. The task is not done. Continue working."
 
 [[violation]]
+    correction = "Do not ask. The task is not done. Continue working."
     pattern    = 'or save it for'
-    correction = "Do not ask. The task is not done. Continue working."
 
 [[violation]]
-    pattern    = 'should I continue'
     correction = "Do not ask. If the task is not done, continue. The user will interrupt if they want you to stop."
+    pattern    = 'should I continue'
 
 [[violation]]
-    pattern    = 'shall I continue'
     correction = "Do not ask. Continue working until the task is complete."
+    pattern    = 'shall I continue'
 
 [[violation]]
-    pattern    = 'shall I proceed'
     correction = "Do not ask. Proceed."
+    pattern    = 'shall I proceed'
 
 [[violation]]
+    correction = "Do not ask. Continue."
     pattern    = 'would you like me to continue'
-    correction = "Do not ask. Continue."
 
 [[violation]]
+    correction = "Do not ask. Continue."
     pattern    = 'would you like to continue'
-    correction = "Do not ask. Continue."
 
 [[violation]]
+    correction = "Do not ask. Keep going."
     pattern    = 'want me to keep going'
-    correction = "Do not ask. Keep going."
 
 [[violation]]
-    pattern    = 'want me to continue'
     correction = "Do not ask. Continue."
+    pattern    = 'want me to continue'
 
 [[violation]]
-    pattern    = 'should I keep going'
     correction = "Do not ask. Keep going."
+    pattern    = 'should I keep going'
 
 [[violation]]
-    pattern    = 'save it for next time'
     correction = "There is no 'next time.' Sessions are unlimited. Continue working."
+    pattern    = 'save it for next time'
 
 [[violation]]
+    correction = "There is no 'next session.' This session is unlimited. Continue working."
     pattern    = 'in the next session'
-    correction = "There is no 'next session.' This session is unlimited. Continue working."
 
 [[violation]]
+    correction = "There is no 'next session.' This session is unlimited. Continue working."
     pattern    = 'next session'
-    correction = "There is no 'next session.' This session is unlimited. Continue working."
 
 [[violation]]
-    pattern    = 'next conversation'
     correction = "There is no 'next conversation.' Continue working."
+    pattern    = 'next conversation'
 
 [[violation]]
-    pattern    = 'pick this up later'
     correction = "There is no 'later.' Continue working now."
+    pattern    = 'pick this up later'
 
 [[violation]]
-    pattern    = 'come back to this'
     correction = "There is no 'coming back.' Continue working now."
+    pattern    = 'come back to this'
 
 [[violation]]
-    pattern    = 'continue in a follow-up'
     correction = "There is no 'follow-up.' Continue now."
+    pattern    = 'continue in a follow-up'
 
 [[violation]]
-    pattern    = 'pause here'
     correction = "Do not pause. The task is not done. Continue."
+    pattern    = 'pause here'
 
 [[violation]]
-    pattern    = 'stop here for now'
     correction = "Do not stop. The task is not done. Continue."
+    pattern    = 'stop here for now'
 
 [[violation]]
-    pattern    = 'wrap up for now'
     correction = "Do not wrap up. The task is not done. Continue."
+    pattern    = 'wrap up for now'
 
 [[violation]]
-    pattern    = 'call it here'
     correction = "Do not stop. Continue working."
+    pattern    = 'call it here'

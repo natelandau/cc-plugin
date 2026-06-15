@@ -18,22 +18,45 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _assistant_text_entry(text: str) -> dict[str, Any]:
-    """Build a JSONL entry representing an assistant text turn."""
+def _assistant_block_entry(block: dict[str, Any], message_id: str) -> dict[str, Any]:
+    """Build one JSONL line carrying a single content block.
+
+    Mirrors how Claude Code records transcripts: each content block of a
+    message is its own `type == "assistant"` line, all sharing one
+    `message.id`.
+    """
     return {
         "type": "assistant",
-        "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+        "message": {"id": message_id, "role": "assistant", "content": [block]},
     }
 
 
-def _assistant_tool_use_entry() -> dict[str, Any]:
-    """Build an assistant turn that contains only a tool_use block (no text)."""
+def _assistant_text_entry(text: str, message_id: str = "msg-default") -> dict[str, Any]:
+    """Build a single-text-block assistant line (the common case)."""
+    return _assistant_block_entry({"type": "text", "text": text}, message_id)
+
+
+def _assistant_message(blocks: list[dict[str, Any]], message_id: str) -> list[dict[str, Any]]:
+    """Build the per-block JSONL lines for one assistant message.
+
+    Returns one entry per block, all sharing `message_id`, so tests can
+    reproduce a message split across multiple transcript lines.
+    """
+    return [_assistant_block_entry(block, message_id) for block in blocks]
+
+
+def _assistant_tool_use_entry(message_id: str = "msg-tool") -> dict[str, Any]:
+    """Build an assistant line that carries only a tool_use block (no text)."""
+    return _assistant_block_entry(
+        {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}, message_id
+    )
+
+
+def _tool_result_entry() -> dict[str, Any]:
+    """Build a tool-result user line (list content, not a human message)."""
     return {
-        "type": "assistant",
-        "message": {
-            "role": "assistant",
-            "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}],
-        },
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "tool_result", "content": "ok"}]},
     }
 
 
@@ -93,6 +116,22 @@ CASES: tuple[Case, ...] = (
         correction_substring="NOTHING IS PRE-EXISTING",
     ),
     Case(
+        # "pre-existing" with ownership taken (a fix) is not a dodge.
+        id="pre-existing mention without inaction: no block",
+        entries=[_assistant_text_entry("I fixed the pre-existing lint error; the suite is green.")],
+        expect_block=False,
+    ),
+    Case(
+        # Meta-discussion of the rule itself must not trip the rule.
+        id="discussing the pre-existing rule: no block",
+        entries=[
+            _assistant_text_entry(
+                "The bare `pre-existing` pattern was too broad and matched ordinary prose."
+            )
+        ],
+        expect_block=False,
+    ),
+    Case(
         id="known limitation dodge blocked",
         entries=[
             _assistant_text_entry("This is a known limitation of the parser; not addressing."),
@@ -133,7 +172,7 @@ CASES: tuple[Case, ...] = (
     Case(
         id="walks back past trailing user entry to find last assistant text",
         entries=[
-            _assistant_text_entry("This is pre-existing."),
+            _assistant_text_entry("This is pre-existing, so I left it untouched."),
             _user_entry("ok"),
         ],
         expect_block=True,
@@ -148,22 +187,44 @@ CASES: tuple[Case, ...] = (
         expect_block=False,
     ),
     Case(
-        id="multi-block text concatenated",
-        entries=[
-            {
-                "type": "assistant",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "First part is fine. "},
-                        {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
-                        {"type": "text", "text": "But this is pre-existing."},
-                    ],
+        # Real Claude Code shape: one message split across per-block lines.
+        # The violation sits in an earlier text block; reading only the
+        # final block would miss it.
+        id="message split across lines: earlier text block still scanned",
+        entries=_assistant_message(
+            [
+                {"type": "thinking", "thinking": "internal reasoning"},
+                {
+                    "type": "text",
+                    "text": "This failure is pre-existing, so I am leaving it untouched.",
                 },
-            },
-        ],
+                {"type": "text", "text": "All wrapped up; ready for your review."},
+            ],
+            message_id="msg-split",
+        ),
         expect_block=True,
         correction_substring="NOTHING IS PRE-EXISTING",
+    ),
+    Case(
+        # "Final message only" scope: a violation in an earlier message of
+        # the same turn (before a tool call) is not re-flagged once a clean
+        # closing message follows.
+        id="violation in earlier message (different id) is not scanned",
+        entries=[
+            *_assistant_message(
+                [
+                    {"type": "text", "text": "This failure is pre-existing, leaving it untouched."},
+                    {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
+                ],
+                message_id="msg-1",
+            ),
+            _tool_result_entry(),
+            *_assistant_message(
+                [{"type": "text", "text": "All done; tests pass. Ready for review."}],
+                message_id="msg-2",
+            ),
+        ],
+        expect_block=False,
     ),
     Case(
         id="empty transcript file: no block",
@@ -178,7 +239,7 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         id="multiple violations: first match wins (ordering)",
-        entries=[_assistant_text_entry("This failure is pre-existing. Should I continue?")],
+        entries=[_assistant_text_entry("This is pre-existing, not fixing it. Should I continue?")],
         expect_block=True,
         correction_substring="NOTHING IS PRE-EXISTING",
     ),

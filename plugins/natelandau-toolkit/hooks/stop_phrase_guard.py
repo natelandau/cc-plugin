@@ -19,6 +19,14 @@ assistant turn must be recovered by tailing `transcript_path`. Any
 code reaching for `last_assistant_message` will silently see an empty
 string and never fire.
 
+Claude Code writes one JSONL line per content block, so a single
+assistant message (one `message.id`) spans several consecutive
+`type == "assistant"` lines (thinking, text, tool_use, ...). Reading
+only the final line would inspect just the last block and miss a
+violation in an earlier text block of the same message. The scan
+therefore reconstructs the most recent assistant *message* by
+concatenating the text of every line sharing its `message.id`.
+
 Violation data lives in `stop_phrase_guard.rules.toml` next to this
 file; the script loads it on every invocation. Edit that file to add,
 remove, or tune a phrase.
@@ -116,20 +124,50 @@ def _load_violations(path: Path) -> tuple[tuple[re.Pattern[str], Violation], ...
     return tuple(compiled)
 
 
-def _last_assistant_text(transcript_path: str) -> str:
-    """Return the concatenated text of the most recent assistant turn.
+def _entry_text(entry: dict[str, Any]) -> str:
+    """Concatenate the text of every `text` block in one transcript entry.
 
-    Each line of the transcript is a JSON object. Assistant turns have
-    `type == "assistant"` at the top level and `message.content` as a
-    list of blocks; we concatenate `text` from every block whose `type`
-    is `text` (skipping `tool_use` blocks).
+    Non-text blocks (`thinking`, `tool_use`) carry no `text` field and
+    contribute nothing. Returns "" for non-assistant entries or entries
+    whose `message.content` is not a block list.
+    """
+    if entry.get("type") != "assistant":
+        return ""
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        block.get("text", "")
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
+def _last_assistant_message_text(transcript_path: str) -> str:
+    """Return the full text of the most recent assistant message.
+
+    Claude Code writes one JSONL line per content block, so a single
+    assistant message is split across several consecutive
+    `type == "assistant"` lines sharing one `message.id`. Collect every
+    text-bearing assistant line in transcript order, then concatenate
+    those that share the final line's `message.id` so the scan sees the
+    whole closing message rather than just its last block.
+
+    Legacy or synthetic transcripts may omit `message.id`; in that case
+    fall back to the final text-bearing line alone, since there is no id
+    to group on.
     """
     try:
         raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
 
-    for raw_line in reversed(raw.splitlines()):
+    # (message.id, text) for each assistant line that carried any text.
+    blocks: list[tuple[object, str]] = []
+    for raw_line in raw.splitlines():
         line = raw_line.strip()
         if not line:
             continue
@@ -137,20 +175,22 @@ def _last_assistant_text(transcript_path: str) -> str:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if entry.get("type") != "assistant":
-            continue
-        content = entry.get("message", {}).get("content")
-        if not isinstance(content, list):
-            continue
-        text_parts = [
-            block.get("text", "")
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        ]
-        text = "".join(text_parts).strip()
-        if text:
-            return text
-    return ""
+        text = _entry_text(entry)
+        if text.strip():
+            message = entry.get("message", {})
+            blocks.append((message.get("id"), text))
+
+    if not blocks:
+        return ""
+
+    last_id = blocks[-1][0]
+    if last_id is None:
+        return blocks[-1][1].strip()
+
+    # message.id is unique per message, so filtering the whole list by it
+    # is equivalent to taking the final contiguous run of that message.
+    parts = [text for mid, text in blocks if mid == last_id]
+    return "\n".join(part.strip() for part in parts).strip()
 
 
 def find_violation(
@@ -178,7 +218,7 @@ def main() -> None:
     if not transcript_path:
         sys.exit(0)
 
-    text = _last_assistant_text(transcript_path)
+    text = _last_assistant_message_text(transcript_path)
     if not text:
         sys.exit(0)
 
