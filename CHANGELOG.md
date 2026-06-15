@@ -1,3 +1,9 @@
+## v0.5.1 (2026-06-14)
+
+### Fix
+
+- **skills**: allow model invocation
+
 ## v0.5.0 (2026-06-02)
 
 ### Feat
