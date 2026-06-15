@@ -1,3 +1,9 @@
+## v0.5.2 (2026-06-15)
+
+### Fix
+
+- **hooks**: fire stop-phrase guard on split messages and real dodges
+
 ## v0.5.1 (2026-06-14)
 
 ### Fix
