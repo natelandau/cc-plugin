@@ -1,3 +1,10 @@
+## v0.6.0 (2026-06-16)
+
+### Feat
+
+- **skills**: add /pr command to open a pull request for a branch
+- **skills**: add /squash command to land a branch as one commit
+
 ## v0.5.2 (2026-06-15)
 
 ### Fix
