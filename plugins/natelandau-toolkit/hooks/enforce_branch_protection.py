@@ -168,6 +168,24 @@ def _resolve_dir(path: str) -> Path | None:
     return dir_path if dir_path.is_dir() else None
 
 
+def _is_git_ignored(file_path: str) -> bool:
+    """Return True when git ignores file_path, so edits to it are allowed.
+
+    Branch protection exists to keep the protected branch's *tracked*
+    history clean. A gitignored path is never committed, so modifying it
+    while on main/master cannot affect that history; such edits pass
+    through. `git check-ignore` prints the path when ignored and nothing
+    otherwise, and works for paths that do not exist yet (e.g. a Write
+    creating a new file). A file that is force-tracked yet also matches an
+    ignore pattern is reported ignored here, but the commit guard still
+    blocks committing it to the protected branch, so no bad history lands.
+    """
+    target_dir = _resolve_dir(file_path)
+    if not target_dir:
+        return False
+    return bool(_run_git("check-ignore", str(Path(file_path).resolve()), cwd=str(target_dir)))
+
+
 def _split_compound(command: str) -> list[str]:
     """Split a compound bash command on &&, ||, and ;."""
     return re.split(COMPOUND_SPLIT, command)
@@ -325,6 +343,18 @@ def _targets_only_tmp(command: str) -> bool:
     return True
 
 
+def _check_file_tool(tool_input: dict[str, Any], branch: str) -> str | None:
+    """Return a block reason for an Edit/Write/NotebookEdit, or None to allow.
+
+    Gitignored targets pass through (see `_is_git_ignored`); everything else
+    on a protected branch is blocked.
+    """
+    file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+    if file_path and _is_git_ignored(file_path):
+        return None
+    return f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+
+
 def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
     """Return a block reason if the action is forbidden on the protected branch."""
     tool_name: str = data.get("tool_name", "")
@@ -332,7 +362,7 @@ def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
     cwd: str = data.get("cwd", "")
 
     if tool_name in ("Edit", "Write", "NotebookEdit"):
-        return f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+        return _check_file_tool(tool_input, branch)
 
     if tool_name != "Bash":
         return None

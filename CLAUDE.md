@@ -120,6 +120,13 @@ Blocks destructive git ops on any branch and file modifications on
   `.worktrees/<branch>/` while the parent repo is on `master` works.
 - In-progress squash merges allow `git commit` on a protected branch.
 - `/tmp/*`-only file ops pass through.
+- Gitignored targets of `Edit`/`Write`/`NotebookEdit` pass through
+  (`_is_git_ignored`, via `git check-ignore`): a gitignored file is never
+  committed, so editing it on `main`/`master` cannot affect tracked
+  history. This covers `Edit`/`Write`/`NotebookEdit` only, not Bash
+  file-mod commands. A force-tracked file that also matches an ignore
+  pattern is treated as ignored here, but the separate commit guard still
+  blocks committing it to the protected branch.
 
 Rule data is two in-script tuples (`DESTRUCTIVE_RULES`,
 `PROTECTED_FILE_MOD_RULES`). Kept in-script rather than TOML because

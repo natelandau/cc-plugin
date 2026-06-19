@@ -56,6 +56,11 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
             capture_output=True,
             env=_CLEAN_GIT_ENV,
         )
+    # A .gitignore in the master repo lets branch-protection tests exercise
+    # the gitignored-file bypass. check-ignore reads the working-tree file,
+    # so it need not be committed. Patterns chosen to not collide with the
+    # foo.py / foo.ipynb paths other cases use.
+    (master / ".gitignore").write_text("*.ignored\nignored_dir/\n", encoding="utf-8")
     outside = root / "outside"
     outside.mkdir()
     return {"master": str(master), "feat": str(feat), "outside": str(outside)}

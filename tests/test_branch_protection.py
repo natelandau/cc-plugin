@@ -96,6 +96,23 @@ CASES: tuple[Case, ...] = (
         make_payload=lambda r: _edit(f"{r['feat']}/foo.py"),
         expect_exit=0,
     ),
+    # Gitignored paths are never part of trunk history, so editing them on
+    # a protected branch is allowed even though the branch is protected.
+    Case(
+        id="edit gitignored file on master allowed",
+        make_payload=lambda r: _edit(f"{r['master']}/notes.ignored"),
+        expect_exit=0,
+    ),
+    Case(
+        id="write new file in gitignored dir on master allowed",
+        make_payload=lambda r: _write(f"{r['master']}/ignored_dir/new.txt"),
+        expect_exit=0,
+    ),
+    Case(
+        id="notebook gitignored on master allowed",
+        make_payload=lambda r: _notebook(f"{r['master']}/ignored_dir/nb.ipynb"),
+        expect_exit=0,
+    ),
     # Destructive git commands (any branch)
     Case(
         id="git push --force blocked on feat",
