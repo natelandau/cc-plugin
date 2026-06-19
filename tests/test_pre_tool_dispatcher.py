@@ -84,7 +84,7 @@ def test_disabled_hook_not_run(hooks_dir: Path, tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def dispatcher(hooks_dir: Path) -> Generator[ModuleType, None, None]:
+def dispatcher(hooks_dir: Path) -> Generator[ModuleType]:
     """Load pre_tool_dispatcher in-process with hooks_dir on sys.path."""
     sys.path.insert(0, str(hooks_dir))
     spec = importlib.util.spec_from_file_location(

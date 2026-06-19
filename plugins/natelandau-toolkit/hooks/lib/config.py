@@ -11,7 +11,10 @@ is swallowed so a broken config never blocks tool execution.
 import os
 import sys
 import tomllib
-from collections.abc import Mapping
+
+# Mapping is referenced in a runtime-evaluated dataclass annotation, so it must
+# stay a runtime import; TC003 would wrongly relocate it to a TYPE_CHECKING block.
+from collections.abc import Mapping  # noqa: TC003
 from dataclasses import dataclass
 from pathlib import Path
 

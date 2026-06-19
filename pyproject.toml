@@ -1,7 +1,7 @@
 [project]
     description     = "Dev tooling for the natelandau-toolkit Claude Code plugin."
     name            = "natelandau-toolkit"
-    requires-python = ">=3.12"
+    requires-python = ">=3.14"
     version         = "0.6.1"
 
 [dependency-groups]
@@ -37,7 +37,7 @@
     line-length    = 100
     output-format  = "grouped"
     src            = ["hooks", "tests"]
-    target-version = "py312"
+    target-version = "py314"
 
     [tool.ruff.lint]
         ignore = [
