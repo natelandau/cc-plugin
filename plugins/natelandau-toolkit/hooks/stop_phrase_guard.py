@@ -210,7 +210,7 @@ def main() -> None:
     """Entry point for the Stop hook."""
     try:
         data: dict[str, Any] = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    except json.JSONDecodeError, EOFError:
         sys.exit(0)
 
     # Already fired once this turn; let the assistant stop to avoid loops.

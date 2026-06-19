@@ -153,7 +153,7 @@ def _run_git(*args: str, cwd: str | None = None) -> str:
             cmd, capture_output=True, text=True, timeout=5, check=False
         )
         return result.stdout.strip()
-    except (subprocess.SubprocessError, FileNotFoundError):
+    except subprocess.SubprocessError, FileNotFoundError:
         return ""
 
 

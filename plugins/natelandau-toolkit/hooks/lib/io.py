@@ -31,7 +31,7 @@ def read_payload() -> dict[str, Any]:
     """
     try:
         data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError, ValueError):
+    except json.JSONDecodeError, EOFError, ValueError:
         return {}
     return data if isinstance(data, dict) else {}
 
