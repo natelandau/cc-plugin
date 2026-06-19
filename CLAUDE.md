@@ -255,16 +255,44 @@ Claude Code plugins reference.
   No third-party dependencies.
 - All scripts must be executable (`chmod +x`). git tracks the mode bit;
   preserve it when copying.
-- Read JSON from stdin via `json.load(sys.stdin)`. Field names are
-  `tool_name`, `tool_input`, `cwd`, `transcript_path`,
-  `stop_hook_active`, etc., per the hooks reference. **Not** `tool` or
-  `parameters`. A hook keyed on those names silently does nothing.
+- Read JSON from stdin via `lib.io.read_payload()` (every event, Stop
+  included), not a bare `json.load(sys.stdin)`. It caps the read at
+  `MAX_STDIN_BYTES` and fails open to `{}` on malformed, oversized, or
+  non-object input. Field names are `tool_name`, `tool_input`, `cwd`,
+  `transcript_path`, `stop_hook_active`, etc., per the hooks reference.
+  **Not** `tool` or `parameters`. A hook keyed on those names silently
+  does nothing.
 - Exit code semantics:
     - `0` = allow, optionally with stdout text printed as advisory
     - `2` = block, with stderr text fed back to the model
     - other = non-blocking error, first stderr line shown in transcript
 - For block decisions on Stop / PostToolUse / etc., emit
   `{"decision":"block","reason":"..."}` JSON to stdout with exit 0.
+
+#### Input-hardening conventions
+
+Adopt these when authoring or extending a hook:
+
+- **Fail open on the hook's _own_ failure.** A hook must never wedge a
+  tool call because its input was unreadable or a state file was
+  unwritable. The dispatcher already swallows per-check exceptions (exit
+  0); `read_payload()` returns `{}` rather than raising. Preserve this.
+- **Bound untrusted input.** `read_payload()` already caps stdin; any new
+  hook that reads a file (transcript, state) should likewise read
+  defensively rather than slurping unboundedly. The per-hook `timeout` in
+  `hooks.json` is the primary guard against a runaway stream.
+- **`lstat`, not `exists`, for "was this here before I touched it"
+  checks.** A symlink-following `.exists()` can be fooled when the gate is
+  "allow first-time creation, block modification" (e.g. a future
+  `config-protection` hook). `enforce_branch_protection`'s `SQUASH_MSG`
+  check intentionally uses follow-symlink `.exists()` because it asks "is
+  a squash in progress", which is the opposite question.
+- **Debouncing advisory output across invocations is deferred.** Re-emit
+  suppression keyed on the message signature (so an ignored nudge does not
+  re-fire every turn) needs per-session state, which we have deliberately
+  not built (no metrics-bridge / state-file substrate yet). Until that
+  lands, keep advisory hooks idempotent and cheap; do not fake debouncing
+  with a per-process counter.
 
 ### Rule data
 

@@ -467,6 +467,33 @@ CASES: tuple[Case, ...] = (
         payload=_bash('git commit -m "feat: add foo" && gh pr create --title "Bad title"'),
         expect_exit=0,
     ),
+    # Tokenization hardening (§1.5): the -m value must be extracted from
+    # combined, multi-flag, zero-space, and `--message=` forms. Each uses a
+    # subject that violates (uppercase) so a block proves extraction fired.
+    Case(
+        id="git commit -am extracts message (combined flags)",
+        payload=_bash('git commit -am "feat: Add thing"'),
+        expect_exit=2,
+        stderr_contains=("subject-uppercase",),
+    ),
+    Case(
+        id="git commit -sm extracts message (signoff + message)",
+        payload=_bash('git commit -sm "feat: Add thing"'),
+        expect_exit=2,
+        stderr_contains=("subject-uppercase",),
+    ),
+    Case(
+        id="git commit -m with no space extracts message",
+        payload=_bash('git commit -m"feat: Add thing"'),
+        expect_exit=2,
+        stderr_contains=("subject-uppercase",),
+    ),
+    Case(
+        id="git commit --message= extracts message",
+        payload=_bash('git commit --message="feat: Add thing"'),
+        expect_exit=2,
+        stderr_contains=("subject-uppercase",),
+    ),
 )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import io as _io
 import json
 import subprocess
 import sys
@@ -71,6 +72,59 @@ def test_emit_block_writes_stderr_exit_2(hooks_dir: Path, capsys) -> None:
     with pytest_raises_systemexit(2):
         io.emit_block("BLOCKED: nope")
     assert "BLOCKED: nope" in capsys.readouterr().err
+
+
+def test_read_payload_valid_object(hooks_dir: Path, monkeypatch) -> None:
+    """Verify read_payload parses a well-formed JSON object from stdin."""
+    # Given a valid JSON object on stdin
+    io = _load_io(hooks_dir)
+    monkeypatch.setattr(io.sys, "stdin", _io.StringIO('{"tool_name": "Bash"}'))
+
+    # When reading the payload
+    result = io.read_payload()
+
+    # Then the parsed dict is returned
+    assert result == {"tool_name": "Bash"}
+
+
+def test_read_payload_malformed_returns_empty(hooks_dir: Path, monkeypatch) -> None:
+    """Verify read_payload returns {} on truncated/invalid JSON instead of crashing."""
+    # Given malformed JSON on stdin
+    io = _load_io(hooks_dir)
+    monkeypatch.setattr(io.sys, "stdin", _io.StringIO('{"tool_name": '))
+
+    # When reading the payload
+    result = io.read_payload()
+
+    # Then it fails open to an empty dict
+    assert result == {}
+
+
+def test_read_payload_non_object_returns_empty(hooks_dir: Path, monkeypatch) -> None:
+    """Verify read_payload rejects a valid-but-non-object JSON value."""
+    # Given a JSON array (not an object) on stdin
+    io = _load_io(hooks_dir)
+    monkeypatch.setattr(io.sys, "stdin", _io.StringIO("[1, 2, 3]"))
+
+    # When reading the payload
+    result = io.read_payload()
+
+    # Then it fails open to an empty dict
+    assert result == {}
+
+
+def test_read_payload_oversized_returns_empty(hooks_dir: Path, monkeypatch) -> None:
+    """Verify read_payload rejects input past the cap even when it would parse."""
+    # Given a tiny cap and an otherwise-valid object that exceeds it
+    io = _load_io(hooks_dir)
+    monkeypatch.setattr(io, "MAX_STDIN_BYTES", 10)
+    monkeypatch.setattr(io.sys, "stdin", _io.StringIO('{"a": "bbbbbbbbbbbbbbbbb"}'))
+
+    # When reading the payload
+    result = io.read_payload()
+
+    # Then the oversized stream is refused rather than partially parsed
+    assert result == {}
 
 
 def test_lib_import_spike(hooks_dir: Path) -> None:

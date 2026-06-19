@@ -727,6 +727,38 @@ CASES: tuple[Case, ...] = (
         payload=_bash("rmdir foo"),
         expect_exit=0,
     ),
+    # Tokenization hardening (§1.5): combined, reordered, separated, and
+    # end-of-options flag forms must all still resolve to the same target.
+    Case(
+        id="rm -fr ~ blocked (reordered short flags)",
+        payload=_bash("rm -fr ~"),
+        expect_exit=2,
+        stderr_contains=("rm-home",),
+    ),
+    Case(
+        id="rm -r -f ~ blocked (separated short flags)",
+        payload=_bash("rm -r -f ~"),
+        expect_exit=2,
+        stderr_contains=("rm-home",),
+    ),
+    Case(
+        id="rm --recursive --force ~ blocked (long flags)",
+        payload=_bash("rm --recursive --force ~"),
+        expect_exit=2,
+        stderr_contains=("rm-home",),
+    ),
+    Case(
+        id="rm -rf -- ~ blocked (end-of-options marker)",
+        payload=_bash("rm -rf -- ~"),
+        expect_exit=2,
+        stderr_contains=("rm-home",),
+    ),
+    Case(
+        id="rm -fr /usr blocked (reordered flags, system dir)",
+        payload=_bash("rm -fr /usr"),
+        expect_exit=2,
+        stderr_contains=("rm-system",),
+    ),
 )
 
 

@@ -7,6 +7,16 @@ import sys
 from dataclasses import dataclass
 from typing import Any, NoReturn
 
+# Upper bound on stdin we will parse. Sized generously so legitimate large
+# payloads (e.g. a `Write` carrying a sizable file `content`) are still
+# inspected by the guards, while a pathological or truncated stream cannot
+# be read unbounded into memory. The dispatcher's per-hook `timeout` in
+# hooks.json is the primary guard against a never-ending stream; this cap
+# is a memory backstop. Oversized input fails open (returns {}, "nothing to
+# act on") to honor the never-crash contract; the cap is far above any real
+# tool payload, so only malformed input reaches it.
+MAX_STDIN_BYTES = 10 * 1024 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class Decision:
@@ -26,12 +36,20 @@ class Decision:
 def read_payload() -> dict[str, Any]:
     """Parse the hook JSON payload from stdin, or return {} on any error.
 
-    Hooks must never crash on malformed input; an unreadable payload is
-    treated as "nothing to act on".
+    Hooks must never crash on malformed input; an unreadable, oversized, or
+    non-object payload is treated as "nothing to act on". Reads at most
+    `MAX_STDIN_BYTES + 1` characters so a truncated or runaway stream is
+    rejected outright rather than parsed into a possibly-misleading partial.
     """
     try:
-        data = json.load(sys.stdin)
-    except json.JSONDecodeError, EOFError, ValueError:
+        raw = sys.stdin.read(MAX_STDIN_BYTES + 1)
+    except OSError, ValueError, UnicodeDecodeError:
+        return {}
+    if len(raw) > MAX_STDIN_BYTES:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError, ValueError:
         return {}
     return data if isinstance(data, dict) else {}
 

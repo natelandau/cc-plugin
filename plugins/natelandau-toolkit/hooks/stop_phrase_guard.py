@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from lib.config import load_config
+from lib.io import read_payload
 from lib.registry import hook_enabled
 
 if TYPE_CHECKING:
@@ -208,10 +209,9 @@ def find_violation(
 
 def main() -> None:
     """Entry point for the Stop hook."""
-    try:
-        data: dict[str, Any] = json.load(sys.stdin)
-    except json.JSONDecodeError, EOFError:
-        sys.exit(0)
+    # Shared capped reader: bounds stdin and fails open to {} on malformed,
+    # oversized, or non-object input (the guards below then no-op via .get()).
+    data: dict[str, Any] = read_payload()
 
     # Already fired once this turn; let the assistant stop to avoid loops.
     if data.get("stop_hook_active"):
