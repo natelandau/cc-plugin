@@ -33,6 +33,8 @@ HOOK_PROFILES: dict[str, frozenset[str]] = {
     "protect-system": ALL,
     "commit-message": STANDARD_UP,
     "use-uv": STANDARD_UP,
+    # stop-phrase-guard is a Stop hook, not dispatched here; its tier
+    # membership lives in this table only so profile docs stay complete.
     "stop-phrase-guard": ALL,
 }
 
