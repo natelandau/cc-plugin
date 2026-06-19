@@ -1,41 +1,71 @@
 # natelandau-toolkit
 
-A personal Claude Code plugin that bundles my hooks, skills, and slash
-commands into a single installable package.
+A personal Claude Code plugin bundling one developer's hooks, skills, and
+slash commands into a single installable package.
 
-> **Personal use only.** This plugin is published openly so it can be
-> installed by Claude Code, but it is tuned to one developer's workflow,
-> opinions, and habits. It is not a general-purpose toolkit. The hooks
-> enforce rules that may surprise you, the skills assume specific tooling
-> (uv, ruff, ty, pytest), and the stop-phrase guard reflects personal
-> preferences about how Claude should communicate. Fork it if any of that
-> is useful, but don't expect support, backwards compatibility, or
-> stability.
+> **Personal use only.** This plugin is published openly so Claude Code can
+> install it, but it's tuned to one person's workflow and tooling (uv, ruff,
+> ty, pytest). The hooks enforce opinionated rules and the stop-phrase guard
+> reflects personal preferences. Fork what's useful, but expect no support,
+> stability, or backwards compatibility.
 
 ## What's inside
 
-- **Hooks** that block destructive git commands, protect `main`/`master`
-  from edits, nudge Claude toward `uv run`, and stop the assistant from
-  emitting specific phrases.
-- **Skills** for Python, Bash, git, inline comments, refactoring, and
-  documentation writing. Framework-specific skills (Flask, htmx,
-  daisyUI, Tortoise ORM, GitHub Actions triage) are
-  manual-only, invoked with `/<skill-name>`.
-- **Slash commands**, currently just `/create-prd` for turning
-  conversation context into a Product Requirements Document.
+The plugin ships three kinds of component: hooks that run automatically, skills
+Claude loads when relevant, and slash commands you invoke by name.
+
+### Hooks
+
+Hooks run automatically on Claude's tool calls. Most block a risky action and
+explain why; the uv nudge is advisory. See [Configuration](#configuration) to
+tune or disable them.
+
+- Branch protection blocks destructive git operations and edits to
+  `main`/`master`.
+- Secret protection blocks reading, editing, or exfiltrating sensitive files.
+- System protection blocks system-destructive shell commands.
+- Commit-message validation holds `git commit` and `gh pr` titles to
+  conventional-commit format.
+- The uv nudge suggests `uv run` when it sees a bare `python`, `pip`, `pytest`,
+  or `ruff` call.
+- The stop-phrase guard stops Claude from ending a turn with certain filler
+  phrases.
+
+### Skills Claude loads on its own
+
+Claude pulls these in when the task matches, no action needed:
+
+- `documentation-writer` for writing and editing user-facing docs.
+- `python-refactor` for restructuring Python without changing behavior.
+- `flask-development` for building Flask 3+ apps.
+- `htmx-expert` for writing and debugging htmx.
+- `nclutils` for code that uses the `nclutils` library.
+- `tufte-viz` for critiquing data visualizations against Tufte's principles.
+
+### Slash commands you invoke
+
+Type these yourself when you want them:
+
+- `/pr` commits outstanding work, runs the tests, pushes the branch, and opens
+  a pull request.
+- `/squash` collapses a finished branch into one commit on `main`, then cleans
+  up the branch.
+- `/gha` investigates a GitHub Actions failure and suggests a fix.
+- `/create-prd` turns the conversation into a Product Requirements Document.
+- `/daisyui` for building UIs with daisyUI v5 and Tailwind.
+- `/tortoise-orm` for building apps with Tortoise ORM.
 
 ## Requirements
 
 - Claude Code with plugin support
-- Python 3.12 or newer (for running and testing the hook scripts)
-- [uv](https://docs.astral.sh/uv/) for dependency and script management
+- [uv](https://docs.astral.sh/uv/), which runs the hook scripts and provisions
+  the Python version each one needs
 - Git
 
 ## Installation
 
-This is a Claude Code plugin, so install it through Claude Code itself
-rather than copying files into `~/.claude/`. Run these commands inside
-Claude Code:
+Install through Claude Code rather than copying files into `~/.claude/`. Run
+these inside Claude Code:
 
 1. Add this repository as a marketplace:
 
@@ -43,27 +73,23 @@ Claude Code:
    /plugin marketplace add natelandau/cc-plugin
    ```
 
-2. Install the plugin from that marketplace:
+2. Install the plugin:
 
    ```
    /plugin install natelandau-toolkit@natelandau-cc-plugin
    ```
 
-3. Reload plugins so the hooks, skills, and commands activate without
-   restarting:
+3. Reload so the hooks, skills, and commands activate without a restart:
 
    ```
    /reload-plugins
    ```
 
-The plugin installs to user scope by default, so it's available across
-all your projects. To pick a different scope or browse interactively,
-run `/plugin` and use the **Discover** and **Installed** tabs.
+The plugin installs to user scope, so it's available across all your projects.
+To pick a different scope or browse interactively, run `/plugin` and use the
+**Discover** and **Installed** tabs.
 
-### Managing the plugin later
-
-Use these commands to disable, re-enable, or remove the plugin without
-touching the marketplace:
+To disable, re-enable, or remove it later:
 
 ```
 /plugin disable natelandau-toolkit@natelandau-cc-plugin
@@ -71,31 +97,18 @@ touching the marketplace:
 /plugin uninstall natelandau-toolkit@natelandau-cc-plugin
 ```
 
-To refresh the marketplace after upstream changes, run
-`/plugin marketplace update natelandau-cc-plugin`. To remove the
-marketplace entirely (which also uninstalls the plugin), run
-`/plugin marketplace remove natelandau-cc-plugin`.
+## Configuration
 
-### How install paths resolve
-
-When the plugin is enabled, Claude Code clones the repo into
-`~/.claude/plugins/...` and sets `CLAUDE_PLUGIN_ROOT` to that path. All
-hook commands in `hooks/hooks.json` reference scripts via
-`${CLAUDE_PLUGIN_ROOT}/...` so they resolve correctly regardless of
-install location.
-
-## Configuring the hooks
-
-The hooks work without any setup. To change which hooks run or how strict
-they are, add a config file. Settings load from two locations, and the
-project file overrides the global one key by key:
+The hooks work without any setup. To change which hooks run or how strict they
+are, add a config file. Settings load from two locations, and the project file
+overrides the global one key by key:
 
 - Global: `~/.claude/natelandau-toolkit.toml`
 - Per-project: `<project>/.claude/natelandau-toolkit.toml`
 
-Copy `plugins/natelandau-toolkit/hooks/natelandau-toolkit.toml.example`
-to either path and edit it. Every key is optional, and an absent file
-uses the defaults described below.
+Copy `plugins/natelandau-toolkit/hooks/natelandau-toolkit.toml.example` to
+either path and edit it. Every key is optional, and an absent file uses the
+defaults below.
 
 ### Pick a profile
 
@@ -104,7 +117,7 @@ The `profile` key selects which tier of hooks runs:
 | Profile    | Hooks that run                                                              |
 | ---------- | -------------------------------------------------------------------------- |
 | `minimal`  | branch protection, secret protection, system protection, stop-phrase guard |
-| `standard` | everything in `minimal`, plus commit-message validation and the `uv` nudge |
+| `standard` | everything in `minimal`, plus commit-message validation and the uv nudge   |
 | `strict`   | same as `standard` (reserved for future additions)                         |
 
 `standard` is the default. To run only the safety hooks:
@@ -123,8 +136,8 @@ disabled_hooks = ["use-uv", "commit-message"]
 
 ### Tune hook strictness
 
-The `protect-system` and `protect-secrets` hooks take a `level` that
-controls how much they block. The levels run from loosest to strictest:
+The `protect-system` and `protect-secrets` hooks take a `level` that controls
+how much they block, from loosest to strictest:
 
 - `critical` blocks only catastrophic, unrecoverable operations.
 - `high` (the default) adds significant-risk operations.
@@ -140,64 +153,8 @@ level = "strict"
 level = "critical"
 ```
 
-## Development
-
-Clone the repo and install the dev dependencies with uv:
-
-```bash
-git clone <this-repo> cc-plugin
-cd cc-plugin
-uv sync
-```
-
-### Running tests
-
-The hooks have a pytest suite. Run the full suite or a single file:
-
-```bash
-uv run pytest
-uv run pytest tests/test_branch_protection.py
-```
-
-Hook paths resolve through a session-scoped fixture in
-`tests/conftest.py`, so tests run from any cwd.
-
-### Linting and formatting
-
-```bash
-uv run ruff check
-uv run ruff format
-uv run ty check
-```
-
-These run automatically via `prek` (the dev pre-commit runner) on
-commit, but you can run them manually too.
-
-### Project layout
-
-```
-.claude-plugin/marketplace.json                       Marketplace catalog
-plugins/natelandau-toolkit/.claude-plugin/plugin.json Plugin manifest
-plugins/natelandau-toolkit/hooks/hooks.json           Event registration
-plugins/natelandau-toolkit/hooks/pre_tool_dispatcher.py  Unified PreToolUse entry point
-plugins/natelandau-toolkit/hooks/*.py                 Hook modules (uv run --script)
-plugins/natelandau-toolkit/hooks/lib/                 Shared config, I/O, and registry code
-plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand skill content
-plugins/natelandau-toolkit/commands/<name>.md         Slash commands
-plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions (currently empty)
-tests/test_*.py                                       Pytest suite for the hooks
-```
-
-### Adding a hook, skill, or command
-
-`CLAUDE.md` documents the conventions for each component type, including
-the exit-code semantics for hooks, the required frontmatter fields for
-skills, and the pytest case structure used in `tests/`. Read it before
-adding anything new.
-
 ## License
 
-Released under the [MIT License](LICENSE). The license is permissive,
-but the personal-use caveat above still applies in spirit: you're
-welcome to fork or borrow code, just don't expect this repo to behave
-like a maintained product.
+Released under the [MIT License](LICENSE). You're welcome to fork or borrow
+code, but the personal-use caveat above still applies in spirit: don't expect
+this repo to behave like a maintained product.
