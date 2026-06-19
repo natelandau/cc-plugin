@@ -280,6 +280,12 @@ do not introduce dispatch indirection.
 ### Style (applies to every component type)
 
 - Run `ruff check`, `ruff format`, and `ty check` after editing any python file.
+- Ruff targets `py314` (matching `requires-python`), so `ruff format`
+  drops the parentheses around multi-exception `except` clauses per
+  PEP 758: `except (A, B):` becomes `except A, B:`. This is valid,
+  intentional Python 3.14 syntax, not the Python 2 `except E, name:`
+  bug it resembles. Do not "fix" it back to parentheses; ruff will just
+  strip them again on the next format.
 - `docs/` is gitignored. Spec and plan documents created during
   brainstorming and planning live there but are not committed; they
   are session-local artifacts.
