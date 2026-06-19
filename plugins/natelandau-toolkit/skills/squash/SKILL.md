@@ -15,14 +15,14 @@ through nothing — confirm the message, verify the commit landed, then clean up
 
 ## Non-negotiable guardrails
 
-- **Never push.** The squash lands on the *local* trunk only. Stop after
+- **Never push.** The squash lands on the _local_ trunk only. Stop after
   cleanup and let the user push when they're ready.
 - **The final commit message is for an end user, not a maintainer.** It
   describes the branch as one shipped feature and why the project's users
   benefit — not a changelog of every internal change. Synthesize it, show it,
   commit only on approval.
 - **Verify before you delete.** Confirm the squash commit exists and holds the
-  work *before* removing any branch or worktree. Deletions are the last steps.
+  work _before_ removing any branch or worktree. Deletions are the last steps.
 - **Conventional commits throughout.** Every commit this skill makes (any
   pre-squash cleanup commits and the final squash commit) must be a valid
   conventional commit: `<type>(<scope>): <subject>`, imperative,
@@ -35,7 +35,7 @@ through nothing — confirm the message, verify the commit landed, then clean up
 This repo's `enforce_branch_protection` hook blocks commits directly on
 `main`/`master` — **except** when a squash merge is in progress (it detects
 `SQUASH_MSG` in the git dir, or a `git merge --squash ... && git commit` chain).
-That carve-out exists for exactly this workflow. So the final commit *must* go
+That carve-out exists for exactly this workflow. So the final commit _must_ go
 through `git merge --squash` followed by `git commit`. Do not try to commit on
 the trunk any other way; it will be blocked.
 
@@ -86,7 +86,7 @@ git worktree list                          # shows every checkout + its branch
 - **Trunk name**: prefer `main`; use `master` if that's what exists
   (`git rev-parse --verify main` / `master`).
 - **Worktree vs single checkout**: if `--git-dir` and `--git-common-dir` resolve
-  to different paths, you are in a *linked worktree*; the trunk lives in a
+  to different paths, you are in a _linked worktree_; the trunk lives in a
   separate checkout (find it in `git worktree list` — it's the one on
   `main`/`master`). Otherwise it's a single checkout and you'll switch it to the
   trunk yourself.
@@ -97,7 +97,7 @@ and stop.
 
 ### Step 1 — Commit outstanding work
 
-`git merge --squash` only carries *committed* history, so any uncommitted work
+`git merge --squash` only carries _committed_ history, so any uncommitted work
 must be committed onto the feature branch first.
 
 ```bash
@@ -142,7 +142,18 @@ If everything already passes and nothing changed, there's nothing to commit —
 move on. **Do not proceed to the squash with failing linters or tests**; landing
 broken work on the trunk is exactly what this step prevents.
 
-### Step 3 — Squash onto the trunk
+### Step 3 - Review and update documentation
+
+Review any project documentation and make updates as needed to avoid documentation drift. This includes the README, CONTRIBUTING, and any other documentation that is relevant to the changes. If the `documentation-writer` skill is available, use it to review and update the documentation.
+
+If you made any updates to the documentation, commit the changes with a conventional message describing the changes:
+
+```bash
+git add -A
+git commit -m "<type>(<scope>): <subject>"
+```
+
+### Step 4 — Squash onto the trunk
 
 Get onto the trunk checkout, confirm it's clean, then squash-merge the branch.
 
@@ -155,7 +166,7 @@ Get onto the trunk checkout, confirm it's clean, then squash-merge the branch.
 git merge --squash <feature-branch>
 ```
 
-This stages every change from the branch as *uncommitted* work and writes
+This stages every change from the branch as _uncommitted_ work and writes
 `SQUASH_MSG`. **If it reports conflicts, stop** — report which files conflict and
 let the user resolve; do not guess at resolutions or abort their work.
 
@@ -174,9 +185,9 @@ changelog, so reference the public-facing capability, not internal class names,
 refactors, or intermediate commits. A branch with fifteen commits across five
 files should still land as a single, coherent "here's what shipped and why"
 message. Drop the incidental churn (test tweaks, lint fixes, renames) unless it
-*is* the user-facing point.
+_is_ the user-facing point.
 
-Draft one conventional commit (subject + body explaining the *why* for the
+Draft one conventional commit (subject + body explaining the _why_ for the
 user), **show it to the user, and commit only once they approve** (edit and
 re-show on request):
 
@@ -191,11 +202,11 @@ progress. Validate it landed before going further:
 git log -1 --stat        # confirm the squash commit exists and holds the work
 ```
 
-### Step 4 — Clean up
+### Step 5 — Clean up
 
 Only after the commit is verified. Squash merges leave **no merge ancestry**, so
 git does not consider the branch merged — `git branch -d` will fail with "not
-fully merged". Use `-D` (force). This is safe and *not* blocked by the hook,
+fully merged". Use `-D` (force). This is safe and _not_ blocked by the hook,
 which only protects `main`/`master` from force-deletion.
 
 Order matters: a branch checked out in a worktree can't be deleted, so remove
@@ -221,10 +232,10 @@ is **not pushed** — that's theirs to do.
 
 ## Common failure modes
 
-| Symptom | Cause | Do this |
-|---|---|---|
-| Commit on trunk blocked | Committed without an in-progress squash merge | Use `git merge --squash` then `git commit`; never commit on the trunk directly |
-| `branch -d` says "not fully merged" | Squash merge records no merge ancestry | Use `git branch -D` (expected, not an error) |
-| `worktree remove` refuses | Untracked/dirty files in the worktree | Stop, show the user; don't force-discard their files |
-| Merge conflict on squash | Trunk diverged from the branch's base | Stop; let the user resolve, then resume at the commit step |
-| Commit rejected by hook | Message isn't a valid conventional commit | Fix the type/subject; `chore` is not an allowed type here |
+| Symptom                             | Cause                                         | Do this                                                                        |
+| ----------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
+| Commit on trunk blocked             | Committed without an in-progress squash merge | Use `git merge --squash` then `git commit`; never commit on the trunk directly |
+| `branch -d` says "not fully merged" | Squash merge records no merge ancestry        | Use `git branch -D` (expected, not an error)                                   |
+| `worktree remove` refuses           | Untracked/dirty files in the worktree         | Stop, show the user; don't force-discard their files                           |
+| Merge conflict on squash            | Trunk diverged from the branch's base         | Stop; let the user resolve, then resume at the commit step                     |
+| Commit rejected by hook             | Message isn't a valid conventional commit     | Fix the type/subject; `chore` is not an allowed type here                      |

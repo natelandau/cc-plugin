@@ -13,7 +13,7 @@ a PR whose title and description match the project's conventions.
 ## Non-negotiable guardrails
 
 - **Push the feature branch only. Never push or merge the trunk.** Opening the
-  PR requires pushing *this* branch to the remote — that's the whole point and
+  PR requires pushing _this_ branch to the remote — that's the whole point and
   is authorized by running `/pr`. It does not push `main`/`master` and does not
   merge anything.
 - **Title is a conventional commit.** The PR becomes a commit on merge, so its
@@ -23,10 +23,10 @@ a PR whose title and description match the project's conventions.
   there is no `chore`). The `enforce_commit_message` hook validates the
   `gh pr create` title and will reject anything else.
 - **The body describes only what's in the diff.** Every sentence must be
-  verifiable from the changed files. Do **not** include rationale for *why* the
+  verifiable from the changed files. Do **not** include rationale for _why_ the
   work was done, future or deferred work, open questions, concerns, risks, or
-  anything else not captured in the code. Describe what the change *is* and what
-  it *does*, nothing more. This is the opposite of a commit body — there is no
+  anything else not captured in the code. Describe what the change _is_ and what
+  it _does_, nothing more. This is the opposite of a commit body — there is no
   "why" here.
 - **Open it ready for review** (not a draft) unless the user says otherwise.
 
@@ -80,8 +80,8 @@ gh repo view --json defaultBranchRef -q .defaultBranchRef.name   # base branch
   same title/body discipline. If there is no remote at all, stop and say so —
   there's nowhere to open a PR.
 
-**Refuse early** if the current branch *is* the default branch — you open a PR
-*from* a feature branch, not from `main`.
+**Refuse early** if the current branch _is_ the default branch — you open a PR
+_from_ a feature branch, not from `main`.
 
 ### Step 1 — Commit outstanding work
 
@@ -123,7 +123,18 @@ git commit -m "<type>(<scope>): <subject>"
 If everything already passes and nothing changed, there's nothing to commit.
 **Do not open a PR with failing linters or tests.**
 
-### Step 3 — Push and open the PR
+### Step 3 - Review and update documentation
+
+Review any project documentation and make updates as needed to avoid documentation drift. This includes the README, CONTRIBUTING, and any other documentation that is relevant to the changes. If the `documentation-writer` skill is available, use it to review and update the documentation.
+
+If you made any updates to the documentation, commit the changes with a conventional message describing the changes:
+
+```bash
+git add -A
+git commit -m "<type>(<scope>): <subject>"
+```
+
+### Step 4 — Push and open the PR
 
 First, guard against duplicates — if a PR is already open for this branch, don't
 create a second one:
@@ -153,18 +164,20 @@ git diff <default-branch>...HEAD            # the actual changes — ground trut
   Keep to a short summary plus concrete changes; do not editorialize. Use this
   shape and resist adding anything else:
 
-  ```markdown
-  ## Summary
-  <1–3 sentences stating what this change is and what it does, all verifiable in the diff>
+    ```markdown
+    ## Summary
 
-  ## Changes
-  - <concrete change, traceable to specific files/behavior>
-  - <concrete change>
-  ```
+    <1–3 sentences stating what this change is and what it does, all verifiable in the diff>
 
-  Do not add "Motivation"/"Why", "Future work", "Notes", "Caveats", "Concerns",
-  or "Testing" speculation. If you're tempted to write something the diff doesn't
-  show, drop it.
+    ## Changes
+
+    - <concrete change, traceable to specific files/behavior>
+    - <concrete change>
+    ```
+
+    Do not add "Motivation"/"Why", "Future work", "Notes", "Caveats", "Concerns",
+    or "Testing" speculation. If you're tempted to write something the diff doesn't
+    show, drop it.
 
 Write the body to a temp file (avoids shell-quoting pitfalls; `/tmp` is exempt
 from the file-protection hooks) and create the PR:
@@ -193,10 +206,10 @@ user's call (or a reviewer's).
 
 ## Common failure modes
 
-| Symptom | Cause | Do this |
-|---|---|---|
-| `gh pr create` blocked | Title isn't a valid conventional commit | Fix the title; `chore` is not an allowed type here |
-| "a pull request already exists" | Branch already has an open PR | Show the existing PR; update it instead of creating a duplicate |
-| `gh` push prompt / no upstream | Branch not pushed yet | `git push -u origin HEAD` before `gh pr create` |
-| Body reads like a design doc | Included why/future/concerns | Cut anything not visible in the diff; keep Summary + Changes only |
-| No remote / `gh` not authed | Nowhere to open a PR | Stop; tell the user to set a remote or run `gh auth login` |
+| Symptom                         | Cause                                   | Do this                                                           |
+| ------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
+| `gh pr create` blocked          | Title isn't a valid conventional commit | Fix the title; `chore` is not an allowed type here                |
+| "a pull request already exists" | Branch already has an open PR           | Show the existing PR; update it instead of creating a duplicate   |
+| `gh` push prompt / no upstream  | Branch not pushed yet                   | `git push -u origin HEAD` before `gh pr create`                   |
+| Body reads like a design doc    | Included why/future/concerns            | Cut anything not visible in the diff; keep Summary + Changes only |
+| No remote / `gh` not authed     | Nowhere to open a PR                    | Stop; tell the user to set a remote or run `gh auth login`        |
