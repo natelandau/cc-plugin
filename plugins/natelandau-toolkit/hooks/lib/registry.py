@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import config_protection
 import enforce_branch_protection
 import enforce_commit_message
 import protect_secrets
@@ -32,6 +33,7 @@ HOOK_PROFILES: dict[str, frozenset[str]] = {
     "protect-secrets": ALL,
     "protect-system": ALL,
     "commit-message": STANDARD_UP,
+    "config-protection": STANDARD_UP,
     "use-uv": STANDARD_UP,
     # stop-phrase-guard is a Stop hook, not dispatched here; its tier
     # membership lives in this table only so profile docs stay complete.
@@ -62,6 +64,11 @@ PRE_TOOL_CHECKS: tuple[Check, ...] = (
     ),
     Check("protect-system", protect_system.evaluate, frozenset({"Bash"})),
     Check("commit-message", enforce_commit_message.evaluate, frozenset({"Bash"})),
+    Check(
+        "config-protection",
+        config_protection.evaluate,
+        frozenset({"Edit", "Write"}),
+    ),
     Check("use-uv", use_uv.evaluate, frozenset({"Bash"})),
 )
 

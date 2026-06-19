@@ -1,0 +1,67 @@
+# Data for the config-protection hook. The diffing / bootstrap-detection
+# logic lives in config_protection.py; this file holds only the protected
+# name lists so they can be tuned without editing Python.
+
+# Files whose modification is blocked outright. First-time creation is
+# allowed (bootstrap); only changing an existing file is blocked. Matched
+# case-sensitively against the path basename.
+protected_files = [
+  # Python linters / formatters / typecheckers
+  "ruff.toml",
+  ".ruff.toml",
+  "mypy.ini",
+  ".mypy.ini",
+  "ty.toml",
+  ".flake8",
+  ".pylintrc",
+  "pylintrc",
+  # Repo-wide quality tooling
+  ".pre-commit-config.yaml",
+  ".pre-commit-config.yml",
+  ".yamllint",
+  ".yamllint.yml",
+  ".yamllint.yaml",
+  ".typos.toml",
+  "typos.toml",
+  ".editorconfig",
+  # Markdown / prose linters
+  ".markdownlint.json",
+  ".markdownlint.jsonc",
+  ".markdownlint.yaml",
+  ".markdownlint.yml",
+  # JS/TS linters / formatters (cheap to cover; harmless on Python repos)
+  ".eslintrc.js",
+  ".eslintrc.cjs",
+  ".eslintrc.json",
+  ".eslintrc.yml",
+  ".eslintrc.yaml",
+  "eslint.config.js",
+  "eslint.config.mjs",
+  "eslint.config.cjs",
+  ".prettierrc",
+  ".prettierrc.json",
+  ".prettierrc.yml",
+  ".prettierrc.yaml",
+  "prettier.config.js",
+]
+
+# Within pyproject.toml, these dotted table prefixes hold linter,
+# formatter, and typechecker configuration. An Edit/Write that changes an
+# existing table at or below one of these prefixes is blocked; everything
+# else in pyproject.toml (dependencies, build-system, project metadata,
+# classifiers, scripts, and test config such as [tool.pytest]/[tool.coverage])
+# passes through so agents can still manage the package.
+protected_pyproject_tables = [
+  "tool.ruff",
+  "tool.mypy",
+  "tool.ty",
+  "tool.pyright",
+  "tool.black",
+  "tool.isort",
+  "tool.flake8",
+  "tool.pylint",
+  "tool.pydocstyle",
+  "tool.pycodestyle",
+  "tool.autopep8",
+  "tool.bandit",
+]

@@ -99,7 +99,7 @@ See `hooks/natelandau-toolkit.toml.example` for the full template. Top-level key
 Profile tiers:
 
 - `minimal` - branch-protection, protect-secrets, protect-system, stop-phrase-guard
-- `standard` - above + commit-message, use-uv
+- `standard` - above + commit-message, config-protection, use-uv
 - `strict` - same as standard (reserved for future additions)
 
 Per-hook options go under `[hooks.<hook-id>]`. Currently supported:
@@ -216,6 +216,34 @@ Pass-through cases (deliberately not validated):
 - A chained `git commit ... && gh pr ...` validates only the commit;
   the PR title is not inspected (the original `git commit` path wins).
 
+### `hooks/config_protection.py` (PreToolUse)
+
+Blocks `Edit`/`Write` that weaken a linter/formatter/typechecker
+config, steering the agent to fix the code rather than loosen the rule
+that caught it. Rule data (protected filenames + protected
+`pyproject.toml` `[tool.*]` prefixes) lives in
+`config_protection.rules.toml`; the diffing logic stays in Python.
+Non-obvious carve-outs:
+
+- **First-time creation passes through.** Only *modifying* an existing
+  config is blocked; bootstrapping a new one is allowed. Existence is
+  probed with `lstat` (symlink-aware), per the input-hardening note
+  below, so a symlink to a missing target is not read as "exists".
+- **`pyproject.toml` is inspected, not blanket-blocked.** Only changes
+  to a protected `[tool.<linter>]` table (`tool.ruff`, `tool.mypy`,
+  `tool.ty`, ...) are blocked; dependency, build-system, project
+  metadata, classifier, and test config (`[tool.pytest]`,
+  `[tool.coverage]`) edits pass through so agents can still manage the
+  package. For an `Edit` the `old_string -> new_string` substitution is
+  applied in memory and the before/after TOML compared table-by-table;
+  for a `Write` the new `content` is compared against the file on disk.
+- **Fails open.** Creating `pyproject.toml` from scratch, an `Edit`
+  whose `old_string` is not found, and unparsable TOML all pass: the
+  hook blocks only when it can positively confirm a protected table
+  changed.
+
+No per-hook options; toggle it via the profile or `disabled_hooks`.
+
 ### `hooks/use_uv.py` (PreToolUse)
 
 Nudges `python`/`pip install`/`pytest`/`ruff` toward `uv run`.
@@ -290,10 +318,19 @@ Adopt these when authoring or extending a hook:
   `hooks.json` is the primary guard against a runaway stream.
 - **`lstat`, not `exists`, for "was this here before I touched it"
   checks.** A symlink-following `.exists()` can be fooled when the gate is
-  "allow first-time creation, block modification" (e.g. a future
-  `config-protection` hook). `enforce_branch_protection`'s `SQUASH_MSG`
-  check intentionally uses follow-symlink `.exists()` because it asks "is
-  a squash in progress", which is the opposite question.
+  "allow first-time creation, block modification". `config_protection`'s
+  `_exists()` uses `lstat` for exactly this gate.
+  `enforce_branch_protection`'s `SQUASH_MSG` check intentionally uses
+  follow-symlink `.exists()` because it asks "is a squash in progress",
+  which is the opposite question.
+- **Quote- and combined-flag-aware matching for Bash-string rules.** A
+  regex keyed on a long flag (`--message`, `--force`) silently misses the
+  combined short form (`-am`, `-rf`, `-fr`). The convention, already
+  followed by `enforce_commit_message` (`-[a-zA-Z]*m`) and `protect_system`
+  (`(?:-\S+\s+)*`): match the bundled/reordered short-flag and zero-space
+  (`-m"msg"`) forms, and carry an explicit regression case for each. Both
+  hooks were audited against these forms and already cover them; extend the
+  cases, not just the regex, when adding a Bash matcher.
 - **Debouncing advisory output across invocations is deferred.** Re-emit
   suppression keyed on the message signature (so an ignored nudge does not
   re-fire every turn) needs per-session state, which we have deliberately

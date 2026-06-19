@@ -26,6 +26,9 @@ tune or disable them.
 - System protection blocks system-destructive shell commands.
 - Commit-message validation holds `git commit` and `gh pr` titles to
   conventional-commit format.
+- Config protection blocks edits that weaken a linter, formatter, or
+  typechecker config (including the `[tool.*]` tables in `pyproject.toml`),
+  while still allowing dependency and metadata changes and first-time setup.
 - The uv nudge suggests `uv run` when it sees a bare `python`, `pip`, `pytest`,
   or `ruff` call.
 - The stop-phrase guard stops Claude from ending a turn with certain filler
@@ -117,7 +120,7 @@ The `profile` key selects which tier of hooks runs:
 | Profile    | Hooks that run                                                              |
 | ---------- | -------------------------------------------------------------------------- |
 | `minimal`  | branch protection, secret protection, system protection, stop-phrase guard |
-| `standard` | everything in `minimal`, plus commit-message validation and the uv nudge   |
+| `standard` | everything in `minimal`, plus commit-message validation, config protection, and the uv nudge |
 | `strict`   | same as `standard` (reserved for future additions)                         |
 
 `standard` is the default. To run only the safety hooks:

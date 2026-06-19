@@ -5,7 +5,9 @@
 # Which tier of hooks runs: minimal | standard | strict
 profile = "standard"
 
-# Hook ids to force-off regardless of profile.
+# Hook ids to force-off regardless of profile. Ids: branch-protection,
+# protect-secrets, protect-system, commit-message, config-protection,
+# use-uv, stop-phrase-guard. e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 
 # Per-hook options. level: critical | high | strict

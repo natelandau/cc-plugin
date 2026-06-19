@@ -32,6 +32,7 @@ DISPATCHER_INVOKED = frozenset(
         "protect_secrets.py",
         "protect_system.py",
         "enforce_commit_message.py",
+        "config_protection.py",
         "use_uv.py",
     }
 )
