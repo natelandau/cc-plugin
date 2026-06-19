@@ -42,6 +42,7 @@ Claude pulls these in when the task matches, no action needed:
 - `python-refactor` for restructuring Python without changing behavior.
 - `flask-development` for building Flask 3+ apps.
 - `htmx-expert` for writing and debugging htmx.
+- `accessibility` for auditing web UI against WCAG 2.2 while editing templates.
 - `nclutils` for code that uses the `nclutils` library.
 - `tufte-viz` for critiquing data visualizations against Tufte's principles.
 
