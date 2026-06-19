@@ -1,3 +1,16 @@
+## Unreleased
+
+### Changed
+
+- Hooks now run through a unified PreToolUse dispatcher with file-based
+  configuration. Set `profile` (`minimal`/`standard`/`strict`),
+  `disabled_hooks`, and per-hook `level` in
+  `~/.claude/natelandau-toolkit.toml` or
+  `<project>/.claude/natelandau-toolkit.toml` (project overrides global).
+- **Breaking:** the `CLAUDE_PROTECT_SYSTEM_LEVEL` and
+  `CLAUDE_PROTECT_SECRETS_LEVEL` environment variables are removed. Use the
+  `[hooks.protect-system]` / `[hooks.protect-secrets]` `level` keys instead.
+
 ## v0.6.1 (2026-06-19)
 
 ### Fix
