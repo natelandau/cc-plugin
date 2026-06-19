@@ -20,7 +20,8 @@ Three escalating thresholds gate which rules apply:
 - `strict` -- adds dotfiles that may contain credentials (`.gitconfig`,
   `database.yaml`, `known_hosts`).
 
-Override the level with the `CLAUDE_PROTECT_SECRETS_LEVEL` env var.
+Set the level via the `[hooks.protect-secrets]` `level` key in
+`natelandau-toolkit.toml`.
 
 Rule data (allowlist, sensitive-file rules, bash-command rules) lives in
 `protect_secrets.rules.toml` next to this file; the script loads it on
@@ -31,21 +32,21 @@ Ported from karanb192/claude-code-hooks `protect-secrets.js`.
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+from lib.config import Config, load_config
+from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
+
 LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
 DEFAULT_LEVEL = "high"
-LEVEL_ENV_VAR = "CLAUDE_PROTECT_SECRETS_LEVEL"
 RULES_FILE = Path(__file__).parent / "protect_secrets.rules.toml"
 RULE_FIELDS = frozenset({"level", "id", "pattern", "reason"})
 
@@ -123,6 +124,8 @@ def _parse_rule_list(raw: object, section: str) -> tuple[tuple[re.Pattern[str], 
         # tomllib types entries as dict[str, Any]; cast to a covariant
         # Mapping so _require_str can read fields without ty rejecting the
         # invariant dict generic.
+        from typing import cast
+
         entry = cast("Mapping[str, object]", raw_entry)
         keys = entry.keys()
         missing = RULE_FIELDS - keys
@@ -183,9 +186,9 @@ def _load_rules(path: Path) -> RuleSet:
     )
 
 
-def _active_threshold() -> int:
-    """Return the numeric threshold from the env var, falling back to default."""
-    raw = os.environ.get(LEVEL_ENV_VAR, DEFAULT_LEVEL).lower()
+def _threshold(cfg: Config) -> int:
+    """Return the numeric threshold from config, defaulting to 'high'."""
+    raw = cfg.option("protect-secrets", "level", DEFAULT_LEVEL).lower()
     return LEVELS.get(raw, LEVELS[DEFAULT_LEVEL])
 
 
@@ -208,58 +211,51 @@ def _first_match(
     return None
 
 
-def _block(rule: Rule, action: str) -> None:
-    """Print BLOCKED message to stderr and exit 2."""
-    print(  # noqa: T201
-        f"BLOCKED [{rule.id}]: Cannot {action}: {rule.reason}",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+    """Return a block Decision for a sensitive-file access, else None.
 
-
-def main() -> None:
-    """Entry point for the PreToolUse hook."""
-    try:
-        data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        sys.exit(0)
-
-    tool_name: str = data.get("tool_name", "")
-    tool_input: dict = data.get("tool_input") or {}
-
+    Checks the tool name and input against sensitive-file and bash-command
+    rules filtered by the configured threshold level. Returns a blocking
+    Decision with the BLOCKED reason string, or None when the tool call
+    is allowed.
+    """
+    tool_name = payload.get("tool_name", "")
+    tool_input = payload.get("tool_input") or {}
     if tool_name not in ("Read", "Edit", "Write", "Bash"):
-        sys.exit(0)
-
-    # Load rules at invocation, not import, so a malformed TOML surfaces a
-    # focused error message rather than a confusing import-time traceback.
-    try:
-        rules = _load_rules(RULES_FILE)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
-        print(  # noqa: T201
-            f"protect_secrets: failed to load {RULES_FILE.name}: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    threshold = _active_threshold()
+        return None
+    rules = _load_rules(RULES_FILE)  # may raise; caught by caller / main
+    threshold = _threshold(cfg)
+    matched_rule: Rule | None = None
 
     if tool_name in ("Read", "Edit", "Write"):
         file_path = tool_input.get("file_path", "")
-        if not file_path or _is_allowlisted(file_path, rules.allowlist):
-            sys.exit(0)
-        rule = _first_match(file_path, rules.sensitive_files, threshold)
-        if rule:
-            _block(rule, ACTION_VERBS[tool_name])
-        sys.exit(0)
+        if file_path and not _is_allowlisted(file_path, rules.allowlist):
+            matched_rule = _first_match(file_path, rules.sensitive_files, threshold)
+    else:
+        command = tool_input.get("command", "")
+        if command and not _is_allowlisted(command, rules.allowlist):
+            matched_rule = _first_match(command, rules.bash_patterns, threshold)
 
-    command = tool_input.get("command", "")
-    if not command or _is_allowlisted(command, rules.allowlist):
-        sys.exit(0)
-    rule = _first_match(command, rules.bash_patterns, threshold)
-    if rule:
-        _block(rule, ACTION_VERBS["Bash"])
+    if matched_rule:
+        return Decision(
+            block=True,
+            reason=f"BLOCKED [{matched_rule.id}]: Cannot {ACTION_VERBS[tool_name]}: {matched_rule.reason}",
+        )
+    return None
 
-    sys.exit(0)
+
+def main() -> None:
+    """Entry point for standalone PreToolUse invocation."""
+    payload = read_payload()
+    cfg = load_config()
+    try:
+        decision = evaluate(payload, cfg)
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+        print(f"protect_secrets: failed to load {RULES_FILE.name}: {exc}", file=sys.stderr)  # noqa: T201
+        sys.exit(1)
+    if decision and decision.block:
+        emit_block(decision.reason)
+    emit_pre_advisory([])
 
 
 if __name__ == "__main__":

@@ -2,9 +2,9 @@
 
 Pipes representative bash payloads through the hook (as a subprocess)
 and asserts on exit code and stderr substrings. Like the other hook
-tests, exit 0 = allow, exit 2 = block. Optional `level` overrides
-`CLAUDE_PROTECT_SYSTEM_LEVEL` for cases that exercise strict-only or
-critical-only rules.
+tests, exit 0 = allow, exit 2 = block. Optional `level` drives a temp
+project config file (via CLAUDE_PROJECT_DIR) for cases that exercise
+strict-only or critical-only rules.
 """
 
 from __future__ import annotations
@@ -730,27 +730,38 @@ CASES: tuple[Case, ...] = (
 )
 
 
-@pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
-def test_protect_system(case: Case, hooks_dir: Path) -> None:
-    """Verify the hook blocks or allows each command per its rules."""
-    # Given the hook script and (optionally) an overridden safety level
-    hook = hooks_dir / "protect_system.py"
-    env = os.environ.copy()
-    if case.level is not None:
-        env["CLAUDE_PROTECT_SYSTEM_LEVEL"] = case.level
+def _run(
+    hook: Path, payload: dict, level: str | None, tmp_path: Path
+) -> subprocess.CompletedProcess[str]:
+    """Invoke the hook with an optional level supplied via project config."""
+    env = dict(os.environ)
+    if level is not None:
+        proj = tmp_path / "proj"
+        cfgfile = proj / ".claude" / "natelandau-toolkit.toml"
+        cfgfile.parent.mkdir(parents=True, exist_ok=True)
+        cfgfile.write_text(f'[hooks.protect-system]\nlevel = "{level}"\n', encoding="utf-8")
+        env["CLAUDE_PROJECT_DIR"] = str(proj)
     else:
-        env.pop("CLAUDE_PROTECT_SYSTEM_LEVEL", None)
-
-    # When invoking the hook with the payload on stdin
-    proc = subprocess.run(
+        env.pop("CLAUDE_PROJECT_DIR", None)
+    return subprocess.run(
         [str(hook)],
-        input=json.dumps(case.payload),
+        input=json.dumps(payload),
         capture_output=True,
         text=True,
         timeout=10,
         check=False,
         env=env,
     )
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
+def test_protect_system(case: Case, hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify the hook blocks or allows each command per its rules."""
+    # Given the hook script and (optionally) an overridden safety level
+    hook = hooks_dir / "protect_system.py"
+
+    # When invoking the hook with the payload on stdin
+    proc = _run(hook, case.payload, case.level, tmp_path)
 
     # Then exit code and stderr content match expectations
     diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"

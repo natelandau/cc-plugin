@@ -34,7 +34,8 @@ Three escalating thresholds gate which rules apply:
 - `strict` -- adds cautionary ops (`sudo rm`, docker prune,
   `crontab -r`).
 
-Override the level with `CLAUDE_PROTECT_SYSTEM_LEVEL`.
+Set the level via the `[hooks.protect-system]` `level` key in
+`natelandau-toolkit.toml`.
 
 Secret reads and git destructive ops are intentionally not duplicated
 here; see `protect_secrets.py` and `enforce_branch_protection.py`.
@@ -48,21 +49,21 @@ Adapted from karanb192/claude-code-hooks `block-dangerous-commands.js`.
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+from lib.config import Config, load_config
+from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
+
 LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
 DEFAULT_LEVEL = "high"
-LEVEL_ENV_VAR = "CLAUDE_PROTECT_SYSTEM_LEVEL"
 RULES_FILE = Path(__file__).parent / "protect_system.rules.toml"
 RULE_FIELDS = frozenset({"level", "id", "pattern", "reason"})
 
@@ -152,9 +153,9 @@ def _load_rules(path: Path) -> tuple[tuple[re.Pattern[str], Rule], ...]:
     return tuple(compiled)
 
 
-def _active_threshold() -> int:
-    """Return the numeric threshold from the env var, falling back to default."""
-    raw = os.environ.get(LEVEL_ENV_VAR, DEFAULT_LEVEL).lower()
+def _threshold(cfg: Config) -> int:
+    """Return the numeric threshold from config, defaulting to 'high'."""
+    raw = cfg.option("protect-system", "level", DEFAULT_LEVEL).lower()
     return LEVELS.get(raw, LEVELS[DEFAULT_LEVEL])
 
 
@@ -172,44 +173,41 @@ def _first_match(
     return None
 
 
-def _block(rule: Rule) -> None:
-    """Print BLOCKED message to stderr and exit 2."""
-    print(  # noqa: T201
-        f"BLOCKED [{rule.id}]: Cannot execute: {rule.reason}",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+    """Return a block Decision for a destructive system command, else None.
+
+    Checks the bash command against system-destruction rules filtered by
+    the configured threshold level. Returns a blocking Decision with the
+    BLOCKED reason string, or None when the command is allowed.
+    """
+    if payload.get("tool_name") != "Bash":
+        return None
+    command: str = (payload.get("tool_input") or {}).get("command", "")
+    if not command:
+        return None
+    rules = _load_rules(RULES_FILE)  # may raise; caught by caller / main
+    threshold = _threshold(cfg)
+    matched_rule = _first_match(command, rules, threshold)
+    if matched_rule:
+        return Decision(
+            block=True,
+            reason=f"BLOCKED [{matched_rule.id}]: Cannot execute: {matched_rule.reason}",
+        )
+    return None
 
 
 def main() -> None:
     """Entry point for the PreToolUse hook."""
+    payload = read_payload()
+    cfg = load_config()
     try:
-        data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        sys.exit(0)
-
-    if data.get("tool_name") != "Bash":
-        sys.exit(0)
-
-    command: str = (data.get("tool_input") or {}).get("command", "")
-    if not command:
-        sys.exit(0)
-
-    # Load rules at invocation, not import, so a malformed TOML surfaces a
-    # focused error message rather than a confusing import-time traceback.
-    try:
-        rules = _load_rules(RULES_FILE)
+        decision = evaluate(payload, cfg)
     except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
-        print(  # noqa: T201
-            f"protect_system: failed to load {RULES_FILE.name}: {exc}",
-            file=sys.stderr,
-        )
+        print(f"protect_system: failed to load {RULES_FILE.name}: {exc}", file=sys.stderr)  # noqa: T201
         sys.exit(1)
-
-    rule = _first_match(command, rules, _active_threshold())
-    if rule:
-        _block(rule)
-    sys.exit(0)
+    if decision and decision.block:
+        emit_block(decision.reason)
+    emit_pre_advisory([])
 
 
 if __name__ == "__main__":
