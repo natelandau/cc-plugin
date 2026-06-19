@@ -84,6 +84,62 @@ hook commands in `hooks/hooks.json` reference scripts via
 `${CLAUDE_PLUGIN_ROOT}/...` so they resolve correctly regardless of
 install location.
 
+## Configuring the hooks
+
+The hooks work without any setup. To change which hooks run or how strict
+they are, add a config file. Settings load from two locations, and the
+project file overrides the global one key by key:
+
+- Global: `~/.claude/natelandau-toolkit.toml`
+- Per-project: `<project>/.claude/natelandau-toolkit.toml`
+
+Copy `plugins/natelandau-toolkit/hooks/natelandau-toolkit.toml.example`
+to either path and edit it. Every key is optional, and an absent file
+uses the defaults described below.
+
+### Pick a profile
+
+The `profile` key selects which tier of hooks runs:
+
+| Profile    | Hooks that run                                                              |
+| ---------- | -------------------------------------------------------------------------- |
+| `minimal`  | branch protection, secret protection, system protection, stop-phrase guard |
+| `standard` | everything in `minimal`, plus commit-message validation and the `uv` nudge |
+| `strict`   | same as `standard` (reserved for future additions)                         |
+
+`standard` is the default. To run only the safety hooks:
+
+```toml
+profile = "minimal"
+```
+
+### Turn off individual hooks
+
+Use `disabled_hooks` to force a hook off no matter the profile:
+
+```toml
+disabled_hooks = ["use-uv", "commit-message"]
+```
+
+### Tune hook strictness
+
+The `protect-system` and `protect-secrets` hooks take a `level` that
+controls how much they block. The levels run from loosest to strictest:
+
+- `critical` blocks only catastrophic, unrecoverable operations.
+- `high` (the default) adds significant-risk operations.
+- `strict` adds cautionary operations on top of `high`.
+
+Set a level per hook:
+
+```toml
+[hooks.protect-system]
+level = "strict"
+
+[hooks.protect-secrets]
+level = "critical"
+```
+
 ## Development
 
 Clone the repo and install the dev dependencies with uv:
@@ -123,7 +179,9 @@ commit, but you can run them manually too.
 .claude-plugin/marketplace.json                       Marketplace catalog
 plugins/natelandau-toolkit/.claude-plugin/plugin.json Plugin manifest
 plugins/natelandau-toolkit/hooks/hooks.json           Event registration
-plugins/natelandau-toolkit/hooks/*.py                 Hook scripts (uv run --script)
+plugins/natelandau-toolkit/hooks/pre_tool_dispatcher.py  Unified PreToolUse entry point
+plugins/natelandau-toolkit/hooks/*.py                 Hook modules (uv run --script)
+plugins/natelandau-toolkit/hooks/lib/                 Shared config, I/O, and registry code
 plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand skill content
 plugins/natelandau-toolkit/commands/<name>.md         Slash commands
 plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions (currently empty)
