@@ -15,13 +15,14 @@ target location.
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from lib.config import Config, load_config
+from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
 
 PROTECTED_BRANCHES = {"main", "master"}
 COMPOUND_SPLIT = r"\s*(?:&&|\|\||;)\s*"
@@ -152,7 +153,7 @@ def _run_git(*args: str, cwd: str | None = None) -> str:
             cmd, capture_output=True, text=True, timeout=5, check=False
         )
         return result.stdout.strip()
-    except (subprocess.SubprocessError, FileNotFoundError):
+    except subprocess.SubprocessError, FileNotFoundError:
         return ""
 
 
@@ -165,19 +166,6 @@ def _resolve_dir(path: str) -> Path | None:
         dir_path = dir_path.parent
 
     return dir_path if dir_path.is_dir() else None
-
-
-def _block(msg: str) -> None:
-    """Print BLOCKED-prefixed message to stderr and exit 2."""
-    print(f"BLOCKED: {msg}", file=sys.stderr)  # noqa: T201
-    sys.exit(2)
-
-
-def _allow(advisory: str | None = None) -> None:
-    """Print optional advisory to stdout and exit 0."""
-    if advisory:
-        print(advisory)  # noqa: T201
-    sys.exit(0)
 
 
 def _split_compound(command: str) -> list[str]:
@@ -367,29 +355,38 @@ def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
     return None
 
 
-def main() -> None:
-    """Entry point for the PreToolUse hook."""
-    try:
-        data: dict[str, Any] = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        sys.exit(0)
-
-    tool_name: str = data.get("tool_name", "")
-    command: str = data.get("tool_input", {}).get("command", "") if tool_name == "Bash" else ""
+def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
+    """Return a block/advisory Decision for branch protection, else None."""
+    tool_name = payload.get("tool_name", "")
+    command = payload.get("tool_input", {}).get("command", "") if tool_name == "Bash" else ""
 
     if tool_name == "Bash":
         reason = check_destructive(command)
         if reason:
-            _block(f"{reason}. Run this command outside Claude Code if you must.")
+            return Decision(
+                block=True,
+                reason=f"BLOCKED: {reason}. Run this command outside Claude Code if you must.",
+            )
 
-    branch = get_effective_branch(data)
+    branch = get_effective_branch(payload)
     if branch in PROTECTED_BRANCHES:
-        reason = check_protected_branch(data, branch)
+        reason = check_protected_branch(payload, branch)
         if reason:
-            _block(reason)
+            return Decision(block=True, reason=f"BLOCKED: {reason}")
 
-    advisory = GIT_C_ADVISORY if tool_name == "Bash" and GIT_C_RE.search(command) else None
-    _allow(advisory)
+    if tool_name == "Bash" and GIT_C_RE.search(command):
+        return Decision(block=False, context=GIT_C_ADVISORY)
+    return None
+
+
+def main() -> None:
+    """Entry point for standalone PreToolUse invocation."""
+    payload = read_payload()
+    cfg = load_config()
+    decision = evaluate(payload, cfg)
+    if decision and decision.block:
+        emit_block(decision.reason)
+    emit_pre_advisory([decision.context] if decision and decision.context else [])
 
 
 if __name__ == "__main__":

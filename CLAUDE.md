@@ -36,7 +36,9 @@ points Claude Code at the plugin directory.
 .claude-plugin/marketplace.json                       Marketplace catalog (lists this plugin)
 plugins/natelandau-toolkit/.claude-plugin/plugin.json Plugin manifest (name, description, author, version)
 plugins/natelandau-toolkit/hooks/hooks.json           Event registration; references scripts via ${CLAUDE_PLUGIN_ROOT}
-plugins/natelandau-toolkit/hooks/*.py                 Hook scripts, each a self-contained `uv run --script`
+plugins/natelandau-toolkit/hooks/pre_tool_dispatcher.py  Unified PreToolUse entry point; routes to per-hook evaluate()
+plugins/natelandau-toolkit/hooks/*.py                 Hook modules exposing evaluate(payload, cfg) + standalone __main__
+plugins/natelandau-toolkit/hooks/lib/                 Shared scaffolding: io.py, config.py, registry.py
 plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand guidance loaded by the skill router
 plugins/natelandau-toolkit/skills/<name>/references/  Optional supplementary content for a skill
 plugins/natelandau-toolkit/commands/<name>.md         Slash commands invoked by the user
@@ -52,10 +54,62 @@ install location.
 
 ## Hooks
 
-Each hook is a self-contained `uv run --script` registered in
-`hooks/hooks.json`. Read the script docstring + sibling `.rules.toml`
-for behavior; the notes below cover only non-obvious gotchas,
-cross-component decisions, and design rationale.
+PreToolUse hooks run through a unified dispatcher; `stop_phrase_guard`
+is a separate Stop entry. Read the hook module docstrings and sibling
+`.rules.toml` files for behavior; the notes below cover only
+non-obvious gotchas, cross-component decisions, and design rationale.
+
+### Hook architecture
+
+`pre_tool_dispatcher.py` is the single PreToolUse entry point. It
+loads `Config` once per invocation, then calls
+`registry.applicable_checks(tool_name, cfg)` to get the ordered check
+list for the incoming tool. Checks run in safety-first order;
+first-block-wins. Per-check exceptions are swallowed (exit 0) so a
+broken hook never wedges a tool call.
+
+Each hook module exposes two things:
+
+- `evaluate(payload: dict, cfg: Config) -> Decision | None` - the
+  logic, callable by the dispatcher and directly from tests.
+- A `__main__` block that reads stdin and exits with the right code,
+  so the module can also be invoked standalone for debugging.
+
+`stop_phrase_guard.py` is a separate Stop event entry and is not
+dispatched through `pre_tool_dispatcher.py`.
+
+### Hook configuration
+
+Config is file-based and cascades: global file is loaded first, then
+project file overrides per key. Scalar and list keys are replaced by the
+project file, while `[hooks.*]` tables are deep-merged per key, so a
+project file can override `[hooks.protect-system].level` without
+redefining any other hook table.
+
+- Global: `~/.claude/natelandau-toolkit.toml`
+- Project: `$CLAUDE_PROJECT_DIR/.claude/natelandau-toolkit.toml`
+
+See `hooks/natelandau-toolkit.toml.example` for the full template. Top-level keys:
+
+| Key | Values | Default | Effect |
+| --- | ------ | ------- | ------ |
+| `profile` | `minimal`, `standard`, `strict` | `standard` | Controls which hook tier runs |
+| `disabled_hooks` | list of hook ids | `[]` | Force-disables hooks regardless of profile |
+
+Profile tiers:
+
+- `minimal` - branch-protection, protect-secrets, protect-system, stop-phrase-guard
+- `standard` - above + commit-message, use-uv
+- `strict` - same as standard (reserved for future additions)
+
+Per-hook options go under `[hooks.<hook-id>]`. Currently supported:
+
+- `[hooks.protect-system].level` - `critical`, `high`, or `strict` (default `high`)
+- `[hooks.protect-secrets].level` - `critical`, `high`, or `strict` (default `high`)
+
+**Note:** the `CLAUDE_PROTECT_SYSTEM_LEVEL` and
+`CLAUDE_PROTECT_SECRETS_LEVEL` environment variables are retired. Set
+levels in the TOML config instead.
 
 ### `hooks/enforce_branch_protection.py` (PreToolUse)
 
@@ -88,15 +142,16 @@ they false-positive in legitimate contexts.
 ### `hooks/protect_secrets.py` (PreToolUse)
 
 Blocks reads/edits/writes/exfiltration of sensitive files. Rules in
-`protect_secrets.rules.toml`; threshold via
-`CLAUDE_PROTECT_SECRETS_LEVEL` (default `high`).
+`protect_secrets.rules.toml`; threshold controlled by
+`[hooks.protect-secrets].level` in the config file (default `high`).
 
 ### `hooks/protect_system.py` (PreToolUse)
 
 Blocks system-destructive Bash. Rules in `protect_system.rules.toml`;
-threshold via `CLAUDE_PROTECT_SYSTEM_LEVEL` (default `high`). No
-allowlist; patterns are scoped to dangerous targets so safe paths
-(`/tmp/...`, `node_modules`, `.worktrees/...`) pass naturally.
+threshold controlled by `[hooks.protect-system].level` in the config
+file (default `high`). No allowlist; patterns are scoped to dangerous
+targets so safe paths (`/tmp/...`, `node_modules`, `.worktrees/...`)
+pass naturally.
 
 TOML authoring: use literal strings (`'...'`) for `pattern` so regex
 backslashes pass through verbatim; patterns containing `'` need
@@ -195,8 +250,9 @@ Claude Code plugins reference.
 ### Hook scripts
 
 - Python via `#!/usr/bin/env -S uv run --script` shebangs with optional
-  inline metadata (`# /// script ... # ///`). Self-contained, no external
-  package dependencies.
+  inline metadata (`# /// script ... # ///`). Stdlib only; hooks may
+  import the sibling `hooks/lib/` package (`io`, `config`, `registry`).
+  No third-party dependencies.
 - All scripts must be executable (`chmod +x`). git tracks the mode bit;
   preserve it when copying.
 - Read JSON from stdin via `json.load(sys.stdin)`. Field names are
@@ -224,6 +280,12 @@ do not introduce dispatch indirection.
 ### Style (applies to every component type)
 
 - Run `ruff check`, `ruff format`, and `ty check` after editing any python file.
+- Ruff targets `py314` (matching `requires-python`), so `ruff format`
+  drops the parentheses around multi-exception `except` clauses per
+  PEP 758: `except (A, B):` becomes `except A, B:`. This is valid,
+  intentional Python 3.14 syntax, not the Python 2 `except E, name:`
+  bug it resembles. Do not "fix" it back to parentheses; ruff will just
+  strip them again on the next format.
 - `docs/` is gitignored. Spec and plan documents created during
   brainstorming and planning live there but are not committed; they
   are session-local artifacts.
@@ -294,7 +356,21 @@ Concrete rules:
 
 ## Adding components
 
-**New hook:**
+**New PreToolUse hook (dispatcher-routed, most common):**
+
+1. Write `hooks/<your_hook>.py` exposing `evaluate(payload, cfg) ->
+   Decision | None` and a `__main__` block. Make it executable.
+2. Add it to `HOOK_PROFILES` (which profiles it runs in) and
+   `PRE_TOOL_CHECKS` (which tool names it matches) in `hooks/lib/registry.py`.
+3. Add `tests/test_<your_hook>.py` with:
+   - Per-check cases that call `evaluate()` directly or via subprocess.
+   - At least one dispatcher-level case that exercises the full
+     `pre_tool_dispatcher.py` path.
+4. Add the hook id to `DISPATCHER_INVOKED` in `tests/test_manifest.py`
+   so the orphan-guard passes.
+5. Run `uv run pytest`, then `uv run ruff check && uv run ruff format`.
+
+**New hook for a different event (Stop, PostToolUse, etc.):**
 
 1. Drop `hooks/<your_hook>.py` in place, make it executable.
 2. Register it in `hooks/hooks.json` under the matching event:

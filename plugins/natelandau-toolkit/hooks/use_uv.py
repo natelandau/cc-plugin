@@ -12,9 +12,13 @@ flagged correct usage like `uv run pytest`; clause-aware tokenization
 avoids that.
 """
 
-import json
+from __future__ import annotations
+
 import re
-import sys
+from typing import Any
+
+from lib.config import Config, load_config
+from lib.io import Decision, emit_pre_advisory, read_payload
 
 # Bash clause separators. Each clause's leading executable is checked
 # independently so `cd foo && pytest` still flags the bare pytest.
@@ -61,32 +65,27 @@ def _flagged(command: str) -> tuple[str, str] | None:
     return None
 
 
-def main() -> None:
-    """Emit a uv suggestion when a bare tool invocation is detected."""
-    data = json.load(sys.stdin)
-
-    if data.get("tool_name") != "Bash":
-        sys.exit(0)
-
-    command = data.get("tool_input", {}).get("command", "")
-
+def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
+    """Return an advisory Decision nudging toward uv, else None."""
+    if payload.get("tool_name") != "Bash":
+        return None
+    command = payload.get("tool_input", {}).get("command", "")
     flagged = _flagged(command)
     if flagged is None:
-        sys.exit(0)
-
+        return None
     old, new = flagged
-    # `permissionDecision` is intentionally omitted so the tool call
-    # follows the user's normal permission flow rather than auto-allowing.
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "additionalContext": (
-                f"Detected '{old}' in command. In uv projects, use '{new}' instead."
-            ),
-        }
-    }
-    print(json.dumps(output))  # noqa: T201
-    sys.exit(0)
+    return Decision(
+        block=False,
+        context=f"Detected '{old}' in command. In uv projects, use '{new}' instead.",
+    )
+
+
+def main() -> None:
+    """Entry point for standalone PreToolUse invocation."""
+    payload = read_payload()
+    cfg = load_config()
+    decision = evaluate(payload, cfg)
+    emit_pre_advisory([decision.context] if decision and decision.context else [])
 
 
 if __name__ == "__main__":

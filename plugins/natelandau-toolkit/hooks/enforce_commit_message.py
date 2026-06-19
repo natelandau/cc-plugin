@@ -48,10 +48,12 @@ Validation rules (first match blocks with exit 2):
 
 from __future__ import annotations
 
-import json
 import re
-import sys
 from dataclasses import dataclass
+from typing import Any
+
+from lib.config import Config, load_config
+from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
 
 ALLOWED_TYPES: tuple[str, ...] = (
     "build",
@@ -497,28 +499,19 @@ def _validate(line: str, noun: str) -> Violation | None:
     return _check_content(shape)
 
 
-def _block(violation: Violation, line: str, noun: str) -> None:
-    """Emit a BLOCKED message and exit 2."""
-    print(  # noqa: T201
-        f"BLOCKED [{violation.id}]: {violation.reason}\n  {noun} first line: {line!r}{FOOTER}",
-        file=sys.stderr,
-    )
-    sys.exit(2)
+def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001, PLR0911
+    """Return a block Decision on a commit-message or PR-title violation, else None.
 
+    Inspects the payload for `git commit -m` and `gh pr create|edit|merge`
+    commands and validates the message or title against the conventional-commit
+    rules. Returns None for all pass-through cases.
+    """
+    if payload.get("tool_name") != "Bash":
+        return None
 
-def main() -> None:
-    """Entry point for the PreToolUse hook."""
-    try:
-        data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        sys.exit(0)
-
-    if data.get("tool_name") != "Bash":
-        sys.exit(0)
-
-    cmd = (data.get("tool_input") or {}).get("command", "")
+    cmd = (payload.get("tool_input") or {}).get("command", "")
     if not cmd:
-        sys.exit(0)
+        return None
 
     # `git commit` wins when both appear (e.g. `git commit && gh pr ...`),
     # preserving the original behavior; the PR title is then not inspected.
@@ -526,29 +519,42 @@ def main() -> None:
         # `--fixup` and `--squash` produce auto-prefixed messages even
         # when the user does not pass `-m`. Skip the whole invocation.
         if re.search(r"(?<!\S)(--fixup|--squash)\b", cmd):
-            sys.exit(0)
+            return None
         msg = _extract(cmd, M_VALUE_RE)
         noun = "commit message"
     elif GH_PR_RE.search(cmd):
         msg = _extract(cmd, GH_TITLE_VALUE_RE)
         noun = "PR title"
     else:
-        sys.exit(0)
+        return None
 
     if msg is None:
         # No message/title flag found: editor opens, `-F file`, or
         # `--fill` is used. We cannot see the text, so we let it through.
-        sys.exit(0)
+        return None
 
     line = _first_line(msg)
     if _is_auto(line):
-        sys.exit(0)
+        return None
 
     violation = _validate(line, noun)
     if violation is not None:
-        _block(violation, line, noun)
+        return Decision(
+            block=True,
+            reason=f"BLOCKED [{violation.id}]: {violation.reason}\n  {noun} first line: {line!r}{FOOTER}",
+        )
 
-    sys.exit(0)
+    return None
+
+
+def main() -> None:
+    """Entry point for standalone PreToolUse invocation."""
+    payload = read_payload()
+    cfg = load_config()
+    decision = evaluate(payload, cfg)
+    if decision and decision.block:
+        emit_block(decision.reason)
+    emit_pre_advisory([])
 
 
 if __name__ == "__main__":

@@ -22,6 +22,20 @@ PLUGIN_ROOT_PREFIX = "${CLAUDE_PLUGIN_ROOT}/"
 # convention and works via filename fallback. New commands must include it.
 COMMANDS_WITHOUT_FRONTMATTER = frozenset({"transfer-context.md"})
 
+# These hook scripts are invoked via pre_tool_dispatcher.py (imported as evaluate()
+# functions), not registered individually in hooks.json. The dispatcher itself IS
+# registered. A script not in this set and not in hooks.json is a real orphan and
+# must still fail test_hook_script_is_registered.
+DISPATCHER_INVOKED = frozenset(
+    {
+        "enforce_branch_protection.py",
+        "protect_secrets.py",
+        "protect_system.py",
+        "enforce_commit_message.py",
+        "use_uv.py",
+    }
+)
+
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
@@ -130,17 +144,21 @@ def test_hooks_json_command_resolves(event: str, command: str) -> None:
 
 @pytest.mark.parametrize("script_path", _hook_scripts(), ids=lambda p: p.name)
 def test_hook_script_is_registered(script_path: Path) -> None:
-    """Verify every hooks/*.py script is wired into hooks.json.
+    """Verify every hooks/*.py script is wired into hooks.json or invoked by the dispatcher.
 
     Catches the easy mistake of dropping a new hook script in place but
-    forgetting the manifest entry, which leaves it dead on disk.
+    forgetting both the manifest entry and the dispatcher registration,
+    which leaves it dead on disk.
     """
     # Given the set of scripts referenced from hooks.json
     registered = _registered_hook_paths()
 
-    # Then this script is among them
-    assert script_path in registered, (
-        f"{script_path.name} exists in hooks/ but is not registered in hooks.json"
+    # Then this script is either registered directly in hooks.json or is an
+    # intentional dispatcher-invoked module (listed in DISPATCHER_INVOKED).
+    # A script that is neither is a real orphan and must fail.
+    assert script_path in registered or script_path.name in DISPATCHER_INVOKED, (
+        f"{script_path.name} exists in hooks/ but is not registered in hooks.json "
+        f"and is not listed in DISPATCHER_INVOKED"
     )
 
 

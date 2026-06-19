@@ -7,3 +7,5 @@ docs/
 .claude/
 .worktrees/
 .cache/
+tmp/
+.agents/

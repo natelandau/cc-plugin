@@ -42,6 +42,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from lib.config import load_config
+from lib.registry import hook_enabled
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -207,7 +210,7 @@ def main() -> None:
     """Entry point for the Stop hook."""
     try:
         data: dict[str, Any] = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
+    except json.JSONDecodeError, EOFError:
         sys.exit(0)
 
     # Already fired once this turn; let the assistant stop to avoid loops.
@@ -216,6 +219,10 @@ def main() -> None:
 
     transcript_path = data.get("transcript_path")
     if not transcript_path:
+        sys.exit(0)
+
+    cfg = load_config()
+    if not hook_enabled("stop-phrase-guard", cfg):
         sys.exit(0)
 
     text = _last_assistant_message_text(transcript_path)

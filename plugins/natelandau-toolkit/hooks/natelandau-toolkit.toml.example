@@ -1,0 +1,16 @@
+# Copy to ~/.claude/natelandau-toolkit.toml (global) or
+# <project>/.claude/natelandau-toolkit.toml (per-project; project wins).
+# All keys are optional; omitting the file uses the defaults shown here.
+
+# Which tier of hooks runs: minimal | standard | strict
+profile = "standard"
+
+# Hook ids to force-off regardless of profile.
+disabled_hooks = []
+
+# Per-hook options. level: critical | high | strict
+[hooks.protect-system]
+level = "high"
+
+[hooks.protect-secrets]
+level = "high"
