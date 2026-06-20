@@ -52,125 +52,24 @@ from __future__ import annotations
 import re
 import sys
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
+from lib import rules
 from lib.config import Config, load_config
 from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
 
-LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
 DEFAULT_LEVEL = "high"
 RULES_FILE = Path(__file__).parent / "protect_system.rules.toml"
-RULE_FIELDS = frozenset({"level", "id", "pattern", "reason"})
-
-
-@dataclass(frozen=True, slots=True)
-class Rule:
-    """Pattern-matched system-destruction rule.
-
-    `level` gates whether the rule fires at the active threshold.
-    `pattern` is a regex tested via `re.search` with `re.IGNORECASE`.
-    `id` is a stable slug shown in the block message; users can grep
-    it out of CI logs or paste it back as feedback when refining rules.
-    `reason` is the human-facing explanation appended to the block.
-    """
-
-    level: str
-    id: str
-    pattern: str
-    reason: str
-
-
-def _require_str(entry: Mapping[str, object], key: str, idx: int) -> str:
-    """Return entry[key] as a str or raise TypeError naming the offender.
-
-    The TOML loader yields `object`-typed values, so every required field
-    is unwrapped through this helper before reaching the Rule constructor.
-    Keeps the type narrowing in one place and gives a uniform error shape.
-    """
-    value = entry[key]
-    if not isinstance(value, str):
-        msg = f"rule[{idx}].{key} must be a string, got {type(value).__name__}"
-        raise TypeError(msg)
-    return value
-
-
-def _load_rules(path: Path) -> tuple[tuple[re.Pattern[str], Rule], ...]:
-    """Parse the rules TOML and pre-compile each pattern.
-
-    Validate that every entry carries exactly the required string fields
-    and that `level` is a known threshold, so a typo in TOML surfaces as
-    a clear error instead of a Rule built with non-string fields. Patterns
-    are compiled with `re.IGNORECASE` during load so a malformed regex
-    surfaces here, not in the hot path.
-
-    Args:
-        path: Location of the rules TOML file.
-
-    Returns:
-        Compiled-pattern + Rule pairs in declaration order, ready for
-        first-match-wins iteration.
-    """
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
-    entries = data.get("rule")
-    if not isinstance(entries, list):
-        msg = "missing top-level 'rule' array"
-        raise TypeError(msg)
-    compiled: list[tuple[re.Pattern[str], Rule]] = []
-    for idx, raw_entry in enumerate(entries):
-        if not isinstance(raw_entry, dict):
-            msg = f"rule[{idx}] is not a table"
-            raise TypeError(msg)
-        # tomllib types entries as dict[str, Any]; cast to a covariant
-        # Mapping so _require_str can read fields without ty rejecting the
-        # invariant dict generic.
-        entry = cast("Mapping[str, object]", raw_entry)
-        keys = entry.keys()
-        missing = RULE_FIELDS - keys
-        if missing:
-            msg = f"rule[{idx}] missing fields: {sorted(missing)}"
-            raise ValueError(msg)
-        extra = keys - RULE_FIELDS
-        if extra:
-            msg = f"rule[{idx}] has unexpected fields: {sorted(extra)}"
-            raise ValueError(msg)
-        level = _require_str(entry, "level", idx)
-        if level not in LEVELS:
-            msg = f"rule[{idx}] has unknown level {level!r}"
-            raise ValueError(msg)
-        rule = Rule(
-            level=level,
-            id=_require_str(entry, "id", idx),
-            pattern=_require_str(entry, "pattern", idx),
-            reason=_require_str(entry, "reason", idx),
-        )
-        compiled.append((re.compile(rule.pattern, re.IGNORECASE), rule))
-    return tuple(compiled)
+# Fields every [[rule]] entry must carry besides its matcher (pattern or
+# conditions). The shared loader validates these and rejects unknown keys.
+SYSTEM_FIELDS = frozenset({"id", "level", "reason"})
 
 
 def _threshold(cfg: Config) -> int:
     """Return the numeric threshold from config, defaulting to 'high'."""
     raw = cfg.option("protect-system", "level", DEFAULT_LEVEL).lower()
-    return LEVELS.get(raw, LEVELS[DEFAULT_LEVEL])
-
-
-def _first_match(
-    text: str,
-    rules: tuple[tuple[re.Pattern[str], Rule], ...],
-    threshold: int,
-) -> Rule | None:
-    """Return the first rule firing at or below the active threshold."""
-    for pat, rule in rules:
-        if LEVELS[rule.level] > threshold:
-            continue
-        if pat.search(text):
-            return rule
-    return None
+    return rules.LEVELS.get(raw, rules.LEVELS[DEFAULT_LEVEL])
 
 
 def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
@@ -185,13 +84,18 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     command: str = (payload.get("tool_input") or {}).get("command", "")
     if not command:
         return None
-    rules = _load_rules(RULES_FILE)  # may raise; caught by caller / main
-    threshold = _threshold(cfg)
-    matched_rule = _first_match(command, rules, threshold)
-    if matched_rule:
+    # May raise on malformed TOML; caught by caller / main.
+    system_rules = rules.load_rules(RULES_FILE, "rule", required=SYSTEM_FIELDS)
+    # `command` is the primary match text; also expose named fields so a rule
+    # may target one explicitly with `field` (e.g. field = "command").
+    fields = {"tool_name": "Bash", "command": command}
+    matched = rules.first_match(
+        system_rules, text=command, fields=fields, threshold=_threshold(cfg)
+    )
+    if matched:
         return Decision(
             block=True,
-            reason=f"BLOCKED [{matched_rule.id}]: Cannot execute: {matched_rule.reason}",
+            reason=f"BLOCKED [{matched.id}]: Cannot execute: {matched.reason}",
         )
     return None
 

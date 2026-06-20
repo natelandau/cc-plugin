@@ -38,7 +38,7 @@ plugins/natelandau-toolkit/.claude-plugin/plugin.json Plugin manifest (name, des
 plugins/natelandau-toolkit/hooks/hooks.json           Event registration; references scripts via ${CLAUDE_PLUGIN_ROOT}
 plugins/natelandau-toolkit/hooks/pre_tool_dispatcher.py  Unified PreToolUse entry point; routes to per-hook evaluate()
 plugins/natelandau-toolkit/hooks/*.py                 Hook modules exposing evaluate(payload, cfg) + standalone __main__
-plugins/natelandau-toolkit/hooks/lib/                 Shared scaffolding: io.py, config.py, registry.py
+plugins/natelandau-toolkit/hooks/lib/                 Shared scaffolding: io.py, config.py, registry.py, rules.py
 plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand guidance loaded by the skill router
 plugins/natelandau-toolkit/skills/<name>/references/  Optional supplementary content for a skill
 plugins/natelandau-toolkit/skills/shared/            Content shared by 2+ skills (no SKILL.md; linked by relative path)
@@ -300,8 +300,8 @@ Claude Code plugins reference.
 
 - Python via `#!/usr/bin/env -S uv run --script` shebangs with optional
   inline metadata (`# /// script ... # ///`). Stdlib only; hooks may
-  import the sibling `hooks/lib/` package (`io`, `config`, `registry`).
-  No third-party dependencies.
+  import the sibling `hooks/lib/` package (`io`, `config`, `registry`,
+  `rules`). No third-party dependencies.
 - All scripts must be executable (`chmod +x`). git tracks the mode bit;
   preserve it when copying.
 - Read JSON from stdin via `lib.io.read_payload()` (every event, Stop
@@ -354,14 +354,53 @@ Adopt these when authoring or extending a hook:
 
 ### Rule data
 
-Rule-driven hooks use `@dataclass(frozen=True, slots=True)` holding
-pattern + metadata; iteration is declaration order, first-match-wins.
-Two storage shapes coexist: in-script tuples
-(`enforce_branch_protection.py`, kept in Python because bypass logic
-lives alongside) and sibling `<hook>.rules.toml` loaded on every
-invocation via `_load_rules()` / `_load_violations()`. Load failure
-exits 1 non-blocking with stderr. Keep collections flat per category;
-do not introduce dispatch indirection.
+Iteration is declaration order, first-match-wins. Two storage shapes
+coexist: in-script tuples (`enforce_branch_protection.py`, kept in Python
+because bypass logic lives alongside) and sibling `<hook>.rules.toml`.
+
+The TOML-driven pattern hooks (`protect_system`, `protect_secrets`,
+`stop_phrase_guard`) all load through the shared `hooks/lib/rules.py`
+engine rather than per-hook loaders. One `parse_rules()` validates an
+`[[<section>]]` array against a caller-supplied `required` / `optional`
+field set, rejecting unknown keys; `first_match()` does the
+threshold-gated, first-match-wins scan. The file is parsed on every
+invocation; load failure exits 1 non-blocking with stderr.
+
+Every rule shares one canonical schema:
+
+- `id` — slug shown in block messages (optional for hooks that don't use
+  it, e.g. `stop_phrase_guard`, where it defaults to "").
+- `reason` — human-facing explanation (the Stop hook used to call this
+  `correction`; it is now `reason` like the others).
+- `level` — optional threshold tier (`critical` < `high` < `strict`);
+  omit it for hooks without a threshold. `rules.LEVELS` is the one source
+  of truth for the ordering.
+- exactly one matcher: a single `pattern` **or** a `conditions` array.
+    - `pattern` is a regex matched against the hook's primary `text` by
+      default, or against `fields[field]` when the rule sets an optional
+      `field` key. `field` lets one rule list mix rules targeting different
+      named inputs without per-tool branching: `protect_secrets` is one
+      `[[rule]]` list where each rule sets `field = "file_path"` or
+      `field = "command"`, and a file_path rule simply can't match a Bash
+      call (empty `file_path`). `field` is invalid alongside `conditions`.
+    - `conditions` is an array of `{field, operator, pattern}`, AND-combined,
+      so a rule can require several named fields at once (e.g. a `file_path`
+      pattern and a `content` substring) without new Python. Operators:
+      `regex_match`, `contains`, `not_contains`, `equals`, `starts_with`,
+      `ends_with`; the non-regex operators are case-insensitive, matching
+      the `re.IGNORECASE` convention.
+
+Both `field` and `conditions` resolve names against a `fields` dict the
+hook passes to `first_match`. Every hook exposes its inputs as named fields
+(`protect_secrets._match_fields`: file_path, command, content, old_string,
+new_string, tool_name; `protect_system`: command, tool_name;
+`stop_phrase_guard`: message), so a rule can target any of them. Hooks also
+pass a primary `text`, which an unqualified `pattern` rule matches.
+
+All patterns compile at load time so a bad regex surfaces as a load error,
+not in the hot path. Keep collections flat per category; do not introduce
+dispatch indirection. `lib/rules.py` is covered by `tests/test_lib_rules.py`
+(the engine) plus each hook's own characterization tests (the wiring).
 
 ### Style (applies to every component type)
 

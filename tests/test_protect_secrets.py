@@ -463,3 +463,93 @@ def test_protect_secrets(case: Case, hooks_dir: Path, tmp_path: Path) -> None:
     assert proc.returncode == case.expect_exit, f"exit={proc.returncode}{diag}"
     for s in case.stderr_contains:
         assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
+
+
+# Multi-field `conditions` rules exercise the shared rule engine end to end
+# through protect_secrets' own field-mapping; the subprocess CASES above can't
+# inject a custom ruleset, so these import the module and point RULES_FILE at
+# a temp file with one conditions rule.
+_CONDITIONS_RULESET = """\
+allowlist = []
+
+[[rule]]
+    id      = "py-hardcoded-secret"
+    level   = "high"
+    reason  = "hardcoded secret in a source file"
+    conditions = [
+        { field = "file_path", operator = "ends_with", pattern = ".py" },
+        { field = "content",   operator = "contains",  pattern = "SECRET" },
+    ]
+"""
+
+
+@pytest.fixture
+def secrets_module(hooks_dir: Path) -> Any:
+    """Import protect_secrets with the hooks dir importable."""
+    import importlib
+    import sys
+
+    sys.path.insert(0, str(hooks_dir))
+    try:
+        yield importlib.import_module("protect_secrets")
+    finally:
+        sys.path.pop(0)
+
+
+def _conditions_cfg() -> Any:
+    from lib.config import Config  # ty: ignore[unresolved-import]
+
+    return Config(profile="standard", disabled_hooks=frozenset(), hook_options={})
+
+
+def test_conditions_rule_blocks_when_all_fields_match(
+    secrets_module: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a conditions rule blocks when every field condition holds."""
+    # Given a ruleset whose only rule needs a .py path AND a SECRET in content
+    rules_file = tmp_path / "r.toml"
+    rules_file.write_text(_CONDITIONS_RULESET, encoding="utf-8")
+    monkeypatch.setattr(secrets_module, "RULES_FILE", rules_file)
+
+    # When writing a .py file whose content carries a secret
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {"file_path": "app/config.py", "content": "TOKEN = 'SECRET'"},
+    }
+    decision = secrets_module.evaluate(payload, _conditions_cfg())
+
+    # Then the conditions rule blocks it
+    assert decision is not None
+    assert decision.block
+    assert "py-hardcoded-secret" in decision.reason
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        pytest.param(
+            {"file_path": "app/config.py", "content": "TOKEN = 'public'"}, id="content-clean"
+        ),
+        pytest.param(
+            {"file_path": "notes.txt", "content": "TOKEN = 'SECRET'"}, id="wrong-extension"
+        ),
+    ],
+)
+def test_conditions_rule_passes_when_any_field_misses(
+    secrets_module: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_input: dict[str, str],
+) -> None:
+    """Verify a conditions rule does not fire unless every condition holds."""
+    # Given the same multi-field ruleset
+    rules_file = tmp_path / "r.toml"
+    rules_file.write_text(_CONDITIONS_RULESET, encoding="utf-8")
+    monkeypatch.setattr(secrets_module, "RULES_FILE", rules_file)
+
+    # When only one of the two conditions can hold
+    payload = {"tool_name": "Write", "tool_input": tool_input}
+    decision = secrets_module.evaluate(payload, _conditions_cfg())
+
+    # Then nothing is blocked
+    assert decision is None

@@ -1,11 +1,20 @@
-# Rules for protect_system.py. The hook loads this file at runtime and
-# matches each entry's `pattern` (regex, re.IGNORECASE) against the bash
-# command string. First match wins; iteration follows file order. Rules
-# whose `level` is above the active threshold (CLAUDE_PROTECT_SYSTEM_LEVEL)
-# are skipped.
+# Rules for protect_system.py, loaded at runtime through the shared
+# hooks/lib/rules.py engine. Each entry's `pattern` (regex, re.IGNORECASE)
+# is matched against the bash command string. First match wins; iteration
+# follows file order. Rules whose `level` is above the active threshold
+# (set via [hooks.protect-system].level in natelandau-toolkit.toml) are
+# skipped.
 #
-# Required fields per rule: level, id, pattern, reason.
+# Required fields per rule: level, id, reason, plus exactly one matcher.
 # `level` must be one of: critical, high, strict.
+#
+# Matcher: either a single `pattern` (as below) or a `conditions` array of
+# `{ field, operator, pattern }` tables (AND-combined). protect_system
+# matches a single command string, so a bare `pattern` is the natural form
+# here. A `pattern` rule may also set an optional `field` to target a named
+# input (protect_system exposes `command` and `tool_name`); omitting it
+# matches the command, so it is rarely needed here. See the "Rule data"
+# section of CLAUDE.md for the full schema.
 #
 # Pattern strings are TOML literals (single-quoted) so regex backslashes
 # pass through verbatim. The three rm-home patterns include a single quote
