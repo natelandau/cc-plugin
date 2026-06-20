@@ -1,3 +1,9 @@
+## v0.8.0 (2026-06-19)
+
+### Feat
+
+- **commands**: add /organize for project navigability review
+
 ## v0.7.0 (2026-06-19)
 
 ### Feat
