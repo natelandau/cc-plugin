@@ -278,6 +278,9 @@ are invoked as `/<name>`. Frontmatter: `name`, `description`, optional
 - `/refactor` - behavior-preserving refactor (any language): multi-agent deep review by
   default, or a fast inline pass with `--quick`; see `commands/refactor.md` for phases and
   `--fix` semantics.
+- `/organize` - project navigability review: a multi-agent verified pass over file/directory
+  topology, naming, module boundaries, grab-bag files, and scattered functions. Advisory only
+  (report + ordered reorganization plan); never moves files. See `commands/organize.md`.
 
 ## Agents
 

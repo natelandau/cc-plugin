@@ -20,8 +20,14 @@ the **`/refactor`** command:
 - `/refactor --quick <target>` runs a fast inline pass with no subagents.
 - add `--fix` to apply the safe (behavior-preserving, mechanical) findings.
 
-Use this skill's discipline for any refactor you do directly; point at `/refactor` when the
-user wants the heavy automated pass.
+For **project organization** rather than line-level code (file/directory topology, naming,
+module boundaries, grab-bag files, scattered functions that want a home), suggest the
+**`/organize`** command instead. It is advisory: it produces a report and an ordered
+reorganization plan but never moves files. Execute that plan with this skill's discipline,
+small steps, green tests between batches, behavior preserved.
+
+Use this skill's discipline for any refactor you do directly; point at `/refactor` for the
+heavy line-level pass and `/organize` for a structural/navigability review.
 
 ## The golden rules
 

@@ -57,6 +57,9 @@ Type these yourself when you want them:
 - `/gha` investigates a GitHub Actions failure and suggests a fix.
 - `/refactor` runs a multi-agent, behavior-preserving refactor review of any code, with
   `--quick` for a fast pass and `--fix` to apply the safe changes.
+- `/organize` reviews how a project is organized (file/directory layout, naming, module
+  boundaries, grab-bag files) and returns a report plus an ordered reorganization plan; it
+  is advisory and never moves files.
 - `/create-prd` turns the conversation into a Product Requirements Document.
 - `/daisyui` for building UIs with daisyUI v5 and Tailwind.
 - `/tortoise-orm` for building apps with Tortoise ORM.
