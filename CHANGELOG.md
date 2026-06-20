@@ -1,15 +1,16 @@
-## Unreleased
+## v0.7.0 (2026-06-19)
 
-### Changed
+### Feat
 
-- Hooks now run through a unified PreToolUse dispatcher with file-based
-  configuration. Set `profile` (`minimal`/`standard`/`strict`),
-  `disabled_hooks`, and per-hook `level` in
-  `~/.claude/natelandau-toolkit.toml` or
-  `<project>/.claude/natelandau-toolkit.toml` (project overrides global).
-- **Breaking:** the `CLAUDE_PROTECT_SYSTEM_LEVEL` and
-  `CLAUDE_PROTECT_SECRETS_LEVEL` environment variables are removed. Use the
-  `[hooks.protect-system]` / `[hooks.protect-secrets]` `level` keys instead.
+- **commands**: add /refactor for safe refactoring in any language
+- **skills**: add web accessibility (WCAG 2.2) skill
+- **hooks**: protect linter and formatter configs from being weakened
+- **hooks**: allow edits to gitignored files on protected branches
+- **hooks**: route PreToolUse hooks through a configurable dispatcher (#7)
+
+### Fix
+
+- **hooks**: harden input handling against malformed payloads
 
 ## v0.6.1 (2026-06-19)
 
