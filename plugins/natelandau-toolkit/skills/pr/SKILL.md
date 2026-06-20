@@ -43,21 +43,20 @@ the first time rather than discovering the block at `gh pr create`.
 ```dot
 digraph pr {
   rankdir=TB; node [shape=box];
-  detect   [label="Detect: feature branch, default branch,\nremote host"];
+  detect   [label="Step 0: detect feature branch,\ndefault branch, remote host"];
   refuse   [label="On default branch / no remote?\nStop and explain" shape=diamond];
-  commit1  [label="Step 1: commit outstanding work\n(conventional message)"];
-  green    [label="Step 2: run linters + tests,\nfix fallout, commit it"];
+  prep     [label="Steps 1-3: shared prep\n(commit, rebase on trunk, green, docs)"];
   exists   [label="PR already open for this branch?" shape=diamond];
   show     [label="Show existing PR, stop"];
-  push     [label="Step 3: push the feature branch\n(git push -u)"];
+  push     [label="Step 4: push the feature branch\n(git push -u)"];
   body     [label="Synthesize conventional title +\ndiff-grounded body"];
   create   [label="gh pr create --base <default>"];
   done     [label="Report PR URL" shape=doublecircle];
 
   detect -> refuse;
   refuse -> done [label="yes (stop)"];
-  refuse -> commit1 [label="no"];
-  commit1 -> green -> exists;
+  refuse -> prep [label="no"];
+  prep -> exists;
   exists -> show [label="yes"];
   show -> done;
   exists -> push [label="no"];
@@ -83,56 +82,11 @@ gh repo view --json defaultBranchRef -q .defaultBranchRef.name   # base branch
 **Refuse early** if the current branch _is_ the default branch — you open a PR
 _from_ a feature branch, not from `main`.
 
-### Step 1 — Commit outstanding work
+### Steps 1–3 — Prepare the branch (shared)
 
-A PR reviews committed history, so commit anything outstanding first.
-
-```bash
-git status --porcelain    # anything here must be committed
-```
-
-If dirty, stage and commit with a conventional message describing the changes:
-
-```bash
-git add -A
-git commit -m "<type>(<scope>): <subject>"
-```
-
-If the tree is already clean, skip this step.
-
-### Step 2 — Get the branch green
-
-Don't send red work for review. Run every linter and test suite the project
-defines, fix whatever they flag, and commit the fixes.
-
-```bash
-# Use the project's actual tooling — discover it, don't assume. For this repo:
-uv run ruff check . && uv run ruff format . && uv run ty check
-uv run pytest
-```
-
-Other projects may use `npm test`, `make lint`, `pre-commit run --all-files`,
-etc. — read the repo's config (`pyproject.toml`, `package.json`, `Makefile`,
-CI workflows) for the real commands. Fix and re-run until clean, then commit:
-
-```bash
-git add -A
-git commit -m "<type>(<scope>): <subject>"
-```
-
-If everything already passes and nothing changed, there's nothing to commit.
-**Do not open a PR with failing linters or tests.**
-
-### Step 3 - Review and update documentation
-
-Review any project documentation and make updates as needed to avoid documentation drift. This includes the README, CONTRIBUTING, and any other documentation that is relevant to the changes. If the `documentation-writer` skill is available, use it to review and update the documentation.
-
-If you made any updates to the documentation, commit the changes with a conventional message describing the changes:
-
-```bash
-git add -A
-git commit -m "<type>(<scope>): <subject>"
-```
+**Read `../shared/finishing-prep.md`** (relative to this skill's base directory)
+and perform every step in it before continuing. A PR reviews committed, green,
+up-to-date history, so none of it is optional. Return here once it's done.
 
 ### Step 4 — Push and open the PR
 
@@ -150,6 +104,12 @@ Otherwise push the feature branch and open the PR:
 ```bash
 git push -u origin HEAD
 ```
+
+If this push is rejected as non-fast-forward, the branch was pushed _before_ the
+Step B rebase rewrote its history. Reconciling that needs a force push, which
+this repo's `enforce_branch_protection` hook blocks (by design — it can clobber a
+collaborator's work). **Do not try to force it.** Stop and ask the user to push
+it themselves, e.g. `! git push --force-with-lease`, then resume.
 
 Synthesize the two pieces against the full branch diff:
 
@@ -209,6 +169,7 @@ user's call (or a reviewer's).
 | Symptom                         | Cause                                   | Do this                                                           |
 | ------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
 | `gh pr create` blocked          | Title isn't a valid conventional commit | Fix the title; `chore` is not an allowed type here                |
+| Push rejected (non-fast-forward) | Branch was pushed before the Step B rebase rewrote it | Don't force (hook blocks it); have the user `! git push --force-with-lease` |
 | "a pull request already exists" | Branch already has an open PR           | Show the existing PR; update it instead of creating a duplicate   |
 | `gh` push prompt / no upstream  | Branch not pushed yet                   | `git push -u origin HEAD` before `gh pr create`                   |
 | Body reads like a design doc    | Included why/future/concerns            | Cut anything not visible in the diff; keep Summary + Changes only |

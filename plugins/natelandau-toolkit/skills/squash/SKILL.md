@@ -23,12 +23,10 @@ through nothing — synthesize the message, verify the commit landed, then clean
   commit it directly (no approval prompt) and report the message used.
 - **Verify before you delete.** Confirm the squash commit exists and holds the
   work _before_ removing any branch or worktree. Deletions are the last steps.
-- **Conventional commits throughout.** Every commit this skill makes (any
-  pre-squash cleanup commits and the final squash commit) must be a valid
-  conventional commit: `<type>(<scope>): <subject>`, imperative,
-  lowercase subject, ≤70-char header, type from the allowed set
-  (`build ci docs feat fix perf refactor style test` — note there is no
-  `chore`). The `enforce_commit_message` hook will reject anything else.
+- **Conventional commits throughout.** Every commit this skill makes — the
+  prep commits _and_ the final squash commit — must be a valid conventional
+  commit (full rule in the shared prep reference below). The
+  `enforce_commit_message` hook will reject anything else.
 
 ## Why this works with branch protection
 
@@ -44,24 +42,23 @@ the trunk any other way; it will be blocked.
 ```dot
 digraph squash {
   rankdir=TB; node [shape=box];
-  detect   [label="Detect: feature branch, trunk name,\nworktree or single checkout"];
+  detect   [label="Step 0: detect feature branch, trunk name,\nworktree or single checkout"];
   refuse   [label="On trunk already / nothing to squash?\nStop and explain" shape=diamond];
-  commit1  [label="Step 1: commit outstanding work\n(conventional message)"];
-  green    [label="Step 2: run linters + tests,\nfix fallout, commit it"];
-  goto     [label="Step 3: move to the trunk checkout,\ncheckout main, ensure clean"];
+  prep     [label="Steps 1-3: shared prep\n(commit, rebase on trunk, green, docs)"];
+  goto     [label="Step 4: move to the trunk checkout,\ncheckout main, ensure clean"];
   squash   [label="git merge --squash <branch>"];
   conflict [label="Conflicts?" shape=diamond];
   resolve  [label="Stop. Report conflict, let user resolve"];
   msg      [label="Synthesize ONE user-facing\nconventional commit message"];
   commit2  [label="git commit  (allowed: squash in progress)"];
   verify   [label="Verify commit landed + holds the work"];
-  cleanup  [label="Step 4: remove worktree (if any),\nforce-delete branch"];
+  cleanup  [label="Step 5: remove worktree (if any),\nforce-delete branch"];
   done     [label="Report result. Do NOT push." shape=doublecircle];
 
   detect -> refuse;
   refuse -> done [label="yes"];
-  refuse -> commit1 [label="no"];
-  commit1 -> green -> goto -> squash -> conflict;
+  refuse -> prep [label="no"];
+  prep -> goto -> squash -> conflict;
   conflict -> resolve [label="yes"];
   conflict -> msg [label="no"];
   msg -> commit2;
@@ -88,67 +85,23 @@ git worktree list                          # shows every checkout + its branch
   `main`/`master`). Otherwise it's a single checkout and you'll switch it to the
   trunk yourself.
 
-**Refuse early** if: the current branch is already `main`/`master` (nothing to
-land), or the branch has no commits beyond the trunk (nothing to squash). Say so
-and stop.
+**Refuse early** if either:
 
-### Step 1 — Commit outstanding work
+- the current branch is already `main`/`master` (nothing to land), or
+- the branch has no commits beyond the trunk **and** the working tree is clean
+  (truly nothing to squash).
 
-`git merge --squash` only carries _committed_ history, so any uncommitted work
-must be committed onto the feature branch first.
+A branch that is level with the trunk but has _uncommitted_ changes is **not** a
+refusal: the shared prep's first step commits that work onto the branch, leaving
+exactly one commit to squash. Run `git status --porcelain` before refusing on
+the second condition — if it prints anything, there is work to squash, so
+proceed.
 
-```bash
-git status --porcelain    # anything here must be committed
-```
+### Steps 1–3 — Prepare the branch (shared)
 
-If dirty, stage and commit with a real conventional message describing the
-changes (it gets squashed away, but it still must pass the commit hook):
-
-```bash
-git add -A
-git commit -m "<type>(<scope>): <subject>"
-```
-
-If the tree is already clean, skip this step.
-
-### Step 2 — Get the branch green
-
-Land only work that passes the project's own gates. Run every linter and test
-suite the project defines, fix whatever they flag, and commit the fixes onto the
-feature branch so they're part of what gets squashed.
-
-```bash
-# Use the project's actual tooling — discover it, don't assume. For this repo:
-uv run ruff check . && uv run ruff format . && uv run ty check
-uv run pytest
-```
-
-Other projects may use `npm test`, `make lint`, `pre-commit run --all-files`,
-etc. — read the repo's config (`pyproject.toml`, `package.json`, `Makefile`,
-CI workflows) to find the real commands rather than guessing.
-
-If anything fails, fix it and re-run until clean. Then commit the cleanup with a
-conventional message:
-
-```bash
-git add -A
-git commit -m "<type>(<scope>): <subject>"
-```
-
-If everything already passes and nothing changed, there's nothing to commit —
-move on. **Do not proceed to the squash with failing linters or tests**; landing
-broken work on the trunk is exactly what this step prevents.
-
-### Step 3 - Review and update documentation
-
-Review any project documentation and make updates as needed to avoid documentation drift. This includes the README, CONTRIBUTING, and any other documentation that is relevant to the changes. If the `documentation-writer` skill is available, use it to review and update the documentation.
-
-If you made any updates to the documentation, commit the changes with a conventional message describing the changes:
-
-```bash
-git add -A
-git commit -m "<type>(<scope>): <subject>"
-```
+**Read `../shared/finishing-prep.md`** (relative to this skill's base directory)
+and perform every step in it before continuing. Every commit it makes goes onto
+the _feature branch_, never the trunk. Return here once it's done.
 
 ### Step 4 — Squash onto the trunk
 
@@ -158,6 +111,25 @@ Get onto the trunk checkout, confirm it's clean, then squash-merge the branch.
 - **Worktree**: `cd` into the trunk's checkout (from `git worktree list`); it's
   already on `main`. Confirm with `git status` that the trunk tree is clean
   before merging — a dirty trunk means stop and ask the user.
+
+The shared prep (Step B) rebased the feature onto `origin/<trunk>`, so the local
+trunk should match the remote before the squash — otherwise a stale local trunk
+makes the merge drag in commits it was missing. On a remote-backed repo, run a
+fast-forward first (skip on a local-only repo):
+
+```bash
+git merge --ff-only origin/<trunk>    # bring the checked-out local trunk current
+```
+
+Run it unconditionally on a remote-backed repo — it is safe in every case:
+
+- **Local trunk current or _ahead_** (e.g. it holds prior unpushed squashes —
+  the normal state for this never-push workflow): prints "Already up to date" and
+  changes nothing. _Ahead is not divergence; do not skip the squash over it._
+- **Local trunk behind**: fast-forwards it to the remote.
+- **Truly diverged** (local has commits the remote lacks _and_ the remote has
+  commits the local lacks): the command fails. **Stop and report** rather than
+  forcing it.
 
 ```bash
 git merge --squash <feature-branch>

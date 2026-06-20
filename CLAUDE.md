@@ -41,6 +41,7 @@ plugins/natelandau-toolkit/hooks/*.py                 Hook modules exposing eval
 plugins/natelandau-toolkit/hooks/lib/                 Shared scaffolding: io.py, config.py, registry.py
 plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand guidance loaded by the skill router
 plugins/natelandau-toolkit/skills/<name>/references/  Optional supplementary content for a skill
+plugins/natelandau-toolkit/skills/shared/            Content shared by 2+ skills (no SKILL.md; linked by relative path)
 plugins/natelandau-toolkit/commands/<name>.md         Slash commands invoked by the user
 plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions
 tests/test_*.py                                       Hook characterization test harnesses (no pytest dep)
@@ -258,6 +259,12 @@ description matches user intent. Conventions specific to this repo:
 
 - Entry file must be exactly `skills/<name>/SKILL.md`. Optional
   `references/*.md` siblings for longer content the body links to.
+- Content shared by two or more skills lives under `skills/shared/`
+  (a plain directory, no `SKILL.md`, so the router and `test_manifest`
+  ignore it). Each skill's body links to it by relative path
+  (`../shared/<file>.md`) and instructs the model to read it inline.
+  `/pr` and `/squash` share `skills/shared/finishing-prep.md` (commit
+  outstanding work, get green, update docs) this way.
 - Description must start "Use when ..." for reliable router matching.
   Tighten triggers (file extensions, intent verbs, tool names) until
   the skill loads when it should and stays quiet when it shouldn't.
