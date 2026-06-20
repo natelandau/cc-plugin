@@ -11,7 +11,7 @@ the local `main`/`master` branch, then clean up. This is the end-of-feature
 "land it" workflow: one tidy commit on the trunk, no leftover branch.
 
 This skill is **destructive and irreversible** once the deletions run. Force
-through nothing — confirm the message, verify the commit landed, then clean up.
+through nothing — synthesize the message, verify the commit landed, then clean up.
 
 ## Non-negotiable guardrails
 
@@ -19,8 +19,8 @@ through nothing — confirm the message, verify the commit landed, then clean up
   cleanup and let the user push when they're ready.
 - **The final commit message is for an end user, not a maintainer.** It
   describes the branch as one shipped feature and why the project's users
-  benefit — not a changelog of every internal change. Synthesize it, show it,
-  commit only on approval.
+  benefit — not a changelog of every internal change. Synthesize it, then
+  commit it directly (no approval prompt) and report the message used.
 - **Verify before you delete.** Confirm the squash commit exists and holds the
   work _before_ removing any branch or worktree. Deletions are the last steps.
 - **Conventional commits throughout.** Every commit this skill makes (any
@@ -53,7 +53,6 @@ digraph squash {
   conflict [label="Conflicts?" shape=diamond];
   resolve  [label="Stop. Report conflict, let user resolve"];
   msg      [label="Synthesize ONE user-facing\nconventional commit message"];
-  confirm  [label="Show message. User approves?" shape=diamond];
   commit2  [label="git commit  (allowed: squash in progress)"];
   verify   [label="Verify commit landed + holds the work"];
   cleanup  [label="Step 4: remove worktree (if any),\nforce-delete branch"];
@@ -65,9 +64,7 @@ digraph squash {
   commit1 -> green -> goto -> squash -> conflict;
   conflict -> resolve [label="yes"];
   conflict -> msg [label="no"];
-  msg -> confirm;
-  confirm -> msg [label="edit"];
-  confirm -> commit2 [label="yes"];
+  msg -> commit2;
   commit2 -> verify -> cleanup -> done;
 }
 ```
@@ -188,8 +185,8 @@ message. Drop the incidental churn (test tweaks, lint fixes, renames) unless it
 _is_ the user-facing point.
 
 Draft one conventional commit (subject + body explaining the _why_ for the
-user), **show it to the user, and commit only once they approve** (edit and
-re-show on request):
+user) and commit it directly — **do not pause for approval**. Report the
+message you used as part of the final summary:
 
 ```bash
 git commit -m "<type>(<scope>): <subject>" -m "<body>"
