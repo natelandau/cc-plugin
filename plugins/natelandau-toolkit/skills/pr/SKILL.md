@@ -28,6 +28,11 @@ a PR whose title and description match the project's conventions.
   anything else not captured in the code. Describe what the change _is_ and what
   it _does_, nothing more. This is the opposite of a commit body — there is no
   "why" here.
+- **Honor the repo's PR template if it ships one.** When the project provides a
+  pull-request template, fill _its_ structure rather than imposing the default
+  shape below. The diff-grounded discipline still applies: populate each section
+  factually from the changes and leave a section as `N/A` rather than inventing
+  motivation, testing, or risk prose to fill it.
 - **Open it ready for review** (not a draft) unless the user says otherwise.
 
 ## Why the title is hook-validated
@@ -49,6 +54,7 @@ digraph pr {
   exists   [label="PR already open for this branch?" shape=diamond];
   show     [label="Show existing PR, stop"];
   push     [label="Step 4: push the feature branch\n(git push -u)"];
+  tmpl     [label="Discover repo PR template\n(use it, or default shape)"];
   body     [label="Synthesize conventional title +\ndiff-grounded body"];
   create   [label="gh pr create --base <default>"];
   done     [label="Report PR URL" shape=doublecircle];
@@ -60,7 +66,7 @@ digraph pr {
   exists -> show [label="yes"];
   show -> done;
   exists -> push [label="no"];
-  push -> body -> create -> done;
+  push -> tmpl -> body -> create -> done;
 }
 ```
 
@@ -111,6 +117,22 @@ this repo's `enforce_branch_protection` hook blocks (by design — it can clobbe
 collaborator's work). **Do not try to force it.** Stop and ask the user to push
 it themselves, e.g. `! git push --force-with-lease`, then resume.
 
+Discover whether the repo ships a PR template — its presence decides the body's
+structure. Check these paths in order and use the first that exists:
+
+```bash
+ls .github/PULL_REQUEST_TEMPLATE/ 2>/dev/null   # directory of named templates
+ls .github/PULL_REQUEST_TEMPLATE.md \
+   .github/pull_request_template.md \
+   docs/pull_request_template.md \
+   PULL_REQUEST_TEMPLATE.md 2>/dev/null          # single-file templates
+```
+
+- **Directory** (`.github/PULL_REQUEST_TEMPLATE/`): multiple templates. Pick
+  `default.md` if present, otherwise ask the user which to use.
+- **Single file**: read it; that's the body skeleton.
+- **None found**: use the default Summary/Changes shape below.
+
 Synthesize the two pieces against the full branch diff:
 
 ```bash
@@ -121,8 +143,14 @@ git diff <default-branch>...HEAD            # the actual changes — ground trut
 - **Title** — one conventional-commit subject summarizing the change, framed for
   a reader of the merged history.
 - **Body** — a factual account of what changed, drawn strictly from the diff.
-  Keep to a short summary plus concrete changes; do not editorialize. Use this
-  shape and resist adding anything else:
+  Keep it concrete; do not editorialize.
+  - **If a template was found**, fill _its_ sections — preserve every heading and
+    its order. Populate each from the diff; leave any section that doesn't apply
+    as `N/A` rather than inventing content. Honor template instructions you can
+    satisfy factually (e.g. a checklist), and don't delete sections you can't.
+    The diff-grounded rule still governs: a section asking "why" or "risks" gets
+    `N/A` unless the answer is literally visible in the changes.
+  - **If no template was found**, use this shape and resist adding anything else:
 
     ```markdown
     ## Summary
@@ -139,8 +167,9 @@ git diff <default-branch>...HEAD            # the actual changes — ground trut
     or "Testing" speculation. If you're tempted to write something the diff doesn't
     show, drop it.
 
-Write the body to a temp file (avoids shell-quoting pitfalls; `/tmp` is exempt
-from the file-protection hooks) and create the PR:
+Write the chosen body (template-filled or default) to a temp file (avoids
+shell-quoting pitfalls; `/tmp` is exempt from the file-protection hooks) and
+create the PR:
 
 ```bash
 cat > /tmp/pr-body.md <<'EOF'
@@ -173,4 +202,5 @@ user's call (or a reviewer's).
 | "a pull request already exists" | Branch already has an open PR           | Show the existing PR; update it instead of creating a duplicate   |
 | `gh` push prompt / no upstream  | Branch not pushed yet                   | `git push -u origin HEAD` before `gh pr create`                   |
 | Body reads like a design doc    | Included why/future/concerns            | Cut anything not visible in the diff; keep Summary + Changes only |
+| Repo template has empty/why sections | Template asks for content the diff doesn't show | Mark those sections `N/A`; never invent prose to fill them |
 | No remote / `gh` not authed     | Nowhere to open a PR                    | Stop; tell the user to set a remote or run `gh auth login`        |
