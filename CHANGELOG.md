@@ -1,3 +1,14 @@
+## v0.8.1 (2026-06-20)
+
+### Fix
+
+- **skills**: share branch-finishing prep between /pr and /squash
+- **commands**: show plain-language confidence labels in review reports
+
+### Refactor
+
+- **squash**: land /squash without a commit-message approval pause
+
 ## v0.8.0 (2026-06-19)
 
 ### Feat
