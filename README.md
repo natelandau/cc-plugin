@@ -39,7 +39,7 @@ tune or disable them.
 Claude pulls these in when the task matches, no action needed:
 
 - `documentation-writer` for writing and editing user-facing docs.
-- `python-refactor` for restructuring Python without changing behavior.
+- `safe-refactoring` for behavior-preserving restructuring in any language.
 - `flask-development` for building Flask 3+ apps.
 - `htmx-expert` for writing and debugging htmx.
 - `accessibility` for auditing web UI against WCAG 2.2 while editing templates.
@@ -55,6 +55,8 @@ Type these yourself when you want them:
 - `/squash` collapses a finished branch into one commit on `main`, then cleans
   up the branch.
 - `/gha` investigates a GitHub Actions failure and suggests a fix.
+- `/refactor` runs a multi-agent, behavior-preserving refactor review of any code, with
+  `--quick` for a fast pass and `--fix` to apply the safe changes.
 - `/create-prd` turns the conversation into a Product Requirements Document.
 - `/daisyui` for building UIs with daisyUI v5 and Tailwind.
 - `/tortoise-orm` for building apps with Tortoise ORM.

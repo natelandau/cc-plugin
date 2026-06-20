@@ -275,6 +275,10 @@ Slash commands live as flat markdown files at `commands/<name>.md` and
 are invoked as `/<name>`. Frontmatter: `name`, `description`, optional
 `argument-hint`. Body reads `$ARGUMENTS` for user-supplied input.
 
+- `/refactor` - behavior-preserving refactor (any language): multi-agent deep review by
+  default, or a fast inline pass with `--quick`; see `commands/refactor.md` for phases and
+  `--fix` semantics.
+
 ## Agents
 
 Subagent definitions go at `agents/<name>.md` with frontmatter per the
