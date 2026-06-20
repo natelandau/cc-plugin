@@ -187,8 +187,11 @@ applicable" step.
 Always print these sections (this is the full output when `--fix` is absent):
 
 1. **Apply-eligible findings** - `APPLY_MECHANICAL` then `APPLY_STRUCTURAL`, each as
-   `path/to/file:LINE - summary` followed by the rationale and the proposed change, and
-   the verdict (KEEP/PLAUSIBLE).
+   `path/to/file:LINE - summary` followed by the rationale and the proposed change, and a
+   confidence label. Render confidence as a reader-facing word, never the internal verifier
+   verdict: **Confirmed** when any merged verdict is KEEP, **Worth considering** when every
+   merged verdict is PLAUSIBLE. Collapse each finding to one label; never print the raw
+   `KEEP`/`PLAUSIBLE` tokens or a slash-joined list of them (e.g. `KEEP / KEEP / PLAUSIBLE`).
 2. **Out of scope (report-only)** - each `REPORT_ONLY` finding with its summary and a note:
    "behavior-changing; consider `/code-review`."
 3. **Refuted** - each entry from `REFUTED`, one line each, so the user sees what was

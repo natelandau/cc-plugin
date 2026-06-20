@@ -158,8 +158,11 @@ Then always print these sections:
 1. **Today's map** - one short paragraph: how the project is organized now and the top
    friction points, so the reader has the lay of the land before the recommendations.
 2. **Recommendations** - the ranked survivors, grouped by theme, each as
-   `area - summary` followed by the proposed change, the cited `navigation_cost`, and the
-   verdict (KEEP/PLAUSIBLE).
+   `area - summary` followed by the proposed change, the cited `navigation_cost`, and a
+   confidence label. Render confidence as a reader-facing word, never the internal verifier
+   verdict: **Confirmed** when any merged verdict is KEEP, **Worth considering** when every
+   merged verdict is PLAUSIBLE. Collapse each finding to one label; never print the raw
+   `KEEP`/`PLAUSIBLE` tokens or a slash-joined list of them (e.g. `KEEP / KEEP / PLAUSIBLE`).
 3. **Ordered reorganization plan** - the recommendations sequenced into safe steps that
    respect dependencies (e.g. create the package, then move files into it, then update
    imports, then rename). Each step carries a one-line risk note. Open the plan with a
