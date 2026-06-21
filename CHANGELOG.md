@@ -1,3 +1,12 @@
+## v0.9.0 (2026-06-21)
+
+### Feat
+
+- **skills**: add /cleanup-branch and run heavy steps via subagents
+- **pr**: consolidate sprawling branches before opening a PR
+- **hooks**: match rules against multiple tool inputs
+- **pr**: use a repo's pull-request template when opening a PR
+
 ## v0.8.1 (2026-06-20)
 
 ### Fix
