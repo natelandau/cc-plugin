@@ -50,10 +50,12 @@ digraph pr {
   rankdir=TB; node [shape=box];
   detect   [label="Step 0: detect feature branch,\ndefault branch, remote host"];
   refuse   [label="On default branch / no remote?\nStop and explain" shape=diamond];
-  prep     [label="Steps 1-3: shared prep\n(commit, rebase on trunk, green, docs)"];
+  prep     [label="Steps A-D: shared prep\n(commit, rebase on trunk, green, docs)"];
+  many     [label="History sprawled into many\nsmall/fixup commits?" shape=diamond];
+  regroup   [label="Step 4: consolidate into fewer\ncommits grouped by area"];
   exists   [label="PR already open for this branch?" shape=diamond];
   show     [label="Show existing PR, stop"];
-  push     [label="Step 4: push the feature branch\n(git push -u)"];
+  push     [label="Step 5: push the feature branch\n(git push -u)"];
   tmpl     [label="Discover repo PR template\n(use it, or default shape)"];
   body     [label="Synthesize conventional title +\ndiff-grounded body"];
   create   [label="gh pr create --base <default>"];
@@ -62,7 +64,10 @@ digraph pr {
   detect -> refuse;
   refuse -> done [label="yes (stop)"];
   refuse -> prep [label="no"];
-  prep -> exists;
+  prep -> many;
+  many -> regroup [label="yes"];
+  many -> exists [label="no"];
+  regroup -> exists;
   exists -> show [label="yes"];
   show -> done;
   exists -> push [label="no"];
@@ -88,13 +93,85 @@ gh repo view --json defaultBranchRef -q .defaultBranchRef.name   # base branch
 **Refuse early** if the current branch _is_ the default branch — you open a PR
 _from_ a feature branch, not from `main`.
 
-### Steps 1–3 — Prepare the branch (shared)
+### Steps A–D — Prepare the branch (shared)
 
 **Read `../shared/finishing-prep.md`** (relative to this skill's base directory)
 and perform every step in it before continuing. A PR reviews committed, green,
 up-to-date history, so none of it is optional. Return here once it's done.
 
-### Step 4 — Push and open the PR
+### Step 4 — Consolidate a sprawling branch
+
+A branch whose history reads as a few coherent, well-named commits is far easier
+to review than the same change buried under a long trail of small or fixup-style
+commits. Before pushing, read how the branch's history actually reads to a
+reviewer:
+
+```bash
+git log --oneline <default-branch>..HEAD   # the story the branch tells
+```
+
+Judge whether it needs consolidating — there's no fixed threshold, use the log
+itself:
+
+- **Leave it alone** when it's already a small set of commits that each describe
+  one coherent change. A branch with eight commits that each tell a clean story
+  does not need touching.
+- **Consolidate** when the log has sprawled: many tiny edits, `wip`/`fixup`
+  commits, or back-and-forth corrections that a reviewer would have to wade
+  through. As a loose rule of thumb, more than roughly half a dozen commits on a
+  single branch is worth a second look — but a high count alone isn't the
+  trigger; a messy, hard-to-follow log is.
+
+To consolidate, read the full change, decide the logical groups, then rebuild the
+history so that:
+
+```bash
+git diff <default-branch>...HEAD   # the full change — the groups live in here
+```
+
+- **each commit covers one area or concern** — a reviewer reads one self-contained
+  commit per topic, not a scatter of related edits across many commits;
+- **the commits are ordered to be read top to bottom** — groundwork first (a
+  refactor, a new helper, a schema change), then the work that builds on it;
+- **each commit's subject names what it does** as a conventional commit, so the
+  log alone conveys the shape of the change.
+
+Aim for a handful of commits split by area, not a single squashed commit. Pick
+groupings the diff actually supports — e.g. one commit per subsystem, or
+separating a refactor from the feature that rides on it.
+
+Because interactive rebase (`git rebase -i`) is unavailable in this environment,
+rebuild the history with a soft reset and re-commit by group. This keeps the
+final tree byte-for-byte identical — you are only repackaging the same changes:
+
+```bash
+git reset --soft <default-branch>   # uncommit everything; working tree untouched, all changes staged
+git restore --staged .              # unstage so you can commit one group at a time
+```
+
+Then, working in your intended reading order, stage just each group's paths and
+commit it with a conventional-commit subject that names the area:
+
+```bash
+git add <paths for group 1>
+git commit -m "<type>(<scope>): <subject>"
+# repeat for each remaining group, groundwork commits first
+```
+
+Confirm nothing was lost before moving on — the tree must be unchanged and the
+working copy clean:
+
+```bash
+git status --porcelain                       # must be empty
+git diff <default-branch>...HEAD --stat       # same files/lines as before the reset
+```
+
+If a clean per-area split isn't possible (e.g. one file genuinely spans every
+concern), don't force an artificial division — keep changes that can't be cleanly
+separated in one commit rather than splitting a single coherent change across
+several. When in doubt, fewer honest commits beat many contrived ones.
+
+### Step 5 — Push and open the PR
 
 First, guard against duplicates — if a PR is already open for this branch, don't
 create a second one:

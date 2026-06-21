@@ -44,7 +44,7 @@ digraph squash {
   rankdir=TB; node [shape=box];
   detect   [label="Step 0: detect feature branch, trunk name,\nworktree or single checkout"];
   refuse   [label="On trunk already / nothing to squash?\nStop and explain" shape=diamond];
-  prep     [label="Steps 1-3: shared prep\n(commit, rebase on trunk, green, docs)"];
+  prep     [label="Steps A-D: shared prep\n(commit, rebase on trunk, green, docs)"];
   goto     [label="Step 4: move to the trunk checkout,\ncheckout main, ensure clean"];
   squash   [label="git merge --squash <branch>"];
   conflict [label="Conflicts?" shape=diamond];
@@ -97,7 +97,7 @@ exactly one commit to squash. Run `git status --porcelain` before refusing on
 the second condition — if it prints anything, there is work to squash, so
 proceed.
 
-### Steps 1–3 — Prepare the branch (shared)
+### Steps A–D — Prepare the branch (shared)
 
 **Read `../shared/finishing-prep.md`** (relative to this skill's base directory)
 and perform every step in it before continuing. Every commit it makes goes onto
