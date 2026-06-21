@@ -100,6 +100,10 @@ def _hook_scripts() -> list[Path]:
     return sorted((PLUGIN_ROOT / "hooks").glob("*.py"))
 
 
+def _agent_files() -> list[Path]:
+    return sorted((PLUGIN_ROOT / "agents").glob("*.md"))
+
+
 def test_plugin_manifest_has_required_fields() -> None:
     """Verify .claude-plugin/plugin.json parses with name and description."""
     # Given the plugin manifest
@@ -202,3 +206,28 @@ def test_command_has_frontmatter(command_path: Path) -> None:
     # Then it exists and contains a description
     assert fields is not None, f"{command_path}: missing YAML frontmatter"
     assert "description" in fields, f"{command_path}: frontmatter missing 'description'"
+
+
+@pytest.mark.parametrize("agent_path", _agent_files(), ids=lambda p: p.stem)
+def test_agent_has_required_frontmatter(agent_path: Path) -> None:
+    """Verify every agents/*.md declares name and description in frontmatter."""
+    # Given a subagent definition
+    fields = _parse_frontmatter(agent_path.read_text())
+
+    # Then frontmatter parses with both required fields
+    assert fields is not None, f"{agent_path}: missing YAML frontmatter"
+    assert "name" in fields, f"{agent_path}: frontmatter missing 'name'"
+    assert "description" in fields, f"{agent_path}: frontmatter missing 'description'"
+
+
+@pytest.mark.parametrize("agent_path", _agent_files(), ids=lambda p: p.stem)
+def test_agent_name_matches_filename(agent_path: Path) -> None:
+    """Verify agents/*.md frontmatter 'name' equals the file stem used to dispatch it."""
+    # Given a subagent definition
+    fields = _parse_frontmatter(agent_path.read_text())
+    assert fields is not None  # covered by the frontmatter test
+
+    # Then frontmatter name aligns with the on-disk slug
+    assert fields.get("name") == agent_path.stem, (
+        f"{agent_path}: frontmatter name {fields.get('name')!r} != file stem {agent_path.stem!r}"
+    )

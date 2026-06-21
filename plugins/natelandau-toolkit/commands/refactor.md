@@ -55,11 +55,13 @@ before proceeding.
    - any language standards/style rules that apply to the target's file types (these auto-load
      by path glob, e.g. `python-standards.md` for `.py`), plus any project rules
 
-3. **Record the test BASELINE** (needed for `--fix`): detect the project's test command for
-   the target language (e.g. `uv run pytest`, `npm test`, `go test ./...`, `cargo test`).
-   Detect pre-commit by the presence of `.pre-commit-config.yaml`. If FIX is true, run the
-   suite and record whether it exists and is green; if FIX is false, only record whether a
-   suite exists without running it.
+3. **Record the test BASELINE** (needed for `--fix`): if FIX is true, get a `GREEN`/`RED`
+   baseline by running the project's gates — in **deep** mode dispatch the `test-runner`
+   subagent (ships with this plugin; it discovers the project's own test command and
+   pre-commit config and returns just the verdict plus any failures, keeping the output out
+   of this conversation), and in **quick** mode (no subagents) run the gates inline. Record
+   the verdict. If FIX is false, run nothing — only note whether a test suite exists at all
+   (a glance at the repo's config), since Phase 6 won't execute.
 
 4. **Build the SCOPE BLOCK** that rides along to every finder: the resolved file list, a
    one-paragraph summary of what the code does, the loaded conventions, and the verbatim
@@ -71,9 +73,10 @@ before proceeding.
 In **quick** mode, do NOT dispatch subagents: skip the rest of Phase 2 and all of Phase 3,
 and go to the "Quick path" below.
 
-In **deep** mode (the default), select finder angles by TARGET and run each as an independent
-subagent **in parallel** via the Task tool. Each subagent receives the SCOPE BLOCK and its
-single angle prompt, and returns candidate findings in the schema below.
+In **deep** mode (the default), select finder angles by TARGET and dispatch each **in
+parallel** as the `review-finder` subagent (ships with this plugin; read-only). Give each one
+the SCOPE BLOCK, its single angle prompt (below), and the candidate schema (below); it returns
+candidate findings in that schema.
 
 **Angle selection (deep mode):** dispatch idioms, simplification, reuse, conventions,
 docs-&-comments, efficiency, pitfalls, and altitude. Add `structure` only if TARGET is a
@@ -147,17 +150,11 @@ Phase 4 route every pitfalls finding to REPORT_ONLY by angle.
 
 ## Phase 3: Verify & refute
 
-In deep mode, run one independent verifier subagent per candidate (quick mode skips Phase 3
-entirely). Give the verifier the SCOPE BLOCK and the candidate. It returns exactly one verdict
-plus a behavior-preservation judgment:
-
-- **KEEP** - a real improvement; can name what gets clearer/safer/less duplicated. Quote the line.
-- **PLAUSIBLE** - improvement is real but context-dependent; state what would confirm it.
-- **REFUTED** - not an improvement, factually wrong, or would change behavior unacceptably.
-  Quote the line that proves it.
-
-Plus: **behavior-preserving? yes/no** - does applying the proposed change keep external
-behavior (outputs + side effects) identical?
+In deep mode, dispatch one `review-verifier` subagent per candidate (quick mode skips Phase 3
+entirely; read-only). Give it the SCOPE BLOCK and the candidate, and ask it to **also judge
+behavior preservation**. It returns exactly one verdict (`KEEP`, `PLAUSIBLE`, or `REFUTED`, per
+its rubric) plus a **behavior-preserving? yes/no** — whether applying the change keeps external
+behavior (outputs + side effects) identical.
 
 Drop REFUTED candidates (record them briefly for the report). This is the "refute what's not
 applicable" step.
@@ -168,7 +165,7 @@ applicable" step.
 
 ## Phase 4: Synthesize
 
-1. **Gap sweep (deep mode):** dispatch one fresh finder that sees the surviving
+1. **Gap sweep (deep mode):** dispatch one fresh `review-finder` that sees the surviving
    candidates and hunts ONLY for refactor opportunities not already found (moved code that
    dropped clarity, second-tier duplication, asymmetric setup/teardown). Verify any new
    candidates through Phase 3.
@@ -188,10 +185,9 @@ Always print these sections (this is the full output when `--fix` is absent):
 
 1. **Apply-eligible findings** - `APPLY_MECHANICAL` then `APPLY_STRUCTURAL`, each as
    `path/to/file:LINE - summary` followed by the rationale and the proposed change, and a
-   confidence label. Render confidence as a reader-facing word, never the internal verifier
-   verdict: **Confirmed** when any merged verdict is KEEP, **Worth considering** when every
-   merged verdict is PLAUSIBLE. Collapse each finding to one label; never print the raw
-   `KEEP`/`PLAUSIBLE` tokens or a slash-joined list of them (e.g. `KEEP / KEEP / PLAUSIBLE`).
+   confidence label rendered per `review-verifier`'s canonical verdict→label mapping
+   (**Confirmed** / **Worth considering**). Collapse each finding to one label; never print the
+   raw verifier verdict tokens.
 2. **Out of scope (report-only)** - each `REPORT_ONLY` finding with its summary and a note:
    "behavior-changing; consider `/code-review`."
 3. **Refuted** - each entry from `REFUTED`, one line each, so the user sees what was
@@ -214,9 +210,10 @@ half-finished restructure.
 
 **Per-batch gate:**
 1. Apply the batch.
-2. Run the full suite (the test command detected in Phase 1) and pre-commit if configured.
-3. Green -> commit with a conventional-commit message naming the technique
-   (`refactor: remove dead code in <area>`). Red -> revert the batch, stop, and report the
+2. Re-check the gates: in **deep** mode re-dispatch the `test-runner` subagent and read its
+   verdict; in **quick** mode run the suite (and pre-commit if configured) inline.
+3. `GREEN` -> commit with a conventional-commit message naming the technique
+   (`refactor: remove dead code in <area>`). `RED` -> revert the batch, stop, and report the
    failure.
 
 **Protected branches:** if on `main` or `master`, apply and verify but DO NOT commit (the

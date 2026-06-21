@@ -97,79 +97,37 @@ _from_ a feature branch, not from `main`.
 
 **Read `../shared/finishing-prep.md`** (relative to this skill's base directory)
 and perform every step in it before continuing. A PR reviews committed, green,
-up-to-date history, so none of it is optional. Return here once it's done.
+up-to-date history, so none of it is optional. The PR merges into the **remote**
+default branch, so that prep's Step B rebases onto the remote trunk:
+
+- **`<rebase-onto>`** = `origin/<default-branch>` (the remote ref the PR targets).
+
+Return here once it's done.
 
 ### Step 4 — Consolidate a sprawling branch
 
 A branch whose history reads as a few coherent, well-named commits is far easier
 to review than the same change buried under a long trail of small or fixup-style
-commits. Before pushing, read how the branch's history actually reads to a
-reviewer:
+commits. Before pushing, repackage a sprawling branch into reviewable commits.
+
+Because Step B already rebased this branch onto the trunk, the trunk is the
+regroup base. Record the current tip first so the rewrite is verifiable, then run
+the shared procedure:
 
 ```bash
-git log --oneline <default-branch>..HEAD   # the story the branch tells
+orig=$(git rev-parse HEAD)   # tip before any rewrite, for the byte-identical check
 ```
 
-Judge whether it needs consolidating — there's no fixed threshold, use the log
-itself:
+**Read `../shared/regroup-history.md`** (relative to this skill's base directory)
+and perform every step in it, with:
 
-- **Leave it alone** when it's already a small set of commits that each describe
-  one coherent change. A branch with eight commits that each tell a clean story
-  does not need touching.
-- **Consolidate** when the log has sprawled: many tiny edits, `wip`/`fixup`
-  commits, or back-and-forth corrections that a reviewer would have to wade
-  through. As a loose rule of thumb, more than roughly half a dozen commits on a
-  single branch is worth a second look — but a high count alone isn't the
-  trigger; a messy, hard-to-follow log is.
+- **`<base>`** = the default branch (the trunk you rebased onto in Step B).
+- **`<original-tip>`** = `$orig` (the SHA recorded just above).
 
-To consolidate, read the full change, decide the logical groups, then rebuild the
-history so that:
-
-```bash
-git diff <default-branch>...HEAD   # the full change — the groups live in here
-```
-
-- **each commit covers one area or concern** — a reviewer reads one self-contained
-  commit per topic, not a scatter of related edits across many commits;
-- **the commits are ordered to be read top to bottom** — groundwork first (a
-  refactor, a new helper, a schema change), then the work that builds on it;
-- **each commit's subject names what it does** as a conventional commit, so the
-  log alone conveys the shape of the change.
-
-Aim for a handful of commits split by area, not a single squashed commit. Pick
-groupings the diff actually supports — e.g. one commit per subsystem, or
-separating a refactor from the feature that rides on it.
-
-Because interactive rebase (`git rebase -i`) is unavailable in this environment,
-rebuild the history with a soft reset and re-commit by group. This keeps the
-final tree byte-for-byte identical — you are only repackaging the same changes:
-
-```bash
-git reset --soft <default-branch>   # uncommit everything; working tree untouched, all changes staged
-git restore --staged .              # unstage so you can commit one group at a time
-```
-
-Then, working in your intended reading order, stage just each group's paths and
-commit it with a conventional-commit subject that names the area:
-
-```bash
-git add <paths for group 1>
-git commit -m "<type>(<scope>): <subject>"
-# repeat for each remaining group, groundwork commits first
-```
-
-Confirm nothing was lost before moving on — the tree must be unchanged and the
-working copy clean:
-
-```bash
-git status --porcelain                       # must be empty
-git diff <default-branch>...HEAD --stat       # same files/lines as before the reset
-```
-
-If a clean per-area split isn't possible (e.g. one file genuinely spans every
-concern), don't force an artificial division — keep changes that can't be cleanly
-separated in one commit rather than splitting a single coherent change across
-several. When in doubt, fewer honest commits beat many contrived ones.
+That procedure judges whether the history has actually sprawled (and leaves a
+already-clean branch untouched), groups the commits, rebuilds them with a soft
+reset, and verifies the tree is byte-for-byte identical (restoring from `$orig` if
+anything drifted). Return here when it is done, then continue to Step 5.
 
 ### Step 5 — Push and open the PR
 

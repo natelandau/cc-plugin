@@ -67,9 +67,10 @@ Build the **REPO MAP** once. It is the shared substrate that rides along to ever
 
 ## Phase 2: Find
 
-Select the angles below and run each as an independent subagent **in parallel** via the Task
-tool. Each subagent receives the REPO MAP and its single angle prompt, and returns candidate
-findings in the schema below. Up to 8 candidates per angle.
+Select the angles below and dispatch each **in parallel** as the `review-finder` subagent
+(ships with this plugin; read-only). Give each one the REPO MAP, its single angle prompt
+(below), and the candidate schema (below); it returns candidate findings in that schema, up to
+8 per angle.
 
 **Candidate schema** (each finding):
 - `area` (string) - the path, directory, or cluster the finding is about,
@@ -130,17 +131,12 @@ modules (nothing imports them) that clutter navigation. Name the concrete wayfin
 
 ## Phase 3: Verify & refute
 
-Run one independent verifier subagent per candidate. Give the verifier the REPO MAP and the
-candidate. It returns exactly one verdict:
-
-- **KEEP** - a real improvement to navigability or maintainability. The verifier **must cite a
-  concrete navigation or maintenance cost** the change removes (e.g. "a new dev hunting for
-  auth logic must grep four directories"; "editing the billing feature forces touching
-  `utils.py`, which 30 unrelated modules import"). No concrete cost -> not a KEEP.
-- **PLAUSIBLE** - the improvement is real but context-dependent; state what would confirm it
-  (e.g. team ownership, churn data, a convention the repo hasn't declared).
-- **REFUTED** - subjective restyling ("I'd arrange it differently"), factually wrong, would
-  break the stack's conventions, or net-negative for navigation. Quote what proves it.
+Dispatch one `review-verifier` subagent per candidate (read-only). Give it the REPO MAP and the
+candidate. It returns exactly one verdict (`KEEP`, `PLAUSIBLE`, or `REFUTED`, per its rubric);
+no behavior-preservation judgment is needed here. The concrete cost it must cite for a `KEEP`
+is a **navigation or maintenance cost** the change removes (e.g. "a new dev hunting for auth
+logic must grep four directories"; "editing the billing feature forces touching `utils.py`,
+which 30 unrelated modules import").
 
 Drop REFUTED candidates (record them briefly for the report). This is the defense against
 organizational bikeshedding: a finding survives only if it names a cost a developer pays today.
@@ -159,10 +155,9 @@ Then always print these sections:
    friction points, so the reader has the lay of the land before the recommendations.
 2. **Recommendations** - the ranked survivors, grouped by theme, each as
    `area - summary` followed by the proposed change, the cited `navigation_cost`, and a
-   confidence label. Render confidence as a reader-facing word, never the internal verifier
-   verdict: **Confirmed** when any merged verdict is KEEP, **Worth considering** when every
-   merged verdict is PLAUSIBLE. Collapse each finding to one label; never print the raw
-   `KEEP`/`PLAUSIBLE` tokens or a slash-joined list of them (e.g. `KEEP / KEEP / PLAUSIBLE`).
+   confidence label rendered per `review-verifier`'s canonical verdict→label mapping
+   (**Confirmed** / **Worth considering**). Collapse each finding to one label; never print the
+   raw verifier verdict tokens.
 3. **Ordered reorganization plan** - the recommendations sequenced into safe steps that
    respect dependencies (e.g. create the package, then move files into it, then update
    imports, then rename). Each step carries a one-line risk note. Open the plan with a

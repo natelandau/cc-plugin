@@ -11,18 +11,19 @@ Code's plugin system without hand-editing `settings.json`.
 ## Live documentation
 
 This plugin tracks the live Claude Code documentation. Before authoring or
-modifying any component, fetch the relevant page from
-<https://code.claude.com/docs/> so you're working from current syntax,
+modifying any component, fetch the relevant page from the complete documentation
+index at: <https://code.claude.com/docs/llms.txt> so you're working from current syntax,
 fields, and semantics rather than memory:
 
-| Topic                                              | URL                                                    |
-| -------------------------------------------------- | ------------------------------------------------------ |
-| Plugin manifest, component dirs, install mechanics | <https://code.claude.com/docs/en/plugins-reference.md> |
-| Plugin authoring guide                             | <https://code.claude.com/docs/en/plugins.md>           |
-| Hook events, payloads, exit codes, matchers        | <https://code.claude.com/docs/en/hooks.md>             |
-| Hook authoring guide                               | <https://code.claude.com/docs/en/hooks-guide.md>       |
-| Skill format and authoring                         | <https://code.claude.com/docs/en/skills.md>            |
-| Subagent definitions                               | <https://code.claude.com/docs/en/sub-agents.md>        |
+| Topic                                              | URL                                                           |
+| -------------------------------------------------- | ------------------------------------------------------------- |
+| Plugin manifest, component dirs, install mechanics | <https://code.claude.com/docs/en/plugins-reference.md>        |
+| Plugin authoring guide                             | <https://code.claude.com/docs/en/plugins.md>                  |
+| Hook events, payloads, exit codes, matchers        | <https://code.claude.com/docs/en/hooks.md>                    |
+| Hook authoring guide                               | <https://code.claude.com/docs/en/hooks-guide.md>              |
+| Skill format and authoring                         | <https://code.claude.com/docs/en/skills.md>                   |
+| Subagent definitions                               | <https://code.claude.com/docs/en/sub-agents.md>               |
+| Slash commands                                     | <https://code.claude.com/docs/en/agent-sdk/slash-commands.md> |
 
 Slash commands are covered in the plugins reference.
 
@@ -92,10 +93,10 @@ redefining any other hook table.
 
 See `hooks/natelandau-toolkit.toml.example` for the full template. Top-level keys:
 
-| Key | Values | Default | Effect |
-| --- | ------ | ------- | ------ |
-| `profile` | `minimal`, `standard`, `strict` | `standard` | Controls which hook tier runs |
-| `disabled_hooks` | list of hook ids | `[]` | Force-disables hooks regardless of profile |
+| Key              | Values                          | Default    | Effect                                     |
+| ---------------- | ------------------------------- | ---------- | ------------------------------------------ |
+| `profile`        | `minimal`, `standard`, `strict` | `standard` | Controls which hook tier runs              |
+| `disabled_hooks` | list of hook ids                | `[]`       | Force-disables hooks regardless of profile |
 
 Profile tiers:
 
@@ -226,7 +227,7 @@ that caught it. Rule data (protected filenames + protected
 `config_protection.rules.toml`; the diffing logic stays in Python.
 Non-obvious carve-outs:
 
-- **First-time creation passes through.** Only *modifying* an existing
+- **First-time creation passes through.** Only _modifying_ an existing
   config is blocked; bootstrapping a new one is allowed. Existence is
   probed with `lstat` (symlink-aware), per the input-hardening note
   below, so a symlink to a missing target is not read as "exists".
@@ -264,7 +265,10 @@ description matches user intent. Conventions specific to this repo:
   ignore it). Each skill's body links to it by relative path
   (`../shared/<file>.md`) and instructs the model to read it inline.
   `/pr` and `/squash` share `skills/shared/finishing-prep.md` (commit
-  outstanding work, get green, update docs) this way.
+  outstanding work, get green, update docs); `/pr` and `/cleanup-branch`
+  share `skills/shared/regroup-history.md` (group commits, soft-reset +
+  recommit, verify byte-identical), each caller passing its own `<base>` and
+  `<original-tip>`.
 - Description must start "Use when ..." for reliable router matching.
   Tighten triggers (file extensions, intent verbs, tool names) until
   the skill loads when it should and stays quiet when it shouldn't.
@@ -272,6 +276,11 @@ description matches user intent. Conventions specific to this repo:
 - Use `disable-model-invocation: true` for framework- or
   project-specific skills that apply to a small share of work; the
   user invokes `/<name>` explicitly.
+- A rule that must *hold* (e.g. never force-push, never weaken a linter
+  config) belongs in a PreToolUse hook, not skill prose: prose is a request
+  the model can stray from, a hook is enforcement. The hooks above already
+  guard the destructive-git and config-weakening cases, so lean on them
+  rather than restating the rule in a skill body.
 
 Use the `skill-creator` skill when authoring or revising a skill; do
 not handcraft frontmatter from scratch.
@@ -293,6 +302,33 @@ are invoked as `/<name>`. Frontmatter: `name`, `description`, optional
 
 Subagent definitions go at `agents/<name>.md` with frontmatter per the
 Claude Code plugins reference.
+
+**When to reach for one — factor by isolation boundary, not by reuse.** A
+subagent earns its keep only for verbose, self-contained, summarizable work
+where keeping the output out of the orchestrator's context is the point (e.g.
+running the full lint/test suite and returning just the failures, or a
+read-only review that returns recommendations). Deduplicate shared *procedure*
+with a `skills/shared/*.md` file (the `finishing-prep.md` pattern) or by one
+skill invoking another — never by spinning up a subagent purely to avoid
+copy-paste, and never by copy-pasting the procedure itself. Keep short,
+stateful, tree-mutating steps (commit work, sync trunk) inline in the invoking
+skill; they need the main conversation's context.
+
+Current agents:
+
+- `test-runner` - runs the project's lint/test gates, returns a `GREEN`/`RED`
+  verdict with failures; does not modify files (the caller fixes). Dispatched from
+  `skills/shared/finishing-prep.md` (shared by `/pr` and `/squash`) and from
+  `/refactor`'s `--fix` gate.
+- `doc-drift-reviewer` - read-only; compares docs against the branch diff and
+  returns a prioritized drift report; recommends edits without making them.
+  Dispatched from `skills/shared/finishing-prep.md`.
+- `review-finder` - read-only; applies one analysis angle to a caller-provided
+  scope and returns candidates in the caller's schema. Shared by `/refactor` and
+  `/organize` as their parallel finders.
+- `review-verifier` - read-only; judges one candidate `KEEP`/`PLAUSIBLE`/`REFUTED`
+  (and, on request, behavior preservation), and defines the canonical
+  verdict→label mapping the reports render. Shared by `/refactor` and `/organize`.
 
 ## Conventions
 
@@ -414,6 +450,14 @@ dispatch indirection. `lib/rules.py` is covered by `tests/test_lib_rules.py`
 - `docs/` is gitignored. Spec and plan documents created during
   brainstorming and planning live there but are not committed; they
   are session-local artifacts.
+- Don't cross-reference sibling skills or commands inside a skill/command
+  _body_. The reader is an agent executing that one component, often in an
+  unrelated project; naming a component it won't invoke (`/squash`, `/pr`,
+  another skill) is noise. State the behavior or boundary directly instead.
+  Two carve-outs: hooks the component actually trips (e.g.
+  `enforce_commit_message`) are fair game because they describe enforcement
+  the agent hits, and cross-references in _this_ file (the maintainer's
+  catalog) are fine.
 
 ## Testing
 
@@ -484,13 +528,13 @@ Concrete rules:
 **New PreToolUse hook (dispatcher-routed, most common):**
 
 1. Write `hooks/<your_hook>.py` exposing `evaluate(payload, cfg) ->
-   Decision | None` and a `__main__` block. Make it executable.
+Decision | None` and a `__main__` block. Make it executable.
 2. Add it to `HOOK_PROFILES` (which profiles it runs in) and
    `PRE_TOOL_CHECKS` (which tool names it matches) in `hooks/lib/registry.py`.
 3. Add `tests/test_<your_hook>.py` with:
-   - Per-check cases that call `evaluate()` directly or via subprocess.
-   - At least one dispatcher-level case that exercises the full
-     `pre_tool_dispatcher.py` path.
+    - Per-check cases that call `evaluate()` directly or via subprocess.
+    - At least one dispatcher-level case that exercises the full
+      `pre_tool_dispatcher.py` path.
 4. Add the hook id to `DISPATCHER_INVOKED` in `tests/test_manifest.py`
    so the orphan-guard passes.
 5. Run `uv run pytest`, then `uv run ruff check && uv run ruff format`.
@@ -526,9 +570,11 @@ the "Use when ..." description, then save as
 (`name`, `description`, optional `argument-hint`) and the prompt body.
 Becomes `/<name>` after reload.
 
-**New agent:** Create `agents/<name>.md` with subagent frontmatter per
-the plugins reference; dispatch via `Agent` tool with
-`subagent_type=<name>`.
+**New agent:** Create `agents/<name>.md` with subagent frontmatter
+(`name`, `description`, optional `tools`/`disallowedTools`/`model`; `name` must
+equal the file stem). Restrict a read-only agent with a `tools` allowlist.
+Dispatch via `Agent` tool with `subagent_type=<name>`. `test_manifest` validates
+the frontmatter automatically; run `uv run pytest`.
 
 ## Stop hook transcript shape
 

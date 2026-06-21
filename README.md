@@ -54,6 +54,9 @@ Type these yourself when you want them:
   a pull request.
 - `/squash` collapses a finished branch into one commit on `main`, then cleans
   up the branch.
+- `/cleanup-branch` repackages the current branch's commits into fewer, logically
+  grouped, reviewable commits without changing the resulting code; it backs up
+  first, verifies the tree is byte-for-byte identical, and never pushes.
 - `/gha` investigates a GitHub Actions failure and suggests a fix.
 - `/refactor` runs a multi-agent, behavior-preserving refactor review of any code, with
   `--quick` for a fast pass and `--fix` to apply the safe changes.

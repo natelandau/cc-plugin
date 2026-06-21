@@ -44,7 +44,8 @@ digraph squash {
   rankdir=TB; node [shape=box];
   detect   [label="Step 0: detect feature branch, trunk name,\nworktree or single checkout"];
   refuse   [label="On trunk already / nothing to squash?\nStop and explain" shape=diamond];
-  prep     [label="Steps A-D: shared prep\n(commit, rebase on trunk, green, docs)"];
+  sync     [label="Sync local trunk to remote\n(ff-only; stop if diverged)"];
+  prep     [label="Steps A-D: shared prep\n(commit, rebase feature onto local trunk, green, docs)"];
   goto     [label="Step 4: move to the trunk checkout,\ncheckout main, ensure clean"];
   squash   [label="git merge --squash <branch>"];
   conflict [label="Conflicts?" shape=diamond];
@@ -57,8 +58,8 @@ digraph squash {
 
   detect -> refuse;
   refuse -> done [label="yes"];
-  refuse -> prep [label="no"];
-  prep -> goto -> squash -> conflict;
+  refuse -> sync [label="no"];
+  sync -> prep -> goto -> squash -> conflict;
   conflict -> resolve [label="yes"];
   conflict -> msg [label="no"];
   msg -> commit2;
@@ -97,11 +98,58 @@ exactly one commit to squash. Run `git status --porcelain` before refusing on
 the second condition — if it prints anything, there is work to squash, so
 proceed.
 
+### Sync the local trunk first
+
+The squash lands on the **local** trunk (Step 4), which can be _ahead_ of its
+remote (prior unpushed squashes) or, if the remote advanced, _behind_ it. Bring
+the local trunk current with the remote **before** the shared prep rebases the
+feature onto it, so the feature is built on exactly what it will land on and any
+conflict surfaces during prep, not mid-squash. Skip this whole step on a
+local-only repo (no remote).
+
+```bash
+git fetch --all --prune
+```
+
+Fast-forward the local trunk to the remote without rewinding a locally-ahead
+trunk or forcing a divergence. The mechanics differ by the layout detected in
+Step 0:
+
+- **Single checkout** (you're on the feature branch; the trunk isn't checked
+  out, and the tree may still be dirty — Step A hasn't run yet). Update the
+  trunk ref only when the remote is strictly ahead:
+
+  ```bash
+  ahead=$(git rev-list --count origin/<trunk>..<trunk>)    # local-only commits
+  behind=$(git rev-list --count <trunk>..origin/<trunk>)   # remote-only commits
+  if [ "$behind" -gt 0 ] && [ "$ahead" -eq 0 ]; then
+      git fetch . origin/<trunk>:<trunk>   # remote strictly ahead → fast-forward local trunk
+  elif [ "$behind" -gt 0 ]; then
+      : # diverged (both sides have unique commits) → STOP and report; never force
+  fi
+  # ahead-only or equal → nothing to do; the local trunk already contains the remote
+  ```
+
+- **Worktree** (the trunk is checked out in another worktree from Step 0).
+  Fast-forward it in place:
+
+  ```bash
+  git -C <trunk-checkout> merge --ff-only origin/<trunk>   # ahead → no-op; behind → ff; diverged → fails, STOP
+  ```
+
+If either form reports divergence, **stop and report** — do not force it.
+
 ### Steps A–D — Prepare the branch (shared)
 
 **Read `../shared/finishing-prep.md`** (relative to this skill's base directory)
 and perform every step in it before continuing. Every commit it makes goes onto
-the _feature branch_, never the trunk. Return here once it's done.
+the _feature branch_, never the trunk. The squash lands on the **local** trunk
+you just synced, so that prep's Step B rebases onto it:
+
+- **`<rebase-onto>`** = the **local** `<trunk>` branch (not `origin/<trunk>`) —
+  the exact commit the squash will land on.
+
+Return here once it's done.
 
 ### Step 4 — Squash onto the trunk
 
@@ -112,24 +160,19 @@ Get onto the trunk checkout, confirm it's clean, then squash-merge the branch.
   already on `main`. Confirm with `git status` that the trunk tree is clean
   before merging — a dirty trunk means stop and ask the user.
 
-The shared prep (Step B) rebased the feature onto `origin/<trunk>`, so the local
-trunk should match the remote before the squash — otherwise a stale local trunk
-makes the merge drag in commits it was missing. On a remote-backed repo, run a
-fast-forward first (skip on a local-only repo):
+The local trunk was already fast-forwarded to the remote in the sync step above,
+and the shared prep (Step B) rebased the feature onto that up-to-date local
+trunk — so the feature now sits directly on the commit it's about to land on.
+On a remote-backed repo, re-confirm the trunk is still current as a cheap safety
+net before squashing (skip on a local-only repo):
 
 ```bash
-git merge --ff-only origin/<trunk>    # bring the checked-out local trunk current
+git merge --ff-only origin/<trunk>    # expected: "Already up to date" (synced in prep)
 ```
 
-Run it unconditionally on a remote-backed repo — it is safe in every case:
-
-- **Local trunk current or _ahead_** (e.g. it holds prior unpushed squashes —
-  the normal state for this never-push workflow): prints "Already up to date" and
-  changes nothing. _Ahead is not divergence; do not skip the squash over it._
-- **Local trunk behind**: fast-forwards it to the remote.
-- **Truly diverged** (local has commits the remote lacks _and_ the remote has
-  commits the local lacks): the command fails. **Stop and report** rather than
-  forcing it.
+If this unexpectedly reports the trunk is behind or diverged, the remote moved
+since prep — **stop and report** rather than forcing it, then restart from the
+sync step.
 
 ```bash
 git merge --squash <feature-branch>
