@@ -183,3 +183,27 @@ def test_check_exception_is_swallowed_and_loop_continues(
 
     # Then: the advisory from the following check appears on stdout
     assert "after-error" in captured.out
+
+
+def test_project_rule_blocks_through_dispatcher(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a per-project protect-secrets rule blocks via the full dispatcher."""
+    # Given a project rules file adding a prod-config block
+    rules_dir = tmp_path / ".claude" / "natelandau-toolkit"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    (rules_dir / "protect_secrets.rules.toml").write_text(
+        "[[rule]]\n"
+        'id = "acme-prod-conf"\n'
+        'level = "high"\n'
+        'reason = "production secrets live in this file"\n'
+        'field = "file_path"\n'
+        "pattern = 'acme-prod\\.conf$'\n",
+        encoding="utf-8",
+    )
+    payload = {"tool_name": "Read", "tool_input": {"file_path": "/repo/acme-prod.conf"}}
+
+    # When the dispatcher processes the read with the project dir set
+    proc = _run(hooks_dir, payload, project_dir=str(tmp_path))
+
+    # Then it blocks with the project rule's reason
+    assert proc.returncode == 2, f"exit={proc.returncode}\n  stderr={proc.stderr!r}"
+    assert "acme-prod-conf" in proc.stderr

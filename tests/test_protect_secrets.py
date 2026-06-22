@@ -496,6 +496,92 @@ def secrets_module(hooks_dir: Path) -> Any:
         sys.path.pop(0)
 
 
+def _cfg(project_dir: str | None = None) -> Any:
+    from lib.config import Config  # ty: ignore[unresolved-import]
+
+    return Config(
+        profile="standard", disabled_hooks=frozenset(), hook_options={}, project_dir=project_dir
+    )
+
+
+def _project_secrets(tmp_path: Path, content: str) -> str:
+    """Write a protect_secrets project rules file; return the project dir."""
+    d = tmp_path / ".claude" / "natelandau-toolkit"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "protect_secrets.rules.toml").write_text(content, encoding="utf-8")
+    return str(tmp_path)
+
+
+# A path the built-in rules do not match, so a block proves the project rule fired.
+_PROJECT_SECRETS = """\
+[[rule]]
+id = "acme-prod-conf"
+level = "high"
+reason = "production secrets live in this file"
+field = "file_path"
+pattern = 'acme-prod\\.conf$'
+"""
+
+
+def test_project_rule_blocks_otherwise_allowed_file(secrets_module: Any, tmp_path: Path) -> None:
+    """Verify a project rule blocks a file the built-in rules allow."""
+    # Given a project rules file adding a prod-config block
+    proj = _project_secrets(tmp_path, _PROJECT_SECRETS)
+    # When reading the project-protected file
+    decision = secrets_module.evaluate(_read("/repo/acme-prod.conf"), _cfg(project_dir=proj))
+    # Then the project rule blocks it
+    assert decision is not None
+    assert decision.block
+    assert "acme-prod-conf" in decision.reason
+
+
+def test_no_project_file_leaves_builtins_intact(secrets_module: Any, tmp_path: Path) -> None:
+    """Verify behavior is unchanged when no project file exists."""
+    # Given a project dir with no rules file
+    cfg = _cfg(project_dir=str(tmp_path))
+    # When reading the project-specific file and a built-in-blocked one
+    allowed = secrets_module.evaluate(_read("/repo/acme-prod.conf"), cfg)
+    blocked = secrets_module.evaluate(_read("/proj/.env"), cfg)
+    # Then only the built-in still blocks
+    assert allowed is None
+    assert blocked is not None
+    assert blocked.block
+
+
+def test_malformed_project_file_keeps_builtins(secrets_module: Any, tmp_path: Path) -> None:
+    """Verify a malformed project file is ignored but built-ins still fire."""
+    # Given a malformed project rules file
+    proj = _project_secrets(tmp_path, "not = = valid\n")
+    cfg = _cfg(project_dir=proj)
+    # When reading a built-in-blocked file and the project-specific one
+    blocked = secrets_module.evaluate(_read("/proj/.env"), cfg)
+    ignored = secrets_module.evaluate(_read("/repo/acme-prod.conf"), cfg)
+    # Then the built-in still blocks and the project rule is silently dropped
+    assert blocked is not None
+    assert blocked.block
+    assert ignored is None
+
+
+def test_project_rule_without_field_warns_and_cannot_match(
+    secrets_module: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a project rule with no field/conditions warns and never matches."""
+    # Given a project rule that sets a bare pattern but no field or conditions
+    proj = _project_secrets(
+        tmp_path,
+        '[[rule]]\nid = "bare"\nlevel = "high"\nreason = "x"\npattern = "secret"\n',
+    )
+
+    # When evaluating a benign read that the built-in rules do not block
+    decision = secrets_module.evaluate(_read("/repo/notes.txt"), _cfg(project_dir=proj))
+
+    # Then the inert rule is surfaced on stderr and it does not block
+    captured = capsys.readouterr()
+    assert "bare" in captured.err
+    assert "cannot match" in captured.err
+    assert decision is None
+
+
 def _conditions_cfg() -> Any:
     from lib.config import Config  # ty: ignore[unresolved-import]
 

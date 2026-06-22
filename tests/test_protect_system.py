@@ -9,9 +9,11 @@ strict-only or critical-only rules.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -800,3 +802,75 @@ def test_protect_system(case: Case, hooks_dir: Path, tmp_path: Path) -> None:
     assert proc.returncode == case.expect_exit, f"exit={proc.returncode}{diag}"
     for s in case.stderr_contains:
         assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
+
+
+@pytest.fixture
+def system_module(hooks_dir: Path) -> Any:
+    """Import protect_system with the hooks dir importable."""
+    sys.path.insert(0, str(hooks_dir))
+    try:
+        yield importlib.import_module("protect_system")
+    finally:
+        sys.path.pop(0)
+
+
+def _cfg(project_dir: str | None = None) -> Any:
+    from lib.config import Config  # ty: ignore[unresolved-import]
+
+    return Config(
+        profile="standard", disabled_hooks=frozenset(), hook_options={}, project_dir=project_dir
+    )
+
+
+def _project_rules(tmp_path: Path, content: str) -> str:
+    """Write a protect_system project rules file; return the project dir."""
+    d = tmp_path / ".claude" / "natelandau-toolkit"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "protect_system.rules.toml").write_text(content, encoding="utf-8")
+    return str(tmp_path)
+
+
+_PROJECT_SYSTEM = """\
+[[rule]]
+id = "no-local-prod-deploy"
+level = "high"
+reason = "run deploys through CI, not from a local shell"
+field = "command"
+pattern = 'deploy\\.sh\\s+--prod'
+"""
+
+
+def test_project_rule_blocks_otherwise_allowed_command(system_module: Any, tmp_path: Path) -> None:
+    """Verify a project rule blocks a command the built-in rules allow."""
+    # Given a project rules file adding a local-deploy block
+    proj = _project_rules(tmp_path, _PROJECT_SYSTEM)
+    # When running a command only the project rule matches
+    decision = system_module.evaluate(_bash("./deploy.sh --prod"), _cfg(project_dir=proj))
+    # Then the project rule blocks it
+    assert decision is not None and decision.block  # noqa: PT018
+    assert "no-local-prod-deploy" in decision.reason
+
+
+def test_no_project_file_leaves_builtins_intact(system_module: Any, tmp_path: Path) -> None:
+    """Verify behavior is unchanged when no project file exists."""
+    # Given a project dir with no rules file
+    cfg = _cfg(project_dir=str(tmp_path))
+    # When running the project-specific command and a built-in-blocked one
+    allowed = system_module.evaluate(_bash("./deploy.sh --prod"), cfg)
+    blocked = system_module.evaluate(_bash("rm -rf ~"), cfg)
+    # Then only the built-in still blocks
+    assert allowed is None
+    assert blocked is not None and blocked.block  # noqa: PT018
+
+
+def test_malformed_project_file_keeps_builtins(system_module: Any, tmp_path: Path) -> None:
+    """Verify a malformed project file is ignored but built-ins still fire."""
+    # Given a malformed project rules file
+    proj = _project_rules(tmp_path, "broken = = toml\n")
+    cfg = _cfg(project_dir=proj)
+    # When running a built-in-blocked command and the project-specific one
+    blocked = system_module.evaluate(_bash("rm -rf ~"), cfg)
+    ignored = system_module.evaluate(_bash("./deploy.sh --prod"), cfg)
+    # Then the built-in still blocks and the project rule is silently dropped
+    assert blocked is not None and blocked.block  # noqa: PT018
+    assert ignored is None

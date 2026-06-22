@@ -158,6 +158,19 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # Additive per-project violations. Fail open inside load_project_rules so a
+    # project typo never disables the built-in phrases.
+    violations = (
+        *violations,
+        *rules.load_project_rules(
+            RULES_FILE.name,
+            "violation",
+            required=STOP_REQUIRED,
+            optional=STOP_OPTIONAL,
+            project_dir=cfg.project_dir,
+        ),
+    )
+
     # `text` is the primary match text; also expose it as the named field
     # `message` so a rule may target it explicitly with `field = "message"`.
     violation = rules.first_match(violations, text=text, fields={"message": text})

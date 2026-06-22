@@ -30,6 +30,7 @@ class Config:
     profile: str
     disabled_hooks: frozenset[str]
     hook_options: Mapping[str, Mapping[str, str]]
+    project_dir: str | None = None
 
     def option(self, hook_id: str, key: str, default: str) -> str:
         """Return a per-hook option value, or `default` when unset."""
@@ -113,4 +114,5 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
         profile=resolved_profile,
         disabled_hooks=disabled[0],
         hook_options={k: dict(v) for k, v in hook_options.items()},
+        project_dir=project_dir,
     )

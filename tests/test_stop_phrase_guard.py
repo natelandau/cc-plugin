@@ -8,6 +8,7 @@ JSON decision shape and content.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -298,3 +299,38 @@ def test_stop_phrase_guard_skips_malformed_lines(tmp_path: Path, hooks_dir: Path
     # Then the hook exits 0 with no block decision
     assert proc.returncode == 0, f"stderr={proc.stderr!r}"
     assert not proc.stdout.strip(), f"unexpected stdout: {proc.stdout!r}"
+
+
+def test_project_violation_blocks(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a project-supplied violation phrase blocks the Stop turn."""
+    # Given a transcript whose final assistant message contains a custom phrase
+    transcript = _make_transcript(
+        tmp_path, [_assistant_text_entry("I will now frobnicate the widget.")]
+    )
+    # Given a project rules file adding that phrase as a violation
+    rules_dir = tmp_path / ".claude" / "natelandau-toolkit"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    (rules_dir / "stop_phrase_guard.rules.toml").write_text(
+        '[[violation]]\nid = "no-frobnicate"\nreason = "do not frobnicate"\npattern = "frobnicate"\n',
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    payload = {"hook_event_name": "Stop", "transcript_path": str(transcript)}
+
+    # When the Stop hook runs
+    proc = subprocess.run(
+        [str(hooks_dir / "stop_phrase_guard.py")],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env=env,
+    )
+
+    # Then it emits a block decision (exit 0, JSON on stdout) with the project reason
+    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
+    decision = json.loads(proc.stdout)
+    assert decision["decision"] == "block"
+    assert "do not frobnicate" in decision["reason"]

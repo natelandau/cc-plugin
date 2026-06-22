@@ -44,6 +44,7 @@ from typing import Any
 
 from lib.config import Config, load_config
 from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
+from lib.rules import project_rules_path, read_toml
 
 RULES_FILE = Path(__file__).parent / "config_protection.rules.toml"
 PYPROJECT = "pyproject.toml"
@@ -69,9 +70,15 @@ class RuleSet:
 
 
 def _require_str_list(raw: object, section: str) -> list[str]:
-    """Return raw as a list of strings or raise naming the offending entry."""
+    """Return raw as a list of strings, or [] when the section is absent.
+
+    A missing section means "no entries" so a project file can supply just
+    one of the two lists. A present-but-wrong-typed value still raises.
+    """
+    if raw is None:
+        return []
     if not isinstance(raw, list):
-        msg = f"missing or non-array '{section}' section"
+        msg = f"'{section}' must be an array of strings"
         raise TypeError(msg)
     out: list[str] = []
     for idx, item in enumerate(raw):
@@ -86,16 +93,41 @@ def _load_rules(path: Path) -> RuleSet:
     """Parse the rules TOML into an immutable RuleSet.
 
     A typo in the lists surfaces as a clear load error here rather than as
-    silently-missing protection at match time.
+    silently-missing protection at match time. Reads through the shared
+    `rules.read_toml` so the canonical reader's hardening applies, matching
+    the other rule-driven hooks.
     """
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
+    data = read_toml(path)
     return RuleSet(
         protected_files=frozenset(
             _require_str_list(data.get("protected_files"), "protected_files")
         ),
         protected_pyproject_tables=tuple(
             _require_str_list(data.get("protected_pyproject_tables"), "protected_pyproject_tables")
+        ),
+    )
+
+
+def _merged_rules(project_dir: str | None) -> RuleSet:
+    """Combine built-in protected names with a project's additive entries.
+
+    Project rules can only add protected files/tables. A malformed project
+    file fails open (warn + ignore) so it never disables the built-ins.
+    """
+    builtin = _load_rules(RULES_FILE)
+    proj_path = project_rules_path(RULES_FILE.name, project_dir=project_dir)
+    if proj_path is None:
+        return builtin
+    try:
+        project = _load_rules(proj_path)
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
+        print(f"natelandau-toolkit: ignoring project rules {proj_path}: {exc}", file=sys.stderr)  # noqa: T201
+        return builtin
+    return RuleSet(
+        protected_files=builtin.protected_files | project.protected_files,
+        protected_pyproject_tables=(
+            *builtin.protected_pyproject_tables,
+            *project.protected_pyproject_tables,
         ),
     )
 
@@ -229,7 +261,7 @@ def _check_pyproject(
     )
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
+def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a config-weakening edit, else None."""
     tool_name = payload.get("tool_name", "")
     if tool_name not in ("Edit", "Write"):
@@ -239,7 +271,7 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: 
     if not file_path:
         return None
 
-    rules = _load_rules(RULES_FILE)  # may raise; caught by caller / main
+    rules = _merged_rules(cfg.project_dir)  # may raise on built-in only; caught by caller / main
     path = Path(file_path)
     if path.name == PYPROJECT:
         return _check_pyproject(tool_name, tool_input, path, rules)

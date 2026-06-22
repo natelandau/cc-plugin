@@ -25,13 +25,14 @@ rather than in the matching hot path.
 from __future__ import annotations
 
 import re
+import sys
 import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
-    from pathlib import Path
 
 LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
 
@@ -248,6 +249,48 @@ def load_rules(
     `read_toml` once and `parse_rules`/`parse_pattern_list` per section.
     """
     return parse_rules(read_toml(path), section, required=required, optional=optional)
+
+
+PROJECT_RULES_SUBDIR: tuple[str, ...] = (".claude", "natelandau-toolkit")
+
+
+def project_rules_path(filename: str, *, project_dir: str | None) -> Path | None:
+    """Resolve an optional per-project rules file mirroring a built-in's name.
+
+    Projects extend a hook's built-in rules by dropping a file of the same
+    basename under `<project_dir>/.claude/natelandau-toolkit/`. Return that
+    path when `project_dir` is set and the file exists, else None.
+    """
+    if not project_dir:
+        return None
+    path = Path(project_dir, *PROJECT_RULES_SUBDIR, filename)
+    return path if path.exists() else None
+
+
+def load_project_rules(
+    filename: str,
+    section: str,
+    *,
+    required: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+    project_dir: str | None,
+) -> tuple[Rule, ...]:
+    """Load a project's additive rules for a hook, failing open to ().
+
+    Per-project rules can only *add* blocks, never weaken built-ins, so the
+    caller appends the result to its built-in rule tuple. A malformed project
+    file is caught here: a one-line warning goes to stderr and () is returned,
+    so a project typo never disables the hook's built-in rules nor wedges the
+    tool call. Return () when no project file is present.
+    """
+    path = project_rules_path(filename, project_dir=project_dir)
+    if path is None:
+        return ()
+    try:
+        return load_rules(path, section, required=required, optional=optional)
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+        print(f"natelandau-toolkit: ignoring project rules {path}: {exc}", file=sys.stderr)  # noqa: T201
+        return ()
 
 
 def parse_pattern_list(data: Mapping[str, object], key: str) -> tuple[re.Pattern[str], ...]:

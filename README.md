@@ -165,6 +165,41 @@ level = "strict"
 level = "critical"
 ```
 
+### Add project-specific rules
+
+Four hooks read an optional per-project rules file and add its rules to their
+built-in ones: `protect-secrets`, `protect-system`, `stop-phrase-guard`, and
+`config-protection`. Drop a file named after the hook under your project's
+`.claude/natelandau-toolkit/` directory:
+
+    <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
+
+These rules are additive only: a project can add blocks but never weaken or
+remove a built-in one. To turn a hook off entirely use `disabled_hooks`; to
+lower its threshold use `level`. A malformed project file is ignored (the hook
+warns and keeps enforcing its built-in rules), and the file is read whether or
+not you also keep a `natelandau-toolkit.toml`.
+
+Each file uses the same format as the hook's built-in rules. For example, to
+block a project's production config from being read or edited:
+
+```toml
+# <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
+[[rule]]
+id      = "acme-prod-conf"
+level   = "high"
+reason  = "production secrets live in this file"
+field   = "file_path"
+pattern = 'acme-prod\.conf$'
+```
+
+Match the array name to the hook's built-in file: `[[rule]]` for
+`protect-secrets` and `protect-system`, `[[violation]]` for `stop-phrase-guard`,
+and `protected_files` / `protected_pyproject_tables` lists for
+`config-protection`. A `protect-secrets` rule must target a named `field` (or
+use `conditions`), since that hook has no single primary text for a bare
+`pattern` to match against.
+
 ## License
 
 Released under the [MIT License](LICENSE). You're welcome to fork or borrow

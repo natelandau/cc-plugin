@@ -13,9 +13,11 @@ supplies `existing` content plus either an Edit substitution or a Write
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -342,3 +344,97 @@ def test_config_protection_disabled_via_config(hooks_dir: Path, tmp_path: Path) 
 
     # Then the edit is allowed
     assert proc.returncode == 0, f"exit={proc.returncode}\n  stderr={proc.stderr!r}"
+
+
+@pytest.fixture
+def configprot_module(hooks_dir: Path) -> Any:
+    """Import config_protection with the hooks dir importable."""
+    sys.path.insert(0, str(hooks_dir))
+    try:
+        yield importlib.import_module("config_protection")
+    finally:
+        sys.path.pop(0)
+
+
+def _cfg(project_dir: str | None = None) -> Any:
+    from lib.config import Config  # ty: ignore[unresolved-import]
+
+    return Config(
+        profile="standard", disabled_hooks=frozenset(), hook_options={}, project_dir=project_dir
+    )
+
+
+def _project_configprot(tmp_path: Path, content: str) -> str:
+    """Write a config_protection project rules file; return the project dir."""
+    d = tmp_path / ".claude" / "natelandau-toolkit"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "config_protection.rules.toml").write_text(content, encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_project_protected_file_blocked(configprot_module: Any, tmp_path: Path) -> None:
+    """Verify a project-listed config file is protected when modified."""
+    # Given a project rules file adding webpack.config.js (note: omits the
+    # pyproject-tables array on purpose, to prove a single-list file is valid)
+    proj = _project_configprot(tmp_path, 'protected_files = ["webpack.config.js"]\n')
+    # Given that file exists on disk (modification, not creation)
+    target = tmp_path / "src" / "webpack.config.js"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("module.exports = {}\n", encoding="utf-8")
+    payload = {
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": str(target),
+            "old_string": "{}",
+            "new_string": "{ mode: 'none' }",
+        },
+    }
+    # When evaluating the edit with the project dir set
+    decision = configprot_module.evaluate(payload, _cfg(project_dir=proj))
+    # Then it is blocked by config-protection
+    assert decision is not None
+    assert decision.block
+    assert "webpack.config.js" in decision.reason
+
+
+def test_no_project_file_leaves_builtins_intact(configprot_module: Any, tmp_path: Path) -> None:
+    """Verify built-in config protection is unchanged with no project file."""
+    # Given a project dir with no rules file and an existing ruff.toml
+    target = tmp_path / "ruff.toml"
+    target.write_text(RUFF_TOML, encoding="utf-8")
+    payload = {
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": str(target),
+            "old_string": 'select = ["E"]',
+            "new_string": "select = []",
+        },
+    }
+    # When evaluating the edit
+    decision = configprot_module.evaluate(payload, _cfg(project_dir=str(tmp_path)))
+    # Then the built-in still blocks ruff.toml
+    assert decision is not None
+    assert decision.block
+    assert "ruff.toml" in decision.reason
+
+
+def test_malformed_project_file_keeps_builtins(configprot_module: Any, tmp_path: Path) -> None:
+    """Verify a malformed project file is ignored but built-ins still fire."""
+    # Given a malformed project rules file and an existing ruff.toml
+    proj = _project_configprot(tmp_path, "protected_files = = nope\n")
+    target = tmp_path / "ruff.toml"
+    target.write_text(RUFF_TOML, encoding="utf-8")
+    payload = {
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": str(target),
+            "old_string": 'select = ["E"]',
+            "new_string": "select = []",
+        },
+    }
+    # When evaluating the edit
+    decision = configprot_module.evaluate(payload, _cfg(project_dir=proj))
+    # Then the built-in still blocks ruff.toml despite the broken project file
+    assert decision is not None
+    assert decision.block
+    assert "ruff.toml" in decision.reason

@@ -16,3 +16,28 @@ level = "high"
 
 [hooks.protect-secrets]
 level = "high"
+
+# --- Per-project additive rules -------------------------------------------
+# The protect-secrets, protect-system, stop-phrase-guard, and
+# config-protection hooks also read an optional project rules file of the same
+# basename as their built-in <hook>.rules.toml, from:
+#
+#   <project>/.claude/natelandau-toolkit/<hook>.rules.toml
+#
+# These rules are ADDITIVE-ONLY: they can add blocks but never weaken a
+# built-in rule. A malformed project file is ignored (built-ins still apply).
+#
+# Example: <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
+#
+#   [[rule]]
+#   id      = "acme-prod-conf"
+#   level   = "high"
+#   reason  = "production secrets live in this file"
+#   field   = "file_path"
+#   pattern = 'acme-prod\.conf$'
+#
+# Match the array name to the hook's built-in file: [[rule]] for protect-secrets
+# and protect-system, [[violation]] for stop-phrase-guard, and the
+# protected_files / protected_pyproject_tables lists for config-protection. A
+# protect-secrets rule must set field (or conditions); a bare pattern cannot
+# match there because the hook has no single primary text.

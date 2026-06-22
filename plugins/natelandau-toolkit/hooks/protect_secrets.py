@@ -107,7 +107,24 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     # Read once; may raise on malformed TOML (caught by caller / main).
     data = rules.read_toml(RULES_FILE)
     allowlist = rules.parse_pattern_list(data, "allowlist")
-    secret_rules = rules.parse_rules(data, "rule", required=SECRET_FIELDS)
+    # Built-in rules plus any additive per-project rules. Project rules are
+    # blocking-only (the allowlist is never extended) and fail open.
+    project_rules = rules.load_project_rules(
+        RULES_FILE.name, "rule", required=SECRET_FIELDS, project_dir=cfg.project_dir
+    )
+    # This hook matches named fields and passes no primary `text` to the
+    # matcher, so a project rule that sets neither `field` nor `conditions`
+    # can never fire. Surface that misconfiguration instead of silently
+    # accepting an inert rule (built-in rules all target a field).
+    for rule in project_rules:
+        if rule.match_field is None and not rule.conditions:
+            print(  # noqa: T201
+                f"protect_secrets: project rule {rule.id!r} sets no 'field' or "
+                f"'conditions' and cannot match; set field = \"file_path\" "
+                f"(or command/content) or use conditions.",
+                file=sys.stderr,
+            )
+    secret_rules = (*rules.parse_rules(data, "rule", required=SECRET_FIELDS), *project_rules)
     fields = _match_fields(tool_name, tool_input)
 
     # Safe templates (.env.example) short-circuit before any rule. Both

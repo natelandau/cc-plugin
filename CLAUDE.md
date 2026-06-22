@@ -113,6 +113,38 @@ Per-hook options go under `[hooks.<hook-id>]`. Currently supported:
 `CLAUDE_PROTECT_SECRETS_LEVEL` environment variables are retired. Set
 levels in the TOML config instead.
 
+### Per-project additive rules
+
+The four rule-driven hooks (`protect-secrets`, `protect-system`,
+`stop-phrase-guard`, `config-protection`) read an optional project rules file
+of the same basename as their built-in `<hook>.rules.toml`, located under:
+
+    $CLAUDE_PROJECT_DIR/.claude/natelandau-toolkit/<hook>.rules.toml
+
+Project rules use the same schema and array section name as the built-in file
+(`[[rule]]` for `protect-secrets`/`protect-system`, `[[violation]]` for
+`stop-phrase-guard`, and `protected_files`/`protected_pyproject_tables` lists
+for `config-protection`) and are **additive-only**: a project may only add
+blocking rules, never remove or weaken a built-in one. To turn a hook off entirely use `disabled_hooks`; to
+lower a threshold use `[hooks.<id>].level`. For `protect-secrets`, an
+`allowlist` in a project file is ignored (extending it would *unblock* files).
+
+A `protect-secrets` `[[rule]]` must target a named input (`field = "file_path"`,
+`command`, `content`, ...) or use `conditions`: that hook matches on named
+fields and passes no primary `text`, so a bare `pattern` with no `field` never
+matches. `protect-system` rules may use a bare `pattern` (matched against the
+command).
+
+A malformed project rules file **fails open**: the hook warns to stderr,
+ignores that file, and keeps enforcing its built-in rules (and any project
+rules that did parse). This matches how a malformed `natelandau-toolkit.toml`
+is treated. A project rules file is read whenever `CLAUDE_PROJECT_DIR` is set,
+with or without a `natelandau-toolkit.toml` present.
+
+The loader lives in `lib/rules.py` (`project_rules_path`,
+`load_project_rules`); `config_protection` merges via its own `_merged_rules`
+because its rule data is name lists rather than `[[rule]]` tables.
+
 ### `hooks/enforce_branch_protection.py` (PreToolUse)
 
 Blocks destructive git ops on any branch and file modifications on
@@ -528,7 +560,8 @@ Concrete rules:
 **New PreToolUse hook (dispatcher-routed, most common):**
 
 1. Write `hooks/<your_hook>.py` exposing `evaluate(payload, cfg) ->
-Decision | None` and a `__main__` block. Make it executable.
+Decision | None` and a `__main__` block. Make it executable. If the hook is
+rule-driven, load project rules via `rules.load_project_rules(RULES_FILE.name, ...)` and concatenate them with the built-in rules.
 2. Add it to `HOOK_PROFILES` (which profiles it runs in) and
    `PRE_TOOL_CHECKS` (which tool names it matches) in `hooks/lib/registry.py`.
 3. Add `tests/test_<your_hook>.py` with:

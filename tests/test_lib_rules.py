@@ -375,3 +375,94 @@ def test_load_rules_reads_toml_file(rules: ModuleType, tmp_path: Path) -> None:
 
     # Then the rule is available and matches
     assert rules.first_match(parsed, text="boom", threshold=rules.LEVELS["high"]) is not None
+
+
+# --- per-project additive rules --------------------------------------------
+
+_PROJECT_RULE_TOML = """\
+[[rule]]
+id = "proj-block"
+level = "high"
+reason = "project specific block"
+pattern = "topsecret"
+"""
+
+
+def _project_file(tmp_path: Path, filename: str, content: str) -> str:
+    """Write a project rules file and return the project dir as a string."""
+    d = tmp_path / ".claude" / "natelandau-toolkit"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / filename).write_text(content, encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_project_rules_path_none_without_project_dir(rules: ModuleType) -> None:
+    """Verify path resolution returns None when no project dir is given."""
+    # Given no project dir
+    # When resolving a project rules path
+    result = rules.project_rules_path("x.rules.toml", project_dir=None)
+    # Then nothing is resolved
+    assert result is None
+
+
+def test_project_rules_path_none_when_file_absent(rules: ModuleType, tmp_path: Path) -> None:
+    """Verify path resolution returns None when the project file is missing."""
+    # Given a project dir with no rules file
+    # When resolving the path
+    result = rules.project_rules_path("x.rules.toml", project_dir=str(tmp_path))
+    # Then nothing is resolved
+    assert result is None
+
+
+def test_project_rules_path_resolves_existing_file(rules: ModuleType, tmp_path: Path) -> None:
+    """Verify path resolution returns the file when it exists under the project dir."""
+    # Given a project rules file on disk
+    proj = _project_file(tmp_path, "x.rules.toml", _PROJECT_RULE_TOML)
+    # When resolving the path
+    result = rules.project_rules_path("x.rules.toml", project_dir=proj)
+    # Then the resolved path points at the project file
+    assert result is not None
+    assert result.name == "x.rules.toml"
+    assert result.exists()
+
+
+def test_load_project_rules_empty_without_file(rules: ModuleType, tmp_path: Path) -> None:
+    """Verify loading returns an empty tuple when no project file exists."""
+    # Given a project dir with no rules file
+    # When loading project rules
+    result = rules.load_project_rules(
+        "x.rules.toml",
+        "rule",
+        required=frozenset({"id", "level", "reason"}),
+        project_dir=str(tmp_path),
+    )
+    # Then nothing is loaded
+    assert result == ()
+
+
+def test_load_project_rules_parses_present_file(rules: ModuleType, tmp_path: Path) -> None:
+    """Verify a present, valid project file parses into Rules."""
+    # Given a valid project rules file
+    proj = _project_file(tmp_path, "x.rules.toml", _PROJECT_RULE_TOML)
+    # When loading project rules
+    result = rules.load_project_rules(
+        "x.rules.toml", "rule", required=frozenset({"id", "level", "reason"}), project_dir=proj
+    )
+    # Then the project rule is returned
+    assert len(result) == 1
+    assert result[0].id == "proj-block"
+
+
+def test_load_project_rules_fails_open_on_malformed(
+    rules: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a malformed project file is ignored with a stderr warning."""
+    # Given a malformed project rules file
+    proj = _project_file(tmp_path, "x.rules.toml", "this is = = not toml\n")
+    # When loading project rules
+    result = rules.load_project_rules(
+        "x.rules.toml", "rule", required=frozenset({"id", "level", "reason"}), project_dir=proj
+    )
+    # Then nothing is loaded and a warning is emitted
+    assert result == ()
+    assert "ignoring project rules" in capsys.readouterr().err

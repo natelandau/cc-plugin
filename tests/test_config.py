@@ -9,6 +9,8 @@ if TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 
+    import pytest
+
 
 def _load_config_mod(hooks_dir: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(
@@ -85,3 +87,29 @@ def test_disabled_hooks_list_replaced_by_project(hooks_dir: Path, tmp_path: Path
     _write(proj / ".claude" / "natelandau-toolkit.toml", 'disabled_hooks = ["commit-message"]\n')
     cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
     assert cfg.disabled_hooks == frozenset({"commit-message"})
+
+
+def test_project_dir_populated_from_override(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify load_config records the resolved project_dir on the Config."""
+    # Given no config files, only a project dir override
+    proj = tmp_path / "proj"
+
+    # When loading config with that project dir
+    cfg = _load_config_mod(hooks_dir).load_config(home=tmp_path, project_dir=str(proj))
+
+    # Then the resolved project_dir is carried on the Config
+    assert cfg.project_dir == str(proj)
+
+
+def test_project_dir_none_when_unset(
+    hooks_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify project_dir is None when no project dir is resolved."""
+    # Given neither an override nor the env var
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+
+    # When loading config with project_dir explicitly empty
+    cfg = _load_config_mod(hooks_dir).load_config(home=tmp_path, project_dir=None)
+
+    # Then project_dir is None
+    assert cfg.project_dir is None

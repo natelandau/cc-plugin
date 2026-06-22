@@ -84,8 +84,14 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     command: str = (payload.get("tool_input") or {}).get("command", "")
     if not command:
         return None
-    # May raise on malformed TOML; caught by caller / main.
-    system_rules = rules.load_rules(RULES_FILE, "rule", required=SYSTEM_FIELDS)
+    # May raise on malformed TOML; caught by caller / main. Project rules are
+    # additive and fail open inside load_project_rules.
+    system_rules = (
+        *rules.load_rules(RULES_FILE, "rule", required=SYSTEM_FIELDS),
+        *rules.load_project_rules(
+            RULES_FILE.name, "rule", required=SYSTEM_FIELDS, project_dir=cfg.project_dir
+        ),
+    )
     # `command` is the primary match text; also expose named fields so a rule
     # may target one explicitly with `field` (e.g. field = "command").
     fields = {"tool_name": "Bash", "command": command}
