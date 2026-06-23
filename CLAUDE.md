@@ -305,10 +305,11 @@ description matches user intent. Conventions specific to this repo:
   (a plain directory, no `SKILL.md`, so the router and `test_manifest`
   ignore it). Each skill's body links to it by relative path
   (`../shared/<file>.md`) and instructs the model to read it inline.
-  `/pr` and `/squash` share `skills/shared/finishing-prep.md` (commit
-  outstanding work, get green, update docs); `/pr` and `/cleanup-branch`
-  share `skills/shared/regroup-history.md` (group commits, soft-reset +
-  recommit, verify byte-identical), each caller passing its own `<base>` and
+  `/pr`, `/squash`, and `/fast-forward` share
+  `skills/shared/finishing-prep.md` (commit outstanding work, get green,
+  update docs); `/pr`, `/cleanup-branch`, and `/fast-forward` share
+  `skills/shared/regroup-history.md` (group commits, soft-reset + recommit,
+  verify byte-identical), each caller passing its own `<base>` and
   `<original-tip>`.
 - Description must start "Use when ..." for reliable router matching.
   Tighten triggers (file extensions, intent verbs, tool names) until

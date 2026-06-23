@@ -54,6 +54,9 @@ Type these yourself when you want them:
   a pull request.
 - `/squash` collapses a finished branch into one commit on `main`, then cleans
   up the branch.
+- `/fast-forward` lands a finished branch onto the local `main`/`master` as a
+  fast-forward of its logically grouped commits (no merge commit, no squash),
+  then deletes the branch and removes its worktree; local only, never pushes.
 - `/cleanup-branch` repackages the current branch's commits into fewer, logically
   grouped, reviewable commits without changing the resulting code; it backs up
   first, verifies the tree is byte-for-byte identical, and never pushes.
