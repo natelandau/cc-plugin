@@ -1,3 +1,9 @@
+## v0.12.0 (2026-06-23)
+
+### Feat
+
+- **hooks**: catch deferred work before Claude ends a turn
+
 ## v0.11.0 (2026-06-22)
 
 ### Feat

@@ -2,7 +2,7 @@
     description     = "Dev tooling for the natelandau-toolkit Claude Code plugin."
     name            = "natelandau-toolkit"
     requires-python = ">=3.14"
-    version         = "0.11.0"
+    version         = "0.12.0"
 
 [dependency-groups]
     dev = [
