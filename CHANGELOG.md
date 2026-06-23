@@ -1,3 +1,13 @@
+## v0.11.0 (2026-06-22)
+
+### Feat
+
+- **skills**: add /fast-forward to land branches on the local trunk
+
+### Fix
+
+- **hooks**: block merge commits on protected branches
+
 ## v0.10.0 (2026-06-22)
 
 ### Feat
