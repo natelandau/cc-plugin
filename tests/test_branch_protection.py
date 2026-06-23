@@ -338,6 +338,67 @@ CASES: tuple[Case, ...] = (
         ),
         expect_exit=0,
     ),
+    # Protected branch: merge commits blocked (they write to the branch
+    # directly, bypassing the git commit guard), safe forms allowed.
+    Case(
+        id="git merge --no-ff on master blocked",
+        make_payload=lambda r: _bash("git merge --no-ff feat", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot merge into the 'master' branch",),
+    ),
+    Case(
+        id="bare git merge on master blocked",
+        make_payload=lambda r: _bash("git merge feat", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot merge into the 'master' branch",),
+    ),
+    Case(
+        id="git merge --ff-only on master allowed",
+        make_payload=lambda r: _bash("git merge --ff-only feat", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git merge --ff-only origin trunk on master allowed",
+        make_payload=lambda r: _bash("git merge --ff-only origin/master", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git merge --squash on master allowed",
+        make_payload=lambda r: _bash("git merge --squash feat", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git merge --abort on master allowed",
+        make_payload=lambda r: _bash("git merge --abort", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git pull on master blocked",
+        make_payload=lambda r: _bash("git pull", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot merge into the 'master' branch",),
+    ),
+    Case(
+        id="git pull --ff-only on master allowed",
+        make_payload=lambda r: _bash("git pull --ff-only", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git pull --rebase on master allowed",
+        make_payload=lambda r: _bash("git pull --rebase", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # Merges into a feature branch are fine; protection is trunk-only.
+    Case(
+        id="git merge --no-ff on feat allowed",
+        make_payload=lambda r: _bash("git merge --no-ff other", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git pull on feat allowed",
+        make_payload=lambda r: _bash("git pull", cwd=r["feat"]),
+        expect_exit=0,
+    ),
     # git -C advisory (non-blocking): warning may land on stdout or stderr
     Case(
         id="git -C warning emitted on feat",

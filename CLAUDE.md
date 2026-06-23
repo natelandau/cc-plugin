@@ -148,7 +148,16 @@ because its rule data is name lists rather than `[[rule]]` tables.
 ### `hooks/enforce_branch_protection.py` (PreToolUse)
 
 Blocks destructive git ops on any branch and file modifications on
-`main`/`master`. Non-obvious carve-outs:
+`main`/`master`. A direct `git commit` is not the only way to write to a
+protected branch: a `git merge`/`git pull` that creates a **merge commit**
+lands on the trunk without ever running `git commit` (the merge writes the
+commit itself). `creates_merge_commit` closes that gap — on a protected
+branch it blocks any `git merge`/`git pull` except the forms that provably
+can't write a merge commit there: `--ff-only` (fast-forward or error),
+`--squash` (stages only; its follow-up `git commit` is caught by the commit
+guard), `--abort`/`--quit` (cancel an in-progress merge), and `pull --rebase`
+(replays, no merge commit). Merges into a non-protected branch are untouched.
+Non-obvious carve-outs:
 
 - Linked worktrees pass through, so editing inside
   `.worktrees/<branch>/` while the parent repo is on `master` works.

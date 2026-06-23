@@ -20,8 +20,8 @@ Hooks run automatically on Claude's tool calls. Most block a risky action and
 explain why; the uv nudge is advisory. See [Configuration](#configuration) to
 tune or disable them.
 
-- Branch protection blocks destructive git operations and edits to
-  `main`/`master`.
+- Branch protection blocks destructive git operations, direct commits, and
+  merge commits to `main`/`master`.
 - Secret protection blocks reading, editing, or exfiltrating sensitive files.
 - System protection blocks system-destructive shell commands.
 - Commit-message validation holds `git commit` and `gh pr` titles to

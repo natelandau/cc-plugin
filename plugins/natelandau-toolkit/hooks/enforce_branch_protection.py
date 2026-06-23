@@ -37,6 +37,24 @@ PROTECTED_BRANCH_HINT = (
     "  git worktree add .worktrees/<branch-name> -b <branch-name>"
 )
 
+# Shown when a merge/pull would write a merge commit onto a protected branch.
+# Points at the two forms that land work without creating a merge commit there.
+MERGE_COMMIT_HINT = (
+    "A merge commit (from `git merge`/`git pull`) writes directly to the "
+    "protected branch, which is the same as committing to it. To land work "
+    "without a merge commit:\n"
+    "  - fast-forward only:  git merge --ff-only <branch>\n"
+    "  - or squash-merge:    git merge --squash <branch> && git commit"
+)
+
+# `git merge`/`git pull` forms that cannot write a merge commit to the current
+# branch: `--ff-only` only fast-forwards (or errors), `--squash` stages without
+# committing (its follow-up `git commit` is caught by the commit guard),
+# `--abort`/`--quit` cancel an in-progress merge, and `pull --rebase`/`-r`
+# replays commits instead of merging. Anything else may create a merge commit.
+SAFE_MERGE_RE = re.compile(r"--ff-only\b|--squash\b|--abort\b|--quit\b|--rebase\b|\s-r\b")
+MERGE_PULL_RE = re.compile(r"^\s*git\s+(?:merge|pull)\b")
+
 GIT_C_ADVISORY = (
     "WARNING: Avoid using `git -C <path>`. "
     "Check your current working directory and `cd` into the correct "
@@ -308,6 +326,21 @@ def is_squash_merge_in_progress(command: str, git_dir: Path | None) -> bool:
     return False
 
 
+def creates_merge_commit(command: str) -> bool:
+    """Detect a `git merge`/`git pull` that may write a merge commit.
+
+    A merge commit modifies the protected branch directly, bypassing the
+    `git commit` guard (the merge writes the commit itself, no `git commit`
+    runs). Only the provably-safe forms in `SAFE_MERGE_RE` are exempt; every
+    other merge/pull is treated as a potential merge commit on the branch.
+    """
+    for part in _split_compound(command):
+        stripped = part.strip()
+        if MERGE_PULL_RE.match(stripped) and not SAFE_MERGE_RE.search(stripped):
+            return True
+    return False
+
+
 # === Checks ===
 
 
@@ -355,6 +388,33 @@ def _check_file_tool(tool_input: dict[str, Any], branch: str) -> str | None:
     return f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
 
 
+def _check_protected_bash(command: str, cwd: str, branch: str) -> str | None:
+    """Return a block reason for a Bash command on a protected branch, else None.
+
+    Three ways a Bash command can modify protected history: a direct
+    `git commit` (carved out for worktrees and in-progress squash merges), a
+    `git merge`/`git pull` that writes a merge commit, or a non-git file
+    mutation. Pure git reads and `/tmp`-only writes pass through.
+    """
+    if _contains_git_commit(command):
+        git_dir = _git_dir(cwd) if cwd else None
+        in_worktree = is_in_linked_worktree(cwd, git_dir) if git_dir else False
+        is_squash = is_squash_merge_in_progress(command, git_dir)
+        if not in_worktree and not is_squash:
+            return f"Cannot commit directly to the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+
+    if creates_merge_commit(command):
+        return f"Cannot merge into the '{branch}' branch. {MERGE_COMMIT_HINT}"
+
+    if _is_pure_git_command(command) or _targets_only_tmp(command):
+        return None
+
+    if match_rules(command, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
+        return f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+
+    return None
+
+
 def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
     """Return a block reason if the action is forbidden on the protected branch."""
     tool_name: str = data.get("tool_name", "")
@@ -367,22 +427,7 @@ def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
     if tool_name != "Bash":
         return None
 
-    command: str = tool_input.get("command", "")
-
-    if _contains_git_commit(command):
-        git_dir = _git_dir(cwd) if cwd else None
-        in_worktree = is_in_linked_worktree(cwd, git_dir) if git_dir else False
-        is_squash = is_squash_merge_in_progress(command, git_dir)
-        if not in_worktree and not is_squash:
-            return f"Cannot commit directly to the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
-
-    if _is_pure_git_command(command) or _targets_only_tmp(command):
-        return None
-
-    if match_rules(command, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
-        return f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
-
-    return None
+    return _check_protected_bash(tool_input.get("command", ""), cwd, branch)
 
 
 def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001

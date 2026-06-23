@@ -54,6 +54,11 @@ Decide a grouping such that:
 
 - **each commit covers one area or concern** — a reviewer reads one self-contained
   commit per topic, not related edits scattered across many commits;
+- **documentation rides with the code it documents** — when a doc change (README,
+  CHANGELOG, guide, inline docs) explains a code change that is also in this branch,
+  group it into that change's commit rather than a standalone `docs:` commit, so the
+  behavior and its documentation land together. Give docs their own commit only when
+  they stand alone (documenting something outside this branch, or a docs-only branch);
 - **commits are ordered to read top to bottom** — groundwork first (a refactor, a
   new helper, a schema change), then the work that builds on it;
 - **each commit's subject names what it does** as a valid conventional commit, so
