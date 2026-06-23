@@ -1,3 +1,10 @@
+## v0.10.0 (2026-06-22)
+
+### Feat
+
+- **pr**: support any forge CLI (gh, tea, glab), not just gh
+- **hooks**: let projects add their own rules to the safety hooks
+
 ## v0.9.0 (2026-06-21)
 
 ### Feat
