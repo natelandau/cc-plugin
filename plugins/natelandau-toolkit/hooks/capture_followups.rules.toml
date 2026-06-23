@@ -1,0 +1,137 @@
+# Triggers for capture_followups.py, loaded at invocation through the shared
+# hooks/lib/rules.py engine: each `pattern` (regex, re.IGNORECASE) is tested
+# against the assistant's closing message text. First match wins; iteration
+# follows file order. The matched `reason` is spliced into the block message
+# (BLOCK_TEMPLATE) that tells the assistant what to do with the deferred item.
+#
+# Required field per trigger: reason. There is no threshold, so entries carry
+# no `level`. `id` is optional and unused here. The matcher is a single
+# `pattern`; omit `field` so it matches the closing message text.
+#
+# Pattern strings are TOML literal (single-quoted) so regex backslashes pass
+# through verbatim. Reason strings use the basic (double-quoted) form so
+# apostrophes in the prose are unescaped.
+#
+# WHAT THIS HOOK IS. It detects one situation: the assistant is about to stop
+# having NAMED work it is not doing (deferred, recommended, left for later).
+# It does NOT try to judge how big that work is - a regex cannot. The block
+# message routes instead: it tells the agent to just do the work now if it is
+# small/in-reach, or record it in the backlog if it is large, complex, risky,
+# or deserves its own plan. The agent makes that call. So the patterns below
+# only need to recognize deferral/recommendation language broadly.
+#
+# Kept clear of the phrases stop_phrase_guard owns ("future work", "pick this
+# up later", "come back to this", "next session", "should I continue") so the
+# two hooks never issue contradictory corrections for the same words.
+
+# =============================================================================
+# Scope boundary: work named as outside the current change.
+# =============================================================================
+
+[[trigger]]
+    reason  = "You marked something as out of scope."
+    pattern = '\bout[\s-]?of[\s-]?scope\b'
+
+[[trigger]]
+    reason  = "You placed work beyond the current scope."
+    pattern = '\b(beyond|outside|exceeds) the scope\b'
+
+[[trigger]]
+    reason  = "You deferred work as beyond this change."
+    pattern = '\bbeyond (this|the current) (change|pr|commit|diff|task|work)\b'
+
+[[trigger]]
+    reason  = "You said this is not in scope."
+    pattern = '\bnot (in scope|part of (this|the current))\b'
+
+# =============================================================================
+# A separate unit of work: follow-up, its own PR/spec/plan/decision.
+# =============================================================================
+
+[[trigger]]
+    reason  = "You referenced a follow-up to be handled separately."
+    pattern = '\bfollow[\s-]?up (pr|mr|task|issue|ticket|change|commit|item|fix|patch|spec|epic)\b'
+
+[[trigger]]
+    reason  = "You deferred work to a follow-up."
+    pattern = '\b(in|as) a follow[\s-]?up\b'
+
+[[trigger]]
+    reason  = "You said this belongs in its own separate change."
+    pattern = '\b(separate|its own|a dedicated|another|a future) (pr|mr|commit|change|patch|effort|task|ticket|branch|spec|plan|design|rfc|epic|project|decision|discussion)\b'
+
+# =============================================================================
+# TODO markers and explicit defer verbs.
+# =============================================================================
+
+[[trigger]]
+    reason  = "You left a TODO."
+    pattern = '\b(left|leaving|add(ed|ing)?|drop(ped|ping)?|insert(ed|ing)?|placed?) a (?:`)?todo\b'
+
+# Standalone defer/punt family: catches "is deferred", "deferring this",
+# "punted on it", not only the verb+object form. Note this also fires on the
+# technical sense ("deferred rendering", "deferred promise"); the precision
+# cost is accepted because deferral language is the common case and a stray
+# block costs only a one-line backlog write (or a quick "this was small, did
+# it now").
+[[trigger]]
+    reason  = "You deferred this work."
+    pattern = '\bdefer(s|red|ring|ral)?\b'
+
+[[trigger]]
+    reason  = "You punted this work."
+    pattern = '\bpunt(s|ed|ing)?\b'
+
+[[trigger]]
+    reason  = "You said this should be handled separately."
+    pattern = '\b(address|handle|tackle|fix|revisit|split) (?:[^.\n]{0,30}\s)?separately\b'
+
+[[trigger]]
+    reason  = "You said this should be tracked or addressed separately."
+    pattern = '\b(tracked|addressed|handled|done) separately\b'
+
+# =============================================================================
+# Future improvements (distinct from stop_phrase_guard's "future work").
+# =============================================================================
+
+[[trigger]]
+    reason  = "You named a future improvement."
+    pattern = '\bfuture (improvement|enhancement|refactor|cleanup|iteration|optimization)\b'
+
+[[trigger]]
+    reason  = "You deferred work down the road."
+    pattern = '\bdown the (road|line)\b'
+
+# =============================================================================
+# Common deferral idioms. Scoped to deferral verbs/objects so everyday prose
+# ("for now I'll use X") does not trip; kept clear of stop_phrase_guard's
+# "do it now" phrases ("pick this up later", "come back to this", "wrap up
+# for now") so the two hooks never issue contradictory corrections.
+# =============================================================================
+
+# "leave the refactor for now", "skip it for now", "parked for now" - but NOT
+# "stop here for now" / "wrap up for now" (those verbs belong to the phrase
+# guard and are excluded from this list).
+[[trigger]]
+    reason  = "You set work aside for now."
+    pattern = '\b(leav(e|ing)|left|skip(ping|ped)?|park(ing|ed)?|hold(ing)? off|set(ting)? aside|set aside) [^.\n]{0,30}\bfor now\b'
+
+[[trigger]]
+    reason  = "You deferred work for the time being."
+    pattern = '\bfor the time being\b'
+
+[[trigger]]
+    reason  = "You said you would revisit this."
+    pattern = '\b(revisit|circl(e|ing) back)\b'
+
+[[trigger]]
+    reason  = "You said you are not doing this work here."
+    pattern = '\bnot (address|addressing|implement|implementing|tackl(e|ing)|handl(e|ing)|fix(ing)?|doing) (this|that|it|them|these|those|the)\b'
+
+[[trigger]]
+    reason  = "You named this a nice-to-have or stretch goal."
+    pattern = '\b(nice[\s-]to[\s-]have|stretch goal|backlog item)\b'
+
+[[trigger]]
+    reason  = "You named work too large to fold in here."
+    pattern = '\btoo (large|big|involved|complex|broad|much) (to|for) .{0,40}\b(here|now|this|today|one)\b'

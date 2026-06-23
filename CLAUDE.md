@@ -77,8 +77,10 @@ Each hook module exposes two things:
 - A `__main__` block that reads stdin and exits with the right code,
   so the module can also be invoked standalone for debugging.
 
-`stop_phrase_guard.py` is a separate Stop event entry and is not
-dispatched through `pre_tool_dispatcher.py`.
+`stop_phrase_guard.py` and `capture_followups.py` are separate Stop
+event entries and are not dispatched through `pre_tool_dispatcher.py`.
+Both recover the assistant turn from `transcript_path` via the shared
+`lib/transcript.py` reader.
 
 ### Hook configuration
 
@@ -101,13 +103,15 @@ See `hooks/natelandau-toolkit.toml.example` for the full template. Top-level key
 Profile tiers:
 
 - `minimal` - branch-protection, protect-secrets, protect-system, stop-phrase-guard
-- `standard` - above + commit-message, config-protection, use-uv
+- `standard` - above + commit-message, config-protection, use-uv, capture-followups
 - `strict` - same as standard (reserved for future additions)
 
 Per-hook options go under `[hooks.<hook-id>]`. Currently supported:
 
 - `[hooks.protect-system].level` - `critical`, `high`, or `strict` (default `high`)
 - `[hooks.protect-secrets].level` - `critical`, `high`, or `strict` (default `high`)
+- `[hooks.capture-followups].backlog` - path to the deferred-work file, relative
+  to the project root (default `.agent/BACKLOG.md`)
 
 **Note:** the `CLAUDE_PROTECT_SYSTEM_LEVEL` and
 `CLAUDE_PROTECT_SECRETS_LEVEL` environment variables are retired. Set
@@ -115,15 +119,17 @@ levels in the TOML config instead.
 
 ### Per-project additive rules
 
-The four rule-driven hooks (`protect-secrets`, `protect-system`,
-`stop-phrase-guard`, `config-protection`) read an optional project rules file
-of the same basename as their built-in `<hook>.rules.toml`, located under:
+The five rule-driven hooks (`protect-secrets`, `protect-system`,
+`stop-phrase-guard`, `capture-followups`, `config-protection`) read an optional
+project rules file of the same basename as their built-in `<hook>.rules.toml`,
+located under:
 
     $CLAUDE_PROJECT_DIR/.claude/natelandau-toolkit/<hook>.rules.toml
 
 Project rules use the same schema and array section name as the built-in file
 (`[[rule]]` for `protect-secrets`/`protect-system`, `[[violation]]` for
-`stop-phrase-guard`, and `protected_files`/`protected_pyproject_tables` lists
+`stop-phrase-guard`, `[[trigger]]` for `capture-followups`, and
+`protected_files`/`protected_pyproject_tables` lists
 for `config-protection`) and are **additive-only**: a project may only add
 blocking rules, never remove or weaken a built-in one. To turn a hook off entirely use `disabled_hooks`; to
 lower a threshold use `[hooks.<id>].level`. For `protect-secrets`, an
@@ -188,6 +194,51 @@ for `last_assistant_message` is broken and exits 0 silently.
 
 Be cautious about broad patterns (`getting long`, `next session`);
 they false-positive in legitimate contexts.
+
+### `hooks/capture_followups.py` (Stop)
+
+Blocks a Stop turn whose closing assistant message names work it is not doing
+(out-of-scope items, follow-up PRs, TODOs, a refactor put off "for now"),
+unless the turn already wrote the backlog file (`.agent/BACKLOG.md` by default;
+`[hooks.capture-followups].backlog` overrides). Triggers live in
+`capture_followups.rules.toml` (`[[trigger]]` section, one `pattern` + `reason`
+each), loaded through the same `lib/rules.py` engine and additive per project.
+
+**It is a router, not a size judge.** A regex cannot tell whether deferred work
+is small or large, so the hook does not try. It detects deferral/recommendation
+language broadly, and the block message routes: *do it now* if the work is
+small and in reach, *record it in the backlog with its rationale* if it is
+large, complex, risky, or deserves its own plan. The agent makes that call.
+This is why the patterns are plain deferral phrases rather than magnitude
+detectors.
+
+**Not a duplicate of `stop_phrase_guard`, which is not a deferral hook.** That
+hook forces the agent to stop *dodging* (`pre-existing`, `not my change`) and
+stop *pausing/asking* (`should I continue`, `pause here`) - a hard "do it / keep
+going" with no capture path. The two are separated by purpose, not by size, and
+their trigger sets are kept disjoint (e.g. `future work` belongs to the phrase
+guard; `future optimization` / `follow-up PR` belong here) so the model never
+gets two contradictory corrections for one phrase. Keep new triggers clear of
+the phrase guard's words.
+
+Non-obvious mechanics:
+
+- **Self-suppression via backlog write.** Before blocking, the hook checks
+  (`transcript.file_written_since_last_user`) whether a `Write`/`Edit`/
+  `MultiEdit`/`NotebookEdit` touched the backlog file *this turn* (scoped to
+  entries after the last human message, matched by basename). If so, the item
+  is already captured and the turn passes. This is what lets the model record
+  inline and stop without a block, and what makes the post-block continuation
+  terminate.
+- **`stop_hook_active` bail.** Like the phrase guard, the hook exits 0 when
+  re-fired so a model that ignores the block is not wedged forever; it gets one
+  forced chance, no more.
+- **Scoped patterns over bare keywords.** A Stop block is intrusive, so each
+  pattern requires deferral framing (`out of scope`, `follow-up PR`,
+  `left a TODO`, a deferral verb before `for now`) rather than a bare keyword.
+  `follow-up question`, "for now the tests pass", and widening test scope
+  deliberately do not fire. The standalone `defer*` family is the one accepted
+  broad matcher (it also catches the technical "deferred rendering" sense).
 
 ### `hooks/protect_secrets.py` (PreToolUse)
 
@@ -437,8 +488,8 @@ coexist: in-script tuples (`enforce_branch_protection.py`, kept in Python
 because bypass logic lives alongside) and sibling `<hook>.rules.toml`.
 
 The TOML-driven pattern hooks (`protect_system`, `protect_secrets`,
-`stop_phrase_guard`) all load through the shared `hooks/lib/rules.py`
-engine rather than per-hook loaders. One `parse_rules()` validates an
+`stop_phrase_guard`, `capture_followups`) all load through the shared
+`hooks/lib/rules.py` engine rather than per-hook loaders. One `parse_rules()` validates an
 `[[<section>]]` array against a caller-supplied `required` / `optional`
 field set, rejecting unknown keys; `first_match()` does the
 threshold-gated, first-match-wins scan. The file is parsed on every
@@ -472,8 +523,9 @@ Both `field` and `conditions` resolve names against a `fields` dict the
 hook passes to `first_match`. Every hook exposes its inputs as named fields
 (`protect_secrets._match_fields`: file_path, command, content, old_string,
 new_string, tool_name; `protect_system`: command, tool_name;
-`stop_phrase_guard`: message), so a rule can target any of them. Hooks also
-pass a primary `text`, which an unqualified `pattern` rule matches.
+`stop_phrase_guard` and `capture_followups`: message), so a rule can target
+any of them. Hooks also pass a primary `text`, which an unqualified `pattern`
+rule matches.
 
 All patterns compile at load time so a bad regex surfaces as a load error,
 not in the hot path. Keep collections flat per category; do not introduce
@@ -629,3 +681,11 @@ concatenation of `text` fields across `{"type":"text", ...}` blocks in
 `message.content` (other block types like `tool_use` are interleaved
 and should be skipped). Also bail early if `stop_hook_active` is true
 to avoid re-fire loops.
+
+This parsing is centralized in `hooks/lib/transcript.py`
+(`read_entries`, `last_assistant_message_text`, plus
+`file_written_since_last_user` for "did a tool touch file X this turn"
+turn-scoped to the entries after the last human message). `stop_phrase_guard`
+and `capture_followups` both consume it rather than re-reading the JSONL;
+`tests/test_lib_transcript.py` covers the reader and each hook's own tests
+cover the wiring.

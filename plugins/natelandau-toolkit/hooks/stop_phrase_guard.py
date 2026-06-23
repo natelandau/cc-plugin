@@ -17,15 +17,10 @@ correction as its next instruction.
 `last_assistant_message` does not exist on Stop hook input; the
 assistant turn must be recovered by tailing `transcript_path`. Any
 code reaching for `last_assistant_message` will silently see an empty
-string and never fire.
-
-Claude Code writes one JSONL line per content block, so a single
-assistant message (one `message.id`) spans several consecutive
-`type == "assistant"` lines (thinking, text, tool_use, ...). Reading
-only the final line would inspect just the last block and miss a
-violation in an earlier text block of the same message. The scan
-therefore reconstructs the most recent assistant *message* by
-concatenating the text of every line sharing its `message.id`.
+string and never fire. The transcript reading lives in
+`lib/transcript.py` (Claude Code splits one message across per-block
+JSONL lines, so the scan reconstructs the closing message by
+`message.id`); this module only wires it to the rules engine.
 
 Violation data lives in `stop_phrase_guard.rules.toml` next to this
 file; the script loads it on every invocation. Edit that file to add,
@@ -41,7 +36,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from lib import rules
+from lib import rules, transcript
 from lib.config import load_config
 from lib.io import read_payload
 from lib.registry import hook_enabled
@@ -51,75 +46,6 @@ RULES_FILE = Path(__file__).parent / "stop_phrase_guard.rules.toml"
 # correction); `id` is optional and unused in the output message.
 STOP_REQUIRED = frozenset({"reason"})
 STOP_OPTIONAL = frozenset({"id"})
-
-
-def _entry_text(entry: dict[str, Any]) -> str:
-    """Concatenate the text of every `text` block in one transcript entry.
-
-    Non-text blocks (`thinking`, `tool_use`) carry no `text` field and
-    contribute nothing. Returns "" for non-assistant entries or entries
-    whose `message.content` is not a block list.
-    """
-    if entry.get("type") != "assistant":
-        return ""
-    message = entry.get("message")
-    if not isinstance(message, dict):
-        return ""
-    content = message.get("content")
-    if not isinstance(content, list):
-        return ""
-    return "".join(
-        block.get("text", "")
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text"
-    )
-
-
-def _last_assistant_message_text(transcript_path: str) -> str:
-    """Return the full text of the most recent assistant message.
-
-    Claude Code writes one JSONL line per content block, so a single
-    assistant message is split across several consecutive
-    `type == "assistant"` lines sharing one `message.id`. Collect every
-    text-bearing assistant line in transcript order, then concatenate
-    those that share the final line's `message.id` so the scan sees the
-    whole closing message rather than just its last block.
-
-    Legacy or synthetic transcripts may omit `message.id`; in that case
-    fall back to the final text-bearing line alone, since there is no id
-    to group on.
-    """
-    try:
-        raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-
-    # (message.id, text) for each assistant line that carried any text.
-    blocks: list[tuple[object, str]] = []
-    for raw_line in raw.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        text = _entry_text(entry)
-        if text.strip():
-            message = entry.get("message", {})
-            blocks.append((message.get("id"), text))
-
-    if not blocks:
-        return ""
-
-    last_id = blocks[-1][0]
-    if last_id is None:
-        return blocks[-1][1].strip()
-
-    # message.id is unique per message, so filtering the whole list by it
-    # is equivalent to taking the final contiguous run of that message.
-    parts = [text for mid, text in blocks if mid == last_id]
-    return "\n".join(part.strip() for part in parts).strip()
 
 
 def main() -> None:
@@ -140,7 +66,7 @@ def main() -> None:
     if not hook_enabled("stop-phrase-guard", cfg):
         sys.exit(0)
 
-    text = _last_assistant_message_text(transcript_path)
+    text = transcript.last_assistant_message_text(transcript.read_entries(transcript_path))
     if not text:
         sys.exit(0)
 

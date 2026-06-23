@@ -7,7 +7,8 @@ profile = "standard"
 
 # Hook ids to force-off regardless of profile. Ids: branch-protection,
 # protect-secrets, protect-system, commit-message, config-protection,
-# use-uv, stop-phrase-guard. e.g. disabled_hooks = ["config-protection"]
+# use-uv, stop-phrase-guard, capture-followups.
+# e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 
 # Per-hook options. level: critical | high | strict
@@ -17,10 +18,17 @@ level = "high"
 [hooks.protect-secrets]
 level = "high"
 
+# Where capture-followups records deferred work (relative to the project
+# root). The Stop hook catches a turn that names work it is not doing
+# (out-of-scope items, follow-up PRs, TODOs) and asks the agent to either do
+# it now (if small) or record it here (if large/complex/risky).
+[hooks.capture-followups]
+backlog = ".agent/BACKLOG.md"
+
 # --- Per-project additive rules -------------------------------------------
-# The protect-secrets, protect-system, stop-phrase-guard, and
-# config-protection hooks also read an optional project rules file of the same
-# basename as their built-in <hook>.rules.toml, from:
+# The protect-secrets, protect-system, stop-phrase-guard, capture-followups,
+# and config-protection hooks also read an optional project rules file of the
+# same basename as their built-in <hook>.rules.toml, from:
 #
 #   <project>/.claude/natelandau-toolkit/<hook>.rules.toml
 #
@@ -37,7 +45,7 @@ level = "high"
 #   pattern = 'acme-prod\.conf$'
 #
 # Match the array name to the hook's built-in file: [[rule]] for protect-secrets
-# and protect-system, [[violation]] for stop-phrase-guard, and the
-# protected_files / protected_pyproject_tables lists for config-protection. A
-# protect-secrets rule must set field (or conditions); a bare pattern cannot
-# match there because the hook has no single primary text.
+# and protect-system, [[violation]] for stop-phrase-guard, [[trigger]] for
+# capture-followups, and the protected_files / protected_pyproject_tables lists
+# for config-protection. A protect-secrets rule must set field (or conditions);
+# a bare pattern cannot match there because the hook has no single primary text.
