@@ -16,12 +16,13 @@ a PR whose title and description match the project's conventions.
   PR requires pushing _this_ branch to the remote — that's the whole point and
   is authorized by running `/pr`. It does not push `main`/`master` and does not
   merge anything.
-- **Title is a conventional commit.** The PR becomes a commit on merge, so its
-  title follows the exact same rules as every commit in this repo:
+- **Title is a conventional commit.** The PR is most likely squash-merged into a
+  single commit on the project, so its title becomes that commit's subject and
+  must follow the exact same rules as every commit in this repo:
   `<type>(<scope>): <subject>`, imperative, lowercase subject, ≤70-char header,
   type from the allowed set (`build ci docs feat fix perf refactor style test` —
-  there is no `chore`). The `enforce_commit_message` hook validates the
-  `gh pr create` title and will reject anything else.
+  there is no `chore`). Write it with the same care as a commit subject
+  regardless of host.
 - **The body describes only what's in the diff.** Every sentence must be
   verifiable from the changed files. Do **not** include rationale for _why_ the
   work was done, future or deferred work, open questions, concerns, risks, or
@@ -35,20 +36,19 @@ a PR whose title and description match the project's conventions.
   motivation, testing, or risk prose to fill it.
 - **Open it ready for review** (not a draft) unless the user says otherwise.
 
-## Why the title is hook-validated
+## Why the title matters
 
-This repo's `enforce_commit_message` hook intercepts `gh pr create` and holds
-the `--title` to the same conventional-commit rules as a `git commit` subject (a
-PR title becomes the squash-merge subject). A malformed title blocks the create.
-So synthesize the title with the same care as a commit subject — get it right
-the first time rather than discovering the block at `gh pr create`.
+The PR is most likely squash-merged into a single commit on the project, so the
+PR title becomes that commit's subject. Hold it to the same conventional-commit
+rules as a `git commit` subject and get it right the first time, regardless of
+which forge or CLI you use.
 
 ## Workflow
 
 ```dot
 digraph pr {
   rankdir=TB; node [shape=box];
-  detect   [label="Step 0: detect feature branch,\ndefault branch, remote host"];
+  detect   [label="Step 0: detect feature branch,\ndefault branch, remote host + forge CLI"];
   refuse   [label="On default branch / no remote?\nStop and explain" shape=diamond];
   prep     [label="Steps A-D: shared prep\n(commit, rebase on trunk, green, docs)"];
   many     [label="History sprawled into many\nsmall/fixup commits?" shape=diamond];
@@ -58,7 +58,7 @@ digraph pr {
   push     [label="Step 5: push the feature branch\n(git push -u)"];
   tmpl     [label="Discover repo PR template\n(use it, or default shape)"];
   body     [label="Synthesize conventional title +\ndiff-grounded body"];
-  create   [label="gh pr create --base <default>"];
+  create   [label="create PR via the forge CLI\n(gh / tea / glab) --base <default>"];
   done     [label="Report PR URL" shape=doublecircle];
 
   detect -> refuse;
@@ -79,19 +79,52 @@ digraph pr {
 
 ```bash
 git branch --show-current                                   # the branch to PR
-git remote -v                                                # is there a remote?
-gh repo view --json defaultBranchRef -q .defaultBranchRef.name   # base branch
+git remote get-url origin                                    # is there a remote? which host?
+git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null  # e.g. origin/main → base branch
 ```
 
-- **Default branch**: the PR's base. Read it from `gh` as above (usually `main`)
-  rather than assuming.
-- **Remote host**: this repo uses GitHub, so `gh` is the tool. If the remote is
-  a different host (e.g. GitLab), use that host's CLI (`glab mr create`) with the
-  same title/body discipline. If there is no remote at all, stop and say so —
-  there's nowhere to open a PR.
+- **Default branch**: the PR's base. Derive it from git as above (strip the
+  `origin/` prefix → usually `main`) rather than assuming. If that ref is
+  missing, run `git remote set-head origin --auto` first, then re-read it.
+- **Remote host → CLI**: pick the forge CLI that matches the remote, and use it
+  for every PR operation below. There is no PR to open without a remote, so if
+  `git remote get-url origin` fails, stop and say so.
+  - `github.com` (or GitHub Enterprise) → **`gh`**
+  - a Gitea / Forgejo host → **`tea`**
+  - `gitlab.com` or a self-hosted GitLab → **`glab`**
+  - For a self-hosted host you can't identify by name, pick the CLI whose
+    configured logins include that host: `tea login list`, `glab auth status`,
+    `gh auth status`.
+  - If the matching CLI isn't installed or isn't authenticated for the host,
+    stop and tell the user to install/authenticate it (e.g. `tea login add`,
+    `glab auth login`, `gh auth login`) — don't fall back to another forge's CLI.
 
 **Refuse early** if the current branch _is_ the default branch — you open a PR
 _from_ a feature branch, not from `main`.
+
+#### Command mapping per forge
+
+The workflow below names operations abstractly (check-for-existing-PR,
+create-PR). Use the row for your detected CLI. `<base>` is the default branch,
+`<branch>` the current feature branch, `<body-file>` the temp file holding the
+synthesized body.
+
+| Operation                | GitHub (`gh`)                                                                 | Gitea / Forgejo (`tea`)                                                            | GitLab (`glab`)                                                              |
+| ------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Existing PR for branch   | `gh pr view --json url,state -q '.url + " (" + .state + ")"'`                 | `tea pr ls --head <branch> --output json --fields index,url,state`                | `glab mr list --source-branch <branch>`                                     |
+| Create PR (ready)        | `gh pr create --base <base> --head <branch> --title "<title>" --body-file <body-file>` | `tea pr create --base <base> --head <branch> --title "<title>" --description "$(cat <body-file>)"` | `glab mr create --target-branch <base> --source-branch <branch> --title "<title>" --description "$(cat <body-file>)" --yes` |
+| Open as draft (opt-in)   | add `--draft`                                                                 | append ` [WIP]` to the title (tea has no draft flag)                               | add `--draft`                                                                |
+
+Notes that bite if ignored:
+
+- **`tea` and `glab` take the body inline** via `--description`, not a
+  `--body-file` flag — pass `"$(cat <body-file>)"`. Still write the body to the
+  temp file first (it keeps multi-line/quoting sane and `/tmp` is exempt from the
+  file-protection hooks).
+- **`tea` has no "ready vs draft" flag.** A Gitea draft PR is just a title
+  prefixed with `[WIP]`; only add it if the user asked for a draft.
+- **`glab mr create` is interactive by default** — `--yes` (or `--fill` when you
+  want it to derive title/body from commits) keeps it non-interactive.
 
 ### Steps A–D — Prepare the branch (shared)
 
@@ -132,13 +165,14 @@ anything drifted). Return here when it is done, then continue to Step 5.
 ### Step 5 — Push and open the PR
 
 First, guard against duplicates — if a PR is already open for this branch, don't
-create a second one:
+create a second one. Run the **Existing PR for branch** command for your forge
+(see the Step 0 mapping table), e.g. on GitHub:
 
 ```bash
 gh pr view --json url,state -q '.url + " (" + .state + ")"' 2>/dev/null
 ```
 
-If that prints an open PR, show its URL and stop (offer to update it instead).
+If that shows an open PR, show its URL and stop (offer to update it instead).
 
 Otherwise push the feature branch and open the PR:
 
@@ -156,15 +190,18 @@ Discover whether the repo ships a PR template — its presence decides the body'
 structure. Check these paths in order and use the first that exists:
 
 ```bash
-ls .github/PULL_REQUEST_TEMPLATE/ 2>/dev/null   # directory of named templates
-ls .github/PULL_REQUEST_TEMPLATE.md \
-   .github/pull_request_template.md \
-   docs/pull_request_template.md \
-   PULL_REQUEST_TEMPLATE.md 2>/dev/null          # single-file templates
+# directory of named templates (GitHub/Gitea/Forgejo, then GitLab)
+ls .github/PULL_REQUEST_TEMPLATE/ .gitea/PULL_REQUEST_TEMPLATE/ \
+   .forgejo/PULL_REQUEST_TEMPLATE/ .gitlab/merge_request_templates/ 2>/dev/null
+# single-file templates across forges
+ls .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md \
+   .gitea/PULL_REQUEST_TEMPLATE.md .gitea/pull_request_template.md \
+   .forgejo/PULL_REQUEST_TEMPLATE.md \
+   docs/pull_request_template.md PULL_REQUEST_TEMPLATE.md 2>/dev/null
 ```
 
-- **Directory** (`.github/PULL_REQUEST_TEMPLATE/`): multiple templates. Pick
-  `default.md` if present, otherwise ask the user which to use.
+- **Directory of templates**: multiple templates. Pick `default.md` if present,
+  otherwise ask the user which to use.
 - **Single file**: read it; that's the body skeleton.
 - **None found**: use the default Summary/Changes shape below.
 
@@ -203,8 +240,8 @@ git diff <default-branch>...HEAD            # the actual changes — ground trut
     show, drop it.
 
 Write the chosen body (template-filled or default) to a temp file (avoids
-shell-quoting pitfalls; `/tmp` is exempt from the file-protection hooks) and
-create the PR:
+shell-quoting pitfalls; `/tmp` is exempt from the file-protection hooks), then
+run the **Create PR** command for your forge from the Step 0 mapping table:
 
 ```bash
 cat > /tmp/pr-body.md <<'EOF'
@@ -215,16 +252,18 @@ cat > /tmp/pr-body.md <<'EOF'
 - ...
 EOF
 
+# GitHub example — substitute the row for your detected CLI:
 gh pr create --base <default-branch> --head "$(git branch --show-current)" \
   --title "<type>(<scope>): <subject>" --body-file /tmp/pr-body.md
 ```
 
-Omit `--draft` (ready for review by default). Add `--draft` only if the user
-asked for a draft.
+Open it ready for review by default. Make it a draft only if the user asked
+(`--draft` on `gh`/`glab`; a `[WIP]` title prefix on `tea`, which has no draft
+flag).
 
 ### Finish
 
-Report the PR URL that `gh pr create` printed. Note that the feature branch was
+Report the PR URL the create command printed. Note that the feature branch was
 pushed but nothing was merged and the trunk was untouched — the merge is the
 user's call (or a reviewer's).
 
@@ -232,10 +271,12 @@ user's call (or a reviewer's).
 
 | Symptom                         | Cause                                   | Do this                                                           |
 | ------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
-| `gh pr create` blocked          | Title isn't a valid conventional commit | Fix the title; `chore` is not an allowed type here                |
+| Create blocked / title rejected | Title isn't a valid conventional commit | Fix the title; `chore` is not an allowed type here                |
 | Push rejected (non-fast-forward) | Branch was pushed before the Step B rebase rewrote it | Don't force (hook blocks it); have the user `! git push --force-with-lease` |
 | "a pull request already exists" | Branch already has an open PR           | Show the existing PR; update it instead of creating a duplicate   |
-| `gh` push prompt / no upstream  | Branch not pushed yet                   | `git push -u origin HEAD` before `gh pr create`                   |
+| Push prompt / no upstream       | Branch not pushed yet                   | `git push -u origin HEAD` before creating the PR                  |
+| `tea`/`glab` opens an editor or hangs | Body/title not passed non-interactively | Pass `--description "$(cat <body-file>)"` (and `--yes` for `glab`); `tea` has no `--body-file` |
+| Forge CLI not found / not authed | Matching CLI missing or not logged in for the host | Stop; have the user install and authenticate it (`tea login add`, `glab auth login`, `gh auth login`) |
 | Body reads like a design doc    | Included why/future/concerns            | Cut anything not visible in the diff; keep Summary + Changes only |
 | Repo template has empty/why sections | Template asks for content the diff doesn't show | Mark those sections `N/A`; never invent prose to fill them |
-| No remote / `gh` not authed     | Nowhere to open a PR                    | Stop; tell the user to set a remote or run `gh auth login`        |
+| No remote                       | Nowhere to open a PR                    | Stop; tell the user to set a remote                               |
