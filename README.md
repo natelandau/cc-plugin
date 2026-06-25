@@ -216,6 +216,10 @@ Match the array name to the hook's built-in file: `[[rule]]` for
 use `conditions`), since that hook has no single primary text for a bare
 `pattern` to match against.
 
+## Contributing
+
+Development setup, running the test gates, the hooks stage-dispatcher model, and instructions for adding hooks, skills, commands, and agents all live in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Released under the [MIT License](LICENSE). You're welcome to fork or borrow
