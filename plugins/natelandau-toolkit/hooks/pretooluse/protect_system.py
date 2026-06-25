@@ -61,15 +61,8 @@ if TYPE_CHECKING:
 ID = "protect-system"
 DEFAULT_LEVEL = "high"
 RULES_FILE = Path(__file__).parent / "protect_system.rules.toml"
-# Fields every [[rule]] entry must carry besides its matcher (pattern or
-# conditions). The shared loader validates these and rejects unknown keys.
-SYSTEM_FIELDS = frozenset({"id", "level", "reason"})
-
-
-def _threshold(cfg: Config) -> int:
-    """Return the numeric threshold from config, defaulting to 'high'."""
-    raw = cfg.option("protect-system", "level", DEFAULT_LEVEL).lower()
-    return rules.LEVELS.get(raw, rules.LEVELS[DEFAULT_LEVEL])
+# Required [[rule]] fields shared with protect_secrets (see rules.THRESHOLD_RULE_FIELDS).
+SYSTEM_FIELDS = rules.THRESHOLD_RULE_FIELDS
 
 
 def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
@@ -98,7 +91,10 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     # may target one explicitly with `field` (e.g. field = "command").
     fields = {"tool_name": "Bash", "command": command}
     matched = rules.first_match(
-        system_rules, text=command, fields=fields, threshold=_threshold(cfg)
+        system_rules,
+        text=command,
+        fields=fields,
+        threshold=rules.threshold(cfg, ID, DEFAULT_LEVEL),
     )
     if matched:
         return Decision(

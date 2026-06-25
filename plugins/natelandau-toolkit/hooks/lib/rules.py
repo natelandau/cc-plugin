@@ -34,7 +34,14 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from lib.config import Config
+
 LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
+
+# Required `[[rule]]` fields for the threshold-gated block hooks
+# (protect_secrets, protect_system): a slug, a threshold tier, and a reason.
+# Shared so the two hooks declare one vocabulary instead of two identical sets.
+THRESHOLD_RULE_FIELDS: frozenset[str] = frozenset({"id", "level", "reason"})
 
 # Operators valid in a condition. `regex_match` uses the pre-compiled
 # pattern; the rest are plain (case-insensitive) string tests.
@@ -375,3 +382,15 @@ def first_match(
         if rule_matches(rule, text=text, fields=field_map):
             return rule
     return None
+
+
+def threshold(cfg: Config, hook_id: str, default: str) -> int:
+    """Resolve a hook's configured level string to its numeric threshold.
+
+    Reads `[hooks.<hook_id>].level` (falling back to `default`), lowercases
+    it, and maps it through `LEVELS`, defaulting to `default`'s rank for an
+    unrecognized value. Centralizes the level→int resolution every
+    threshold-gated hook shares so the lookup lives next to `LEVELS`.
+    """
+    raw = cfg.option(hook_id, "level", default).lower()
+    return LEVELS.get(raw, LEVELS[default])
