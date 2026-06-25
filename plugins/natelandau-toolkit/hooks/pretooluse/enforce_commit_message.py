@@ -542,9 +542,8 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: AR
 
     violation = _validate(line, noun)
     if violation is not None:
-        return Decision(
-            block=True,
-            reason=f"BLOCKED [{violation.id}]: {violation.reason}\n  {noun} first line: {line!r}{FOOTER}",
+        return Decision.blocked(
+            violation.id, f"{violation.reason}\n  {noun} first line: {line!r}{FOOTER}"
         )
 
     return None

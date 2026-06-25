@@ -209,12 +209,10 @@ def _check_whole_file(path: Path) -> Decision | None:
     """Block modification of an existing protected config; allow creation."""
     if not _exists(path):
         return None
-    return Decision(
-        block=True,
-        reason=(
-            f"BLOCKED [config-protection]: Refusing to modify `{path.name}`, a "
-            f"linter/formatter/typechecker config. {_OVERRIDE_HINT}"
-        ),
+    return Decision.blocked(
+        ID,
+        f"Refusing to modify `{path.name}`, a linter/formatter/typechecker "
+        f"config. {_OVERRIDE_HINT}",
     )
 
 
@@ -254,13 +252,11 @@ def _check_pyproject(
     if not changed:
         return None
     tables = ", ".join(f"[{prefix}]" for prefix in changed)
-    return Decision(
-        block=True,
-        reason=(
-            f"BLOCKED [config-protection]: Refusing to change the {tables} table(s) in "
-            f"{PYPROJECT}, which hold linter/typechecker config. Dependency, build, and "
-            f"metadata edits are allowed. {_OVERRIDE_HINT}"
-        ),
+    return Decision.blocked(
+        ID,
+        f"Refusing to change the {tables} table(s) in {PYPROJECT}, which hold "
+        f"linter/typechecker config. Dependency, build, and metadata edits are "
+        f"allowed. {_OVERRIDE_HINT}",
     )
 
 

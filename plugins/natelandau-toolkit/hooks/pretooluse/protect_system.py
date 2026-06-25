@@ -98,8 +98,5 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
         threshold=rules.threshold(cfg, ID, DEFAULT_LEVEL),
     )
     if matched:
-        return Decision(
-            block=True,
-            reason=f"BLOCKED [{matched.id}]: Cannot execute: {matched.reason}",
-        )
+        return Decision.blocked(matched.id, f"Cannot execute: {matched.reason}")
     return None

@@ -135,8 +135,5 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
         secret_rules, fields=fields, threshold=rules.threshold(cfg, ID, DEFAULT_LEVEL)
     )
     if matched:
-        return Decision(
-            block=True,
-            reason=f"BLOCKED [{matched.id}]: Cannot {ACTION_VERBS[tool_name]}: {matched.reason}",
-        )
+        return Decision.blocked(matched.id, f"Cannot {ACTION_VERBS[tool_name]}: {matched.reason}")
     return None

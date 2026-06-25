@@ -32,6 +32,18 @@ class Decision:
     reason: str = ""
     context: str = ""
 
+    @classmethod
+    def blocked(cls, hook_id: str, message: str) -> Decision:
+        """Construct a blocking Decision with the canonical reason prefix.
+
+        Every guard fronts its reason with `BLOCKED [<hook_id>]: ` so the
+        model sees one uniform, greppable block format carrying the slug a
+        user would put in `disabled_hooks`. `message` is the hook-specific
+        remainder. Centralizing the prefix keeps the four guards that block
+        from drifting in wording.
+        """
+        return cls(block=True, reason=f"BLOCKED [{hook_id}]: {message}")
+
 
 def read_payload() -> dict[str, Any]:
     """Parse the hook JSON payload from stdin, or return {} on any error.
