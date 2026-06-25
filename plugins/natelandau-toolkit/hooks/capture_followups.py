@@ -49,7 +49,7 @@ from typing import Any
 from lib import rules, transcript
 from lib.config import load_config
 from lib.io import read_payload
-from lib.registry import hook_enabled
+from lib.profiles import hook_enabled
 
 HOOK_ID = "capture-followups"
 RULES_FILE = Path(__file__).parent / "capture_followups.rules.toml"

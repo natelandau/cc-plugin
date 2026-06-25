@@ -12,7 +12,9 @@ HOOKS = Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit
 sys.path.insert(0, str(HOOKS))
 
 from lib import dispatch  # noqa: E402  # ty: ignore[unresolved-import]
-from lib.io import Decision  # noqa: E402, F401  # ty: ignore[unresolved-import]  # used in embedded plugin strings
+
+# Decision is used inside the embedded plugin source strings, not directly here.
+from lib.io import Decision  # noqa: E402, F401  # ty: ignore[unresolved-import]
 
 
 class _Cfg:

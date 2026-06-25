@@ -39,7 +39,7 @@ from typing import Any
 from lib import rules, transcript
 from lib.config import load_config
 from lib.io import read_payload
-from lib.registry import hook_enabled
+from lib.profiles import hook_enabled
 
 RULES_FILE = Path(__file__).parent / "stop_phrase_guard.rules.toml"
 # Each [[violation]] needs a `reason` (shown to the assistant as the block

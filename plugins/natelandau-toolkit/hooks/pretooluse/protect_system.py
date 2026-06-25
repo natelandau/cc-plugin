@@ -49,16 +49,16 @@ Adapted from karanb192/claude-code-hooks `block-dangerous-commands.js`.
 
 from __future__ import annotations
 
-import re
-import sys
-import tomllib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lib import rules
-from lib.config import Config, load_config
-from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
+from lib.io import Decision
 
+if TYPE_CHECKING:
+    from lib.config import Config
+
+ID = "protect-system"
 DEFAULT_LEVEL = "high"
 RULES_FILE = Path(__file__).parent / "protect_system.rules.toml"
 # Fields every [[rule]] entry must carry besides its matcher (pattern or
@@ -104,21 +104,3 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
             reason=f"BLOCKED [{matched.id}]: Cannot execute: {matched.reason}",
         )
     return None
-
-
-def main() -> None:
-    """Entry point for the PreToolUse hook."""
-    payload = read_payload()
-    cfg = load_config()
-    try:
-        decision = evaluate(payload, cfg)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
-        print(f"protect_system: failed to load {RULES_FILE.name}: {exc}", file=sys.stderr)  # noqa: T201
-        sys.exit(1)
-    if decision and decision.block:
-        emit_block(decision.reason)
-    emit_pre_advisory([])
-
-
-if __name__ == "__main__":
-    main()

@@ -453,7 +453,7 @@ def _run(
 def test_protect_secrets(case: Case, hooks_dir: Path, tmp_path: Path) -> None:
     """Verify the hook blocks or allows each action per its rules."""
     # Given the hook script and (optionally) an overridden safety level
-    hook = hooks_dir / "protect_secrets.py"
+    hook = hooks_dir / "pretooluse.py"
 
     # When invoking the hook with the payload on stdin
     proc = _run(hook, case.payload, case.level, tmp_path)
@@ -490,9 +490,11 @@ def secrets_module(hooks_dir: Path) -> Any:
     import sys
 
     sys.path.insert(0, str(hooks_dir))
+    sys.path.insert(0, str(hooks_dir / "pretooluse"))
     try:
         yield importlib.import_module("protect_secrets")
     finally:
+        sys.path.pop(0)
         sys.path.pop(0)
 
 

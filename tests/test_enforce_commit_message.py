@@ -501,7 +501,7 @@ CASES: tuple[Case, ...] = (
 def test_enforce_commit_message(case: Case, hooks_dir: Path) -> None:
     """Verify the hook blocks or allows each commit-message pattern."""
     # Given the hook script
-    hook = hooks_dir / "enforce_commit_message.py"
+    hook = hooks_dir / "pretooluse.py"
 
     # When invoking the hook with the payload on stdin
     proc = subprocess.run(

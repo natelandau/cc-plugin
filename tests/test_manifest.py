@@ -8,6 +8,7 @@ behavior coverage stays in the dedicated test modules.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -22,27 +23,14 @@ PLUGIN_ROOT_PREFIX = "${CLAUDE_PLUGIN_ROOT}/"
 # convention and works via filename fallback. New commands must include it.
 COMMANDS_WITHOUT_FRONTMATTER = frozenset({"transfer-context.md"})
 
-# These hook scripts are invoked via pre_tool_dispatcher.py (imported as evaluate()
-# functions), not registered individually in hooks.json. The dispatcher itself IS
-# registered. A script not in this set and not in hooks.json is a real orphan and
-# must still fail test_hook_script_is_registered.
-DISPATCHER_INVOKED = frozenset(
-    {
-        "enforce_branch_protection.py",
-        "protect_secrets.py",
-        "protect_system.py",
-        "enforce_commit_message.py",
-        "config_protection.py",
-        "use_uv.py",
-    }
-)
-
-# These per-stage dispatcher scripts exist but are not yet wired into hooks.json.
-# They will replace the old dispatchers in a future task (Tasks 5-6). Listing
-# them here exempts them from the orphan guard until that cutover lands.
+# Per-stage dispatcher scripts that exist but are not yet wired into hooks.json.
+# Each will replace the legacy wiring for its event in a later task; listing them
+# here exempts them from the orphan guard until that cutover lands. PreToolUse
+# (pretooluse.py) is already wired, so it is intentionally absent. Stop currently
+# runs the flat stop_phrase_guard.py / capture_followups.py scripts, so stop.py
+# stays exempt until Task 6 cuts it over.
 STAGE_DISPATCHERS = frozenset(
     {
-        "pretooluse.py",
         "posttooluse.py",
         "stop.py",
         "sessionstart.py",
@@ -113,6 +101,54 @@ def _hook_scripts() -> list[Path]:
     return sorted((PLUGIN_ROOT / "hooks").glob("*.py"))
 
 
+# Filenames inside a stage dir that are package scaffolding, not plugin modules.
+_STAGE_NON_PLUGIN = frozenset({"_registry.py", "__init__.py"})
+
+
+def _stage_dirs() -> list[Path]:
+    """Return every per-stage plugin directory (one holding a _registry.py)."""
+    return sorted(p.parent for p in (PLUGIN_ROOT / "hooks").glob("*/_registry.py"))
+
+
+def _stage_plugin_modules(stage_dir: Path) -> list[Path]:
+    """Return a stage's plugin module files (its *.py minus scaffolding)."""
+    return sorted(p for p in stage_dir.glob("*.py") if p.name not in _STAGE_NON_PLUGIN)
+
+
+def _registered_plugin_names(stage_dir: Path) -> set[str]:
+    """Parse a stage's _registry.py and return the module names in PLUGINS.
+
+    Reads the AST rather than importing so the guard does not depend on the
+    hooks dir being importable. PLUGINS is a list of (module_name, profiles)
+    tuples; only the first element of each tuple is the module name.
+    """
+    tree = ast.parse((stage_dir / "_registry.py").read_text())
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        # PLUGINS may be a bare or annotated assignment (`PLUGINS: list[...] = [...]`).
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not isinstance(node.value, ast.List):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "PLUGINS" for t in targets):
+            continue
+        for elt in node.value.elts:
+            if isinstance(elt, ast.Tuple) and elt.elts:
+                first = elt.elts[0]
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    names.add(first.value)
+    return names
+
+
+def _stage_plugin_params() -> list[tuple[Path, str]]:
+    """Flatten (stage_dir, plugin.py) pairs across every stage for parametrize."""
+    return [(d, m.name) for d in _stage_dirs() for m in _stage_plugin_modules(d)]
+
+
 def _agent_files() -> list[Path]:
     return sorted((PLUGIN_ROOT / "agents").glob("*.md"))
 
@@ -162,25 +198,47 @@ def test_hooks_json_command_resolves(event: str, command: str) -> None:
 
 @pytest.mark.parametrize("script_path", _hook_scripts(), ids=lambda p: p.name)
 def test_hook_script_is_registered(script_path: Path) -> None:
-    """Verify every hooks/*.py script is wired into hooks.json or invoked by the dispatcher.
+    """Verify every hooks/*.py root script is wired into hooks.json or awaiting cutover.
 
     Catches the easy mistake of dropping a new hook script in place but
-    forgetting both the manifest entry and the dispatcher registration,
-    which leaves it dead on disk.
+    forgetting the manifest entry, which leaves it dead on disk. Plugin modules
+    no longer live at the hooks root (they sit under hooks/<stage>/ and are
+    reached via that stage's _registry.py, covered by
+    test_stage_plugin_is_registered); only dispatcher entry points and the flat
+    Stop hooks live here.
     """
     # Given the set of scripts referenced from hooks.json
     registered = _registered_hook_paths()
 
-    # Then this script is either registered directly in hooks.json, invoked by the
-    # old dispatcher, or is a stage dispatcher awaiting hooks.json cutover (Task 5).
-    # A script that is none of these is a real orphan and must fail.
-    assert (
-        script_path in registered
-        or script_path.name in DISPATCHER_INVOKED
-        or script_path.name in STAGE_DISPATCHERS
-    ), (
-        f"{script_path.name} exists in hooks/ but is not registered in hooks.json, "
-        f"not listed in DISPATCHER_INVOKED, and not listed in STAGE_DISPATCHERS"
+    # Then this script is either registered directly in hooks.json or is a stage
+    # dispatcher awaiting hooks.json cutover. A script that is neither is a real
+    # orphan and must fail.
+    assert script_path in registered or script_path.name in STAGE_DISPATCHERS, (
+        f"{script_path.name} exists in hooks/ but is not registered in hooks.json "
+        f"and is not listed in STAGE_DISPATCHERS"
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage_dir", "module_name"),
+    _stage_plugin_params(),
+    ids=lambda v: v if isinstance(v, str) else "",
+)
+def test_stage_plugin_is_registered(stage_dir: Path, module_name: str) -> None:
+    """Verify every plugin module under a stage dir is listed in its _registry.py.
+
+    A plugin module that the dispatcher never loads (absent from PLUGINS) is
+    dead on disk just like an unwired root script. The module name in PLUGINS
+    is the file stem, so a `protect_secrets.py` must appear as `protect_secrets`.
+    """
+    # Given the module names the stage's registry will load
+    registered = _registered_plugin_names(stage_dir)
+
+    # Then this plugin module's stem appears in PLUGINS
+    stem = module_name.removesuffix(".py")
+    assert stem in registered, (
+        f"{stage_dir.name}/{module_name} is not listed in {stage_dir.name}/_registry.py "
+        f"PLUGINS, so the dispatcher would never load it"
     )
 
 

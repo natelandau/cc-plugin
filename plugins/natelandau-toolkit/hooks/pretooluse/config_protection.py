@@ -40,12 +40,15 @@ import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lib.config import Config, load_config
-from lib.io import Decision, emit_block, emit_pre_advisory, read_payload
+from lib.io import Decision
 from lib.rules import project_rules_path, read_toml
 
+if TYPE_CHECKING:
+    from lib.config import Config
+
+ID = "config-protection"
 RULES_FILE = Path(__file__).parent / "config_protection.rules.toml"
 PYPROJECT = "pyproject.toml"
 
@@ -278,21 +281,3 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     if path.name in rules.protected_files:
         return _check_whole_file(path)
     return None
-
-
-def main() -> None:
-    """Entry point for standalone PreToolUse invocation."""
-    payload = read_payload()
-    cfg = load_config()
-    try:
-        decision = evaluate(payload, cfg)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
-        print(f"config_protection: failed to load {RULES_FILE.name}: {exc}", file=sys.stderr)  # noqa: T201
-        sys.exit(1)
-    if decision and decision.block:
-        emit_block(decision.reason)
-    emit_pre_advisory([])
-
-
-if __name__ == "__main__":
-    main()
