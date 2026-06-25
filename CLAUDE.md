@@ -227,9 +227,12 @@ rules that did parse). This matches how a malformed `natelandau-toolkit.toml`
 is treated. A project rules file is read whenever `CLAUDE_PROJECT_DIR` is set,
 with or without a `natelandau-toolkit.toml` present.
 
-The loader lives in `lib/rules.py` (`project_rules_path`,
-`load_project_rules`); `config_protection` merges via its own `_merged_rules`
-because its rule data is name lists rather than `[[rule]]` tables.
+The loader lives in `lib/rules.py`. `load_all_rules` is the one entry the
+`[[rule]]`-table hooks share: it reads the built-in section plus the additive
+project rules in a single call. `config_protection` keeps its own `RuleSet`
+shape (name lists, not `[[rule]]` tables) but routes its built-in-plus-project
+merge through the shape-agnostic `with_project_overlay`, so both paths share
+one fail-open contract and the `RULES_LOAD_ERRORS` exception set.
 
 ### `hooks/pretooluse/enforce_branch_protection.py` (PreToolUse)
 
@@ -268,8 +271,8 @@ Blocks Stop turns whose assistant text matches a pattern in
 `stop_phrase_guard.rules.toml`.
 
 **Critical gotcha:** The raw Stop payload does NOT contain the assistant
-text. The `stop.py` dispatcher calls `parse_stop`, which reads the
-transcript once and adds `assistant_message` and `entries` to the event
+text. The Stop dispatcher's `prepare` step (`transcript.parse_stop`) reads
+the transcript once and adds `assistant_message` and `entries` to the event
 dict before passing it to plugins. Plugins read `event["assistant_message"]`.
 Any plugin code that reaches for `last_assistant_message` on the raw
 payload (before `parse_stop`) is broken and returns None silently.
@@ -766,11 +769,12 @@ concatenation of `text` fields across `{"type":"text", ...}` blocks in
 and should be skipped).
 
 Transcript parsing is centralized in `hooks/lib/transcript.py`
-(`read_entries`, `last_assistant_message_text`, plus
+(`read_entries`, `last_assistant_message_text`, `parse_stop`, plus
 `file_written_since_last_user` for "did a tool touch file X this turn"
-turn-scoped to the entries after the last human message). The `stop.py`
-dispatcher calls `parse_stop` once before running any plugins, which reads
-the JSONL and adds `entries` and `assistant_message` to the event dict.
+turn-scoped to the entries after the last human message). The Stop
+dispatcher passes `transcript.parse_stop` as its `prepare`, so it runs once
+before any plugin, reading the JSONL and adding `entries` and
+`assistant_message` to the event dict.
 Stop plugins receive that pre-parsed event; they do not read the transcript
 themselves. `tests/test_lib_transcript.py` covers the reader and each Stop
 plugin's own tests cover the wiring.

@@ -115,25 +115,25 @@ tests/                                        Pytest characterization tests
 
 ### The stage-dispatcher model
 
-Each Claude Code hook event (PreToolUse, Stop, PostToolUse, etc.) has its own dispatcher script at `hooks/<stage>.py`. The dispatcher reads stdin, loads the config, and calls `lib.dispatch.run_stage`, which drives the stage.
+Each Claude Code hook event (PreToolUse, Stop, PostToolUse, etc.) has its own dispatcher script at `hooks/<stage>.py`. Each script is a one-liner calling `lib.dispatch.run_dispatcher("<stage>", ...)`, which owns the shared sequence: read the payload, optionally short-circuit via `skip_if` (the Stop re-fire guard), load the config, optionally transform the payload via `prepare` (the Stop transcript parse), run the stage, and emit via the stage's entry in `io.STAGE_EMITTERS`. Internally it calls `run_stage`, which drives the stage.
 
 `run_stage` does the following:
 
 1. Loads the stage's `hooks/<stage>/_registry.py` and reads its `PLUGINS` list.
 2. Filters each plugin by the active profile and `disabled_hooks`.
-3. Imports the surviving plugins in declared order and calls `evaluate(payload, cfg)` on each.
+3. Imports the surviving plugins in declared order and calls `evaluate(event, cfg)` on each.
 4. Returns on the first block decision (first-block-wins). Advisory contexts from non-blocking plugins accumulate.
 
-An exception in any plugin is swallowed. One broken plugin never wedges a tool call.
+The registry and plugin modules are loaded by explicit file path (`importlib.util.spec_from_file_location` under a stage-qualified name), not by bare import name, so two stages may hold same-named files without colliding. An exception in any plugin is swallowed. One broken plugin never wedges a tool call.
 
 ### Plugin contract
 
 A plugin is a Python module in `hooks/<stage>/` that exposes two module-level names:
 
 - `ID` - a string slug used in block messages and `disabled_hooks` config.
-- `evaluate(payload, cfg) -> Decision | None` - the logic. The parameter name is not enforced (the dispatcher passes the event positionally), but all PreToolUse plugins use `payload` while Stop plugins conventionally use `event`. Return `None` to pass through, or a `Decision` to block or emit advisory context.
+- `evaluate(event, cfg) -> Decision | None` - the logic. Every plugin names the first parameter `event` (the dispatcher passes it positionally, so the name is convention, not contract). Return `None` to pass through, or a `Decision` to block or emit advisory context.
 
-The plugin does its own self-filtering. For example, a plugin that only handles `Bash` tool calls checks `payload.get("tool_name") != "Bash"` and returns `None` immediately for anything else. The dispatcher does not pre-filter by tool name at the plugin level.
+The plugin does its own self-filtering. For example, a plugin that only handles `Bash` tool calls checks `event.get("tool_name") != "Bash"` and returns `None` immediately for anything else. The dispatcher does not pre-filter by tool name at the plugin level.
 
 A minimal plugin looks like this:
 
@@ -149,13 +149,13 @@ if TYPE_CHECKING:
 ID = "my-check"
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
-    if payload.get("tool_name") != "Bash":
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
+    if event.get("tool_name") != "Bash":
         return None
-    command = payload.get("tool_input", {}).get("command", "")
+    command = (event.get("tool_input") or {}).get("command", "")
     if "forbidden-command" not in command:
         return None
-    return Decision(block=True, reason="forbidden-command is not allowed")
+    return Decision.blocked(ID, "forbidden-command is not allowed")
 ```
 
 No `__main__` block is needed. Plugins are not standalone scripts.
