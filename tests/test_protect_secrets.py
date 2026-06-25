@@ -248,6 +248,14 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("read-secret",),
     ),
+    # A secret path glued to an allowlisted template with no spaces (via a
+    # redirect) must not drop the secret read along with the template token.
+    Case(
+        id="secret glued to template via redirect still blocked",
+        payload=_bash("cat ~/.ssh/id_rsa>.env.example"),
+        expect_exit=2,
+        stderr_contains=("read-secret",),
+    ),
     Case(
         id="template read piped to grep allowed",
         payload=_bash("cat .env.example | grep FOO"),

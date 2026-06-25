@@ -235,12 +235,13 @@ def match_rules(
         rules: The rule tuple to match against.
         skip_git_parts: Skip sub-command parts that start with git/gh.
     """
+    parts = bash.split_clauses(command)  # loop-invariant; split once, not per rule
     for rule in rules:
         if rule.match_full:
             if re.search(rule.pattern, command) and not _is_excluded(rule, command):
                 return rule.reason
         else:
-            for part in bash.split_clauses(command):
+            for part in parts:
                 stripped = part.strip()
                 if not stripped:
                     continue
@@ -371,54 +372,59 @@ def _is_pure_git_command(command: str) -> bool:
 _REDIRECT_TARGET_RE = re.compile(r"(?:\d*|&)>>?\|?\s*([^\s|;&<>]+)")
 
 # Commands whose non-flag arguments name files they create or modify, so those
-# args are write targets for the /tmp carve-out. A command outside this set
-# (e.g. `echo`, `cat`) contributes no positional write target; only its
-# redirects do.
+# args are write targets the /tmp carve-out can confine. A command outside this
+# set (e.g. `echo`, `cat`) contributes no positional write target; only its
+# redirects do. This set is deliberately the subset whose write targets are
+# plain positional paths -- in-place/output writers like `sed -i`, `perl -i`,
+# `curl -o`, and `wget` are NOT here because their targets can't be read off
+# positionally; `_targets_only_tmp` declines the carve-out for those (see below)
+# so the PROTECTED_FILE_MOD_RULES still block them.
 _FILE_MOD_CMDS = frozenset(
     {"rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "ln", "install", "tee"}
 )
 
 
-def _write_targets(part: str) -> list[str]:
-    """Return the files a single command part creates or modifies.
-
-    Targets come from output redirects (`> FILE`, `>> FILE`, `2> FILE`) and
-    from the non-flag arguments of a leading file-mutating command (rm, mv,
-    cp, touch, tee, ...). A part that writes no file (a bare `echo`, a read,
-    or a write form this does not model such as `sed -i`) yields [], so the
-    /tmp carve-out declines it and the normal rules decide.
-    """
-    targets = _REDIRECT_TARGET_RE.findall(part)
-    # Drop redirect operators+targets before reading positional args so a
-    # redirect path is not double-counted as a command argument.
-    tokens = _REDIRECT_TARGET_RE.sub(" ", part).split()
-    if tokens and tokens[0] in _FILE_MOD_CMDS:
-        targets += [tok for tok in tokens[1:] if not tok.startswith("-")]
-    return targets
-
-
 def _targets_only_tmp(command: str) -> bool:
-    """Return whether every file the command writes is under /tmp/.
+    """Return whether every file the command writes is confined to /tmp/.
 
     Protected-branch carve-out: a Bash command that only creates or modifies
     files in /tmp cannot affect tracked history, so it passes. Earlier this
-    treated every non-flag token as a file path, which wrongly blocked
-    redirect forms like `echo hi > /tmp/log` (the echoed args and the `>`
-    operator are not files). Write targets now come from `_write_targets`; a
-    command with no detectable write target is not a /tmp-only write.
+    treated every non-flag token as a file path, which wrongly blocked redirect
+    forms like `echo hi > /tmp/log` (the echoed args and the `>` operator are
+    not files).
+
+    A clause whose file-writing this cannot positively confine to /tmp declines
+    the carve-out (returns False) so the normal PROTECTED_FILE_MOD_RULES decide:
+    a non-/tmp redirect target, a `_FILE_MOD_CMDS` write with a non-/tmp arg, or
+    any other shape the block rules still treat as a file modification (e.g.
+    `sed -i`, `perl -i`, `curl -o`, `wget`). A command with no detectable write
+    is not a /tmp-only write. This keeps the carve-out and the block rules
+    answering "does this write a file outside /tmp" the same way, so a /tmp
+    redirect can no longer smuggle an unmodeled file-mod past the guard.
     """
-    found_target = False
+    found_tmp_write: bool = False
     for part in bash.split_clauses(command):
         stripped = part.strip()
         if not stripped or _is_git_command(stripped):
             continue
-        targets = _write_targets(stripped)
-        if not targets:
-            continue
-        found_target = True
-        if not all(t.startswith("/tmp/") for t in targets):  # noqa: S108
+        redirect_targets: list[str] = _REDIRECT_TARGET_RE.findall(stripped)
+        if not all(t.startswith("/tmp/") for t in redirect_targets):  # noqa: S108
             return False
-    return found_target
+        # Inspect the clause with its redirects removed: what remains must be a
+        # non-file-writing command or a `_FILE_MOD_CMDS` write whose args are
+        # all under /tmp. Anything the block rules would still flag is a write
+        # we cannot confine, so decline.
+        remainder: str = _REDIRECT_TARGET_RE.sub(" ", stripped).strip()
+        tokens: list[str] = remainder.split()
+        if tokens and tokens[0] in _FILE_MOD_CMDS:
+            file_args: list[str] = [t for t in tokens[1:] if not t.startswith("-")]
+            if not all(a.startswith("/tmp/") for a in file_args):  # noqa: S108
+                return False
+            found_tmp_write = found_tmp_write or bool(file_args)
+        elif match_rules(remainder, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
+            return False
+        found_tmp_write = found_tmp_write or bool(redirect_targets)
+    return found_tmp_write
 
 
 def _check_file_tool(tool_input: dict[str, Any], branch: str) -> str | None:

@@ -22,6 +22,7 @@ Ported from karanb192/claude-code-hooks `protect-secrets.js`.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,7 +31,6 @@ from lib import rules
 from lib.io import Decision
 
 if TYPE_CHECKING:
-    import re
     from collections.abc import Mapping
 
     from lib.config import Config
@@ -56,18 +56,32 @@ def _is_allowlisted(text: str, allowlist: tuple[re.Pattern[str], ...]) -> bool:
     return any(p.search(text) for p in allowlist)
 
 
+# Shell metacharacters that separate a token without surrounding whitespace
+# (`id_rsa>.env.example`, `id_rsa;cat`). Kept as their own pieces by the
+# capturing split so scrubbing removes only the allowlisted file piece and
+# leaves the operators and any secret path intact for the rules.
+_SCRUB_BOUNDARY = re.compile(r"([<>|;&])")
+
+
 def _scrub_allowlisted(command: str, allowlist: tuple[re.Pattern[str], ...]) -> str:
     """Drop allowlisted template tokens from a Bash command before rule matching.
 
     The allowlist exempts safe templates (`.env.example`, ...), but a template
     reference must not suppress a *separate* secret access in the same compound
     command. Matching the allowlist against the whole command let a trailing
-    `&& cat .env.example` mask an earlier `cat ~/.ssh/id_rsa`. Removing only the
-    allowlisted tokens lets the template pass while any real secret access in
-    the rest of the command is still seen. A template name is never a real
-    secret file, so dropping it can never hide one.
+    `&& cat .env.example` mask an earlier `cat ~/.ssh/id_rsa`. Split each
+    whitespace token further on shell metacharacters so a secret path glued to
+    a template (`cat ~/.ssh/id_rsa>.env.example`) drops only the `.env.example`
+    piece, not the secret read; the operators are retained so the command the
+    rules see is byte-identical except for the removed template pieces. A
+    template name is never a real secret file, so dropping it can never hide
+    one.
     """
-    return " ".join(tok for tok in command.split() if not _is_allowlisted(tok, allowlist))
+    scrubbed: list[str] = []
+    for token in command.split():
+        pieces = _SCRUB_BOUNDARY.split(token)
+        scrubbed.append("".join(p for p in pieces if not _is_allowlisted(p, allowlist)))
+    return " ".join(tok for tok in scrubbed if tok)
 
 
 def _match_fields(tool_name: str, tool_input: Mapping[str, object]) -> dict[str, str]:

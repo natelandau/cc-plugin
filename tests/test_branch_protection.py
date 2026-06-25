@@ -330,6 +330,31 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
+    # A /tmp redirect must not smuggle an unmodeled file-mutating command
+    # (sed -i, perl -i, curl -o, wget) past the carve-out: those still write a
+    # tracked file, so they stay blocked even with a /tmp redirect attached.
+    Case(
+        id="sed -i on tracked file with /tmp redirect on master blocked",
+        make_payload=lambda r: _bash("sed -i 's/a/b/' app.py 2>/tmp/err", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="tmp redirect chained with sed -i on tracked file blocked",
+        make_payload=lambda r: _bash(
+            "echo ok > /tmp/log && sed -i 's/a/b/' app.py", cwd=r["master"]
+        ),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="wget to tracked file with /tmp redirect on master blocked",
+        make_payload=lambda r: _bash(
+            "wget http://example.com/x -O app.py 2>/tmp/log", cwd=r["master"]
+        ),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
     # Protected branch: pure git read commands allowed
     Case(
         id="git status on master allowed",

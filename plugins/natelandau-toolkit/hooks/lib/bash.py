@@ -34,6 +34,11 @@ def split_clauses(command: str, *, include_pipes: bool = False) -> list[str]:
 
     Parts are returned verbatim (callers strip as needed); an operator-only or
     empty segment yields an empty-string clause, matching `re.split`.
+
+    Args:
+        command: The Bash command string to split.
+        include_pipes: Also split on a single `|` and a background `&`, not
+            just the sequence operators. Defaults to False.
     """
     pattern = _PIPELINE_SPLIT if include_pipes else _SEQUENCE_SPLIT
     return pattern.split(command)
