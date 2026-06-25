@@ -96,6 +96,24 @@ def test_last_assistant_message_text_legacy_no_id(transcript: ModuleType) -> Non
     assert result == "newest"
 
 
+def test_last_assistant_message_text_non_dict_message(transcript: ModuleType) -> None:
+    """Verify a non-dict `message` value is tolerated instead of raising."""
+    # Given a malformed line whose message is not a dict, followed by a normal one
+    entries = [
+        {"type": "assistant", "message": "a bare string, not a block list"},
+        {
+            "type": "assistant",
+            "message": {"id": "m1", "content": [{"type": "text", "text": "closing"}]},
+        },
+    ]
+
+    # When reconstructing the closing message
+    result = transcript.last_assistant_message_text(entries)
+
+    # Then the malformed line is skipped and the closing text is returned
+    assert result == "closing"
+
+
 def test_file_written_since_last_user_detects_write(transcript: ModuleType) -> None:
     """Verify a backlog write after the last human turn is detected."""
     # Given a turn that writes the backlog by a relative path

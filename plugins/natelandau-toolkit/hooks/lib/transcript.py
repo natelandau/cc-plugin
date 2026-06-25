@@ -89,8 +89,12 @@ def last_assistant_message_text(entries: list[dict[str, Any]]) -> str:
     for entry in entries:
         text = _entry_text(entry)
         if text.strip():
-            message = entry.get("message", {})
-            blocks.append((message.get("id"), text))
+            # Guard the type like every sibling reader: a non-dict `message`
+            # (null/string in a malformed line) would otherwise raise on .get,
+            # which the docstring promises never happens.
+            message = entry.get("message")
+            mid = message.get("id") if isinstance(message, dict) else None
+            blocks.append((mid, text))
 
     if not blocks:
         return ""
