@@ -15,10 +15,14 @@ avoids that.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lib.config import Config, load_config
-from lib.io import Decision, emit_pre_advisory, read_payload
+from lib.io import Decision
+
+if TYPE_CHECKING:
+    from lib.config import Config
+
+ID = "use-uv"
 
 # Bash clause separators. Each clause's leading executable is checked
 # independently so `cd foo && pytest` still flags the bare pytest.
@@ -78,15 +82,3 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: 
         block=False,
         context=f"Detected '{old}' in command. In uv projects, use '{new}' instead.",
     )
-
-
-def main() -> None:
-    """Entry point for standalone PreToolUse invocation."""
-    payload = read_payload()
-    cfg = load_config()
-    decision = evaluate(payload, cfg)
-    emit_pre_advisory([decision.context] if decision and decision.context else [])
-
-
-if __name__ == "__main__":
-    main()

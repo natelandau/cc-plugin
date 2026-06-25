@@ -444,7 +444,7 @@ def test_enforce_branch_protection(
 ) -> None:
     """Verify the hook blocks or allows each action per its rules."""
     # Given a payload built against the ephemeral repos
-    hook = hooks_dir / "enforce_branch_protection.py"
+    hook = hooks_dir / "pretooluse.py"
     payload = case.make_payload(repos)
 
     # When invoking the hook with the payload on stdin

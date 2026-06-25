@@ -29,17 +29,19 @@ remove, or tune a phrase.
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lib import rules, transcript
-from lib.config import load_config
-from lib.io import read_payload
-from lib.registry import hook_enabled
+from lib import rules
+from lib.io import Decision
+
+if TYPE_CHECKING:
+    from lib.config import Config
+
+ID = "stop-phrase-guard"
 
 RULES_FILE = Path(__file__).parent / "stop_phrase_guard.rules.toml"
 # Each [[violation]] needs a `reason` (shown to the assistant as the block
@@ -48,31 +50,21 @@ STOP_REQUIRED = frozenset({"reason"})
 STOP_OPTIONAL = frozenset({"id"})
 
 
-def main() -> None:
-    """Entry point for the Stop hook."""
-    # Shared capped reader: bounds stdin and fails open to {} on malformed,
-    # oversized, or non-object input (the guards below then no-op via .get()).
-    data: dict[str, Any] = read_payload()
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
+    """Block a Stop turn whose assistant message trips a phrase rule.
 
-    # Already fired once this turn; let the assistant stop to avoid loops.
-    if data.get("stop_hook_active"):
-        sys.exit(0)
-
-    transcript_path = data.get("transcript_path")
-    if not transcript_path:
-        sys.exit(0)
-
-    cfg = load_config()
-    if not hook_enabled("stop-phrase-guard", cfg):
-        sys.exit(0)
-
-    text = transcript.last_assistant_message_text(transcript.read_entries(transcript_path))
+    The dispatcher pre-parses the transcript and exposes the closing
+    assistant text as `event["assistant_message"]`; this check matches that
+    text against the violation rules and returns a blocking Decision on the
+    first hit, or None when the message is clean or empty.
+    """
+    text = event.get("assistant_message", "")
     if not text:
-        sys.exit(0)
+        return None
 
-    # Load violations at invocation, not import, so a malformed TOML
-    # surfaces a focused error message rather than a confusing import-time
-    # traceback.
+    # Load violations at invocation, not import, so a malformed TOML surfaces
+    # a focused error message rather than a confusing import-time traceback.
+    # The driver swallows the raise; built-in rules reload next invocation.
     try:
         violations = rules.load_rules(
             RULES_FILE, "violation", required=STOP_REQUIRED, optional=STOP_OPTIONAL
@@ -82,7 +74,7 @@ def main() -> None:
             f"stop_phrase_guard: failed to load {RULES_FILE.name}: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        raise
 
     # Additive per-project violations. Fail open inside load_project_rules so a
     # project typo never disables the built-in phrases.
@@ -101,15 +93,5 @@ def main() -> None:
     # `message` so a rule may target it explicitly with `field = "message"`.
     violation = rules.first_match(violations, text=text, fields={"message": text})
     if violation is None:
-        sys.exit(0)
-
-    decision = {
-        "decision": "block",
-        "reason": f"STOP HOOK VIOLATION: {violation.reason}",
-    }
-    print(json.dumps(decision))  # noqa: T201
-    sys.exit(0)
-
-
-if __name__ == "__main__":
-    main()
+        return None
+    return Decision(block=True, reason=f"STOP HOOK VIOLATION: {violation.reason}")

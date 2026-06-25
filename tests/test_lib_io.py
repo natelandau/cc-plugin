@@ -147,3 +147,87 @@ def test_lib_import_spike(hooks_dir: Path) -> None:
         assert "False" in proc.stdout
     finally:
         probe.unlink(missing_ok=True)
+
+
+def test_emit_pretooluse_block_exits_2(hooks_dir: Path, capsys) -> None:
+    """Verify emit_pretooluse blocks via exit 2 with reason to stderr."""
+    # Given a Decision that blocks
+    io = _load_io(hooks_dir)
+    # When emitting a block
+    with pytest_raises_systemexit(2):
+        io.emit_pretooluse(io.Decision(block=True, reason="nope"), [])
+    # Then the reason is in stderr
+    assert "nope" in capsys.readouterr().err
+
+
+def test_emit_pretooluse_advisory_exits_0(hooks_dir: Path, capsys) -> None:
+    """Verify emit_pretooluse emits advisory JSON when no block."""
+    # Given no block
+    io = _load_io(hooks_dir)
+    # When emitting advisory
+    with pytest_raises_systemexit(0):
+        io.emit_pretooluse(None, ["hint"])
+    # Then the context is in hookSpecificOutput
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["hookSpecificOutput"]["additionalContext"] == "hint"
+    assert payload["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+
+
+def test_emit_stop_block_is_decision_json(hooks_dir: Path, capsys) -> None:
+    """Verify emit_stop emits decision JSON when blocking."""
+    # Given a Decision that blocks
+    io = _load_io(hooks_dir)
+    # When emitting a block
+    with pytest_raises_systemexit(0):
+        io.emit_stop(io.Decision(block=True, reason="keep going"), [])
+    # Then the decision JSON is emitted
+    assert json.loads(capsys.readouterr().out) == {"decision": "block", "reason": "keep going"}
+
+
+def test_emit_stop_noop_silent(hooks_dir: Path, capsys) -> None:
+    """Verify emit_stop exits 0 with no output when not blocking."""
+    # Given no block
+    io = _load_io(hooks_dir)
+    # When emitting stop with no block
+    with pytest_raises_systemexit(0):
+        io.emit_stop(None, [])
+    # Then no output is emitted
+    assert capsys.readouterr().out == ""
+
+
+def test_emit_posttooluse_block_json(hooks_dir: Path, capsys) -> None:
+    """Verify emit_posttooluse emits hookSpecificOutput block JSON."""
+    # Given a Decision that blocks
+    io = _load_io(hooks_dir)
+    # When emitting a PostToolUse block
+    with pytest_raises_systemexit(0):
+        io.emit_posttooluse(io.Decision(block=True, reason="bad"), [])
+    # Then the decision JSON has hookSpecificOutput with decision and reason
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["hookSpecificOutput"]["decision"] == "block"
+    assert payload["reason"] == "bad"
+    assert payload["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+
+
+def test_emit_sessionstart_advisory(hooks_dir: Path, capsys) -> None:
+    """Verify emit_sessionstart emits advisory context."""
+    # Given advisory context
+    io = _load_io(hooks_dir)
+    # When emitting SessionStart
+    with pytest_raises_systemexit(0):
+        io.emit_sessionstart(None, ["ctx"])
+    # Then the context is in hookSpecificOutput
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["hookSpecificOutput"]["additionalContext"] == "ctx"
+    assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+
+
+def test_emit_sessionend_silent(hooks_dir: Path, capsys) -> None:
+    """Verify emit_sessionend exits 0 with no output."""
+    # Given any inputs
+    io = _load_io(hooks_dir)
+    # When emitting SessionEnd
+    with pytest_raises_systemexit(0):
+        io.emit_sessionend(io.Decision(block=True, reason="x"), ["y"])
+    # Then no output is emitted
+    assert capsys.readouterr().out == ""

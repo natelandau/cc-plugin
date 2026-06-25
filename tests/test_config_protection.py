@@ -249,7 +249,7 @@ def _payload(case: Case, target: Path) -> dict[str, Any]:
 def test_config_protection(case: Case, hooks_dir: Path, tmp_path: Path) -> None:
     """Verify the hook blocks config-weakening edits and allows the rest."""
     # Given a materialized target file (present = modification, absent = creation)
-    hook = hooks_dir / "config_protection.py"
+    hook = hooks_dir / "pretooluse.py"
     target = tmp_path / case.filename
     if case.existing is not None:
         target.write_text(case.existing, encoding="utf-8")
@@ -274,7 +274,7 @@ def test_config_protection(case: Case, hooks_dir: Path, tmp_path: Path) -> None:
 def test_config_protection_via_dispatcher(hooks_dir: Path, tmp_path: Path) -> None:
     """Verify the consolidated dispatcher routes Edit to config-protection and blocks."""
     # Given an existing ruff.toml and a project config selecting the standard profile
-    dispatcher = hooks_dir / "pre_tool_dispatcher.py"
+    dispatcher = hooks_dir / "pretooluse.py"
     target = tmp_path / "ruff.toml"
     target.write_text(RUFF_TOML, encoding="utf-8")
     proj = tmp_path / "proj"
@@ -312,7 +312,7 @@ def test_config_protection_via_dispatcher(hooks_dir: Path, tmp_path: Path) -> No
 def test_config_protection_disabled_via_config(hooks_dir: Path, tmp_path: Path) -> None:
     """Verify disabling config-protection lets the dispatcher allow the edit."""
     # Given an existing ruff.toml and a project config disabling the hook
-    dispatcher = hooks_dir / "pre_tool_dispatcher.py"
+    dispatcher = hooks_dir / "pretooluse.py"
     target = tmp_path / "ruff.toml"
     target.write_text(RUFF_TOML, encoding="utf-8")
     proj = tmp_path / "proj"
@@ -350,9 +350,11 @@ def test_config_protection_disabled_via_config(hooks_dir: Path, tmp_path: Path) 
 def configprot_module(hooks_dir: Path) -> Any:
     """Import config_protection with the hooks dir importable."""
     sys.path.insert(0, str(hooks_dir))
+    sys.path.insert(0, str(hooks_dir / "pretooluse"))
     try:
         yield importlib.import_module("config_protection")
     finally:
+        sys.path.pop(0)
         sys.path.pop(0)
 
 

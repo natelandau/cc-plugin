@@ -139,7 +139,7 @@ CASES: tuple[Case, ...] = (
 def test_use_uv(case: Case, hooks_dir: Path) -> None:
     """Verify the hook nudges or stays silent per its rules."""
     # Given a hook script and a payload
-    hook = hooks_dir / "use_uv.py"
+    hook = hooks_dir / "pretooluse.py"
 
     # When invoking the hook with the payload on stdin
     proc = subprocess.run(

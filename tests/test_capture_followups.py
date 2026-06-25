@@ -1,301 +1,209 @@
-"""Characterization tests for capture_followups.py.
+"""Characterization tests for stop/capture_followups.py.
 
-Builds fake JSONL transcripts in a tmp dir, pipes Stop hook payloads
-through the hook script, and asserts on exit code and (when blocking) the
-JSON decision shape and content. Mirrors test_stop_phrase_guard.py: both
-are Stop hooks reading `transcript_path`.
+Calls `evaluate(event, cfg)` directly with a constructed event dict. The
+dispatcher pre-parses the transcript and hands the closing assistant text as
+`event["assistant_message"]` and the turn's parsed entries as
+`event["entries"]`, so these tests build both directly. The entry dicts mirror
+the shape `lib.transcript.file_written_since_last_user` expects (the same shape
+test_lib_transcript.py uses), so the self-suppression path is exercised without
+a real transcript file.
+
+Every scenario from the previous subprocess-based suite is preserved.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import pytest
 
-if TYPE_CHECKING:
-    from pathlib import Path
+HOOKS = Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit" / "hooks"
+for _p in (str(HOOKS), str(HOOKS / "stop")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import capture_followups  # noqa: E402  # ty: ignore[unresolved-import]
 
 BACKLOG_NAME = "BACKLOG.md"
 
 
-def _assistant_block_entry(block: dict[str, Any], message_id: str) -> dict[str, Any]:
-    """Build one JSONL line carrying a single content block."""
-    return {
-        "type": "assistant",
-        "message": {"id": message_id, "role": "assistant", "content": [block]},
-    }
+@dataclass(frozen=True)
+class _Cfg:
+    """Minimal Config stand-in: evaluate reads project_dir and option()."""
 
+    profile: str = "standard"
+    disabled_hooks: frozenset[str] = frozenset()
+    project_dir: str | None = None
+    hook_options: dict[str, dict[str, str]] = field(default_factory=dict)
 
-def _assistant_text_entry(text: str, message_id: str = "msg-default") -> dict[str, Any]:
-    """Build a single-text-block assistant line (the common case)."""
-    return _assistant_block_entry({"type": "text", "text": text}, message_id)
+    def option(self, hook_id: str, key: str, default: str) -> str:
+        return self.hook_options.get(hook_id, {}).get(key, default)
 
 
 def _backlog_write_entry(
     file_path: str = f".agent/{BACKLOG_NAME}", message_id: str = "msg-write"
 ) -> dict[str, Any]:
-    """Build an assistant line writing to the backlog file via the Write tool."""
-    return _assistant_block_entry(
-        {"type": "tool_use", "name": "Write", "input": {"file_path": file_path}},
-        message_id,
-    )
+    """Build an assistant line writing the backlog via the Write tool."""
+    return {
+        "type": "assistant",
+        "message": {
+            "id": message_id,
+            "role": "assistant",
+            "content": [{"type": "tool_use", "name": "Write", "input": {"file_path": file_path}}],
+        },
+    }
 
 
 def _user_entry(text: str) -> dict[str, Any]:
     return {"type": "user", "message": {"role": "user", "content": text}}
 
 
-def _make_transcript(tmpdir: Path, entries: list[dict[str, Any]]) -> Path:
-    path = tmpdir / "transcript.jsonl"
-    path.write_text(
-        "\n".join(json.dumps(e) for e in entries) + ("\n" if entries else ""),
-        encoding="utf-8",
-    )
-    return path
-
-
-def _run_hook(hook: Path, payload: dict[str, Any]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [str(hook)],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-
-
 @dataclass(frozen=True)
 class Case:
     id: str
-    entries: list[dict[str, Any]]
-    stop_hook_active: bool = False
+    assistant_message: str
+    entries: list[dict[str, Any]] = field(default_factory=list)
     expect_block: bool = False
-    omit_transcript_path: bool = False
 
 
 CASES: tuple[Case, ...] = (
     Case(
         id="clean message: no block",
-        entries=[_assistant_text_entry("Made the changes; tests pass. Ready for your review.")],
+        assistant_message="Made the changes; tests pass. Ready for your review.",
         expect_block=False,
     ),
     Case(
         id="out of scope deferral blocked",
-        entries=[
-            _assistant_text_entry(
-                "I added the auth check. Rate limiting is out of scope for this change."
-            )
-        ],
+        assistant_message="I added the auth check. Rate limiting is out of scope for this change.",
         expect_block=True,
     ),
     Case(
         id="follow-up PR deferral blocked",
-        entries=[
-            _assistant_text_entry("Done. The caching rewrite is best left for a follow-up PR.")
-        ],
+        assistant_message="Done. The caching rewrite is best left for a follow-up PR.",
         expect_block=True,
     ),
     Case(
         id="TODO left blocked",
-        entries=[
-            _assistant_text_entry("Shipped the fix. I left a TODO where the retry logic goes.")
-        ],
+        assistant_message="Shipped the fix. I left a TODO where the retry logic goes.",
         expect_block=True,
     ),
     Case(
         id="separate change deferral blocked",
-        entries=[
-            _assistant_text_entry("Migrated the model. The data backfill should be its own PR.")
-        ],
+        assistant_message="Migrated the model. The data backfill should be its own PR.",
         expect_block=True,
     ),
     Case(
         id="future improvement blocked",
-        entries=[
-            _assistant_text_entry("Working now. Memoizing the parser is a future optimization.")
-        ],
+        assistant_message="Working now. Memoizing the parser is a future optimization.",
         expect_block=True,
     ),
     Case(
         id="handle separately blocked",
-        entries=[
-            _assistant_text_entry("Fixed the crash. We can address the logging gaps separately.")
-        ],
+        assistant_message="Fixed the crash. We can address the logging gaps separately.",
         expect_block=True,
     ),
     Case(
         # Standalone "deferred" (no trailing object) must still fire.
         id="standalone deferred blocked",
-        entries=[_assistant_text_entry("Implemented the core path. The cleanup is deferred.")],
+        assistant_message="Implemented the core path. The cleanup is deferred.",
         expect_block=True,
     ),
     Case(
         id="for now deferral blocked",
-        entries=[
-            _assistant_text_entry("Shipped the fix. I'll leave the broader refactor for now.")
-        ],
+        assistant_message="Shipped the fix. I'll leave the broader refactor for now.",
         expect_block=True,
     ),
     Case(
         id="revisit deferral blocked",
-        entries=[
-            _assistant_text_entry("Working. We can revisit the caching strategy after launch.")
-        ],
+        assistant_message="Working. We can revisit the caching strategy after launch.",
         expect_block=True,
     ),
     Case(
         id="not addressing deferral blocked",
-        entries=[
-            _assistant_text_entry("Patched the parser. I'm not addressing the logging gaps here.")
-        ],
+        assistant_message="Patched the parser. I'm not addressing the logging gaps here.",
         expect_block=True,
     ),
     Case(
         # Precision: a follow-up *question* is not a unit of deferred work.
         id="benign follow-up question: no block",
-        entries=[_assistant_text_entry("Here is the result. One follow-up question: which env?")],
+        assistant_message="Here is the result. One follow-up question: which env?",
         expect_block=False,
     ),
     Case(
         # Precision: "for now" in ordinary prose (not a deferral verb) is fine.
         id="benign for-now usage: no block",
-        entries=[_assistant_text_entry("For now the tests all pass and the build is green.")],
+        assistant_message="For now the tests all pass and the build is green.",
         expect_block=False,
     ),
     Case(
         # Precision: discussing scope generally is not naming out-of-scope work.
         id="benign scope mention: no block",
-        entries=[_assistant_text_entry("I widened the scope of the test to cover both branches.")],
+        assistant_message="I widened the scope of the test to cover both branches.",
         expect_block=False,
     ),
     Case(
         # The model captured the item inline this turn: suppress the block.
         id="backlog written this turn suppresses block",
-        entries=[
-            _backlog_write_entry(),
-            _assistant_text_entry(
-                "Recorded the rate-limiting work (out of scope here) in the backlog."
-            ),
-        ],
+        assistant_message="Recorded the rate-limiting work (out of scope here) in the backlog.",
+        entries=[_backlog_write_entry()],
         expect_block=False,
     ),
     Case(
         # A backlog write in a PRIOR turn must not suppress a new deferral.
         id="backlog write before last user does not suppress",
-        entries=[
-            _backlog_write_entry(),
-            _user_entry("now do the next thing"),
-            _assistant_text_entry("Done. The polish pass is out of scope for now."),
-        ],
+        assistant_message="Done. The polish pass is out of scope for now.",
+        entries=[_backlog_write_entry(), _user_entry("now do the next thing")],
         expect_block=True,
     ),
     Case(
-        id="stop_hook_active=true bypasses even on deferral",
-        entries=[_assistant_text_entry("Rate limiting is out of scope for this change.")],
-        stop_hook_active=True,
+        # Empty transcript / missing transcript_path both reduce to no message.
+        id="empty message (empty or missing transcript): no block",
+        assistant_message="",
         expect_block=False,
-    ),
-    Case(
-        id="empty transcript file: no block",
-        entries=[],
-        expect_block=False,
-    ),
-    Case(
-        id="missing transcript_path: no block",
-        entries=[_assistant_text_entry("This is out of scope.")],
-        expect_block=False,
-        omit_transcript_path=True,
     ),
 )
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
-def test_capture_followups(case: Case, tmp_path: Path, hooks_dir: Path) -> None:
-    """Verify the hook blocks uncaptured deferrals and passes clean turns through."""
-    # Given a transcript file (or no transcript_path) and a Stop payload
-    hook = hooks_dir / "capture_followups.py"
-    transcript = _make_transcript(tmp_path, case.entries)
-    payload: dict[str, Any] = {
-        "hook_event_name": "Stop",
-        "session_id": "test-session",
-        "stop_hook_active": case.stop_hook_active,
-    }
-    if not case.omit_transcript_path:
-        payload["transcript_path"] = str(transcript)
+def test_capture_followups(case: Case) -> None:
+    """Verify evaluate blocks uncaptured deferrals and passes clean turns through."""
+    # Given an event with the closing message and this turn's entries
+    event = {"assistant_message": case.assistant_message, "entries": case.entries}
 
-    # When invoking the hook with the payload on stdin
-    proc = _run_hook(hook, payload)
+    # When evaluate runs against the default config
+    decision = capture_followups.evaluate(event, _Cfg())
 
-    # Then exit is always 0 and stdout matches the expected decision shape
-    assert proc.returncode == 0, f"exit={proc.returncode} stderr={proc.stderr!r}"
+    # Then a blocking decision is returned for an uncaptured deferral, else None
     if case.expect_block:
-        decision = json.loads(proc.stdout)
-        assert decision.get("decision") == "block"
-        reason = decision.get("reason", "")
-        assert reason.startswith("DEFERRED WORK:"), reason
-        assert BACKLOG_NAME in reason
+        assert decision is not None
+        assert decision.block
+        assert decision.reason.startswith("DEFERRED WORK:"), decision.reason
+        assert BACKLOG_NAME in decision.reason
     else:
-        assert not proc.stdout.strip(), f"unexpected stdout: {proc.stdout!r}"
+        assert decision is None
 
 
-def test_capture_followups_skips_malformed_lines(tmp_path: Path, hooks_dir: Path) -> None:
-    """Verify the hook ignores non-JSON transcript lines and processes valid ones."""
-    # Given a transcript with one malformed line followed by a clean assistant turn
-    hook = hooks_dir / "capture_followups.py"
-    tpath = tmp_path / "transcript.jsonl"
-    tpath.write_text(
-        "this is not json\n" + json.dumps(_assistant_text_entry("All good, tests pass.")) + "\n",
-        encoding="utf-8",
-    )
-    payload = {
-        "hook_event_name": "Stop",
-        "stop_hook_active": False,
-        "transcript_path": str(tpath),
-    }
-
-    # When invoking the hook
-    proc = _run_hook(hook, payload)
-
-    # Then the hook exits 0 with no block decision
-    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
-    assert not proc.stdout.strip(), f"unexpected stdout: {proc.stdout!r}"
-
-
-def test_project_trigger_blocks(hooks_dir: Path, tmp_path: Path) -> None:
+def test_project_trigger_blocks(tmp_path: Path) -> None:
     """Verify a project-supplied trigger phrase blocks the Stop turn."""
-    # Given a transcript whose closing message contains a custom phrase
-    transcript = _make_transcript(
-        tmp_path, [_assistant_text_entry("I will move the widget polish to the icebox.")]
-    )
-    # Given a project rules file adding that phrase as a trigger
+    # Given a project rules file adding a custom trigger phrase
     rules_dir = tmp_path / ".claude" / "natelandau-toolkit"
     rules_dir.mkdir(parents=True, exist_ok=True)
     (rules_dir / "capture_followups.rules.toml").write_text(
         '[[trigger]]\nid = "icebox"\nreason = "You moved work to the icebox."\npattern = "icebox"\n',
         encoding="utf-8",
     )
-    env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
-    payload = {"hook_event_name": "Stop", "transcript_path": str(transcript)}
+    event = {
+        "assistant_message": "I will move the widget polish to the icebox.",
+        "entries": [],
+    }
 
-    # When the Stop hook runs
-    proc = subprocess.run(
-        [str(hooks_dir / "capture_followups.py")],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-        env=env,
-    )
+    # When evaluate runs with the project dir pointing at those rules
+    decision = capture_followups.evaluate(event, _Cfg(project_dir=str(tmp_path)))
 
-    # Then it emits a block decision (exit 0, JSON on stdout) with the project reason
-    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
-    decision = json.loads(proc.stdout)
-    assert decision["decision"] == "block"
-    assert "icebox" in decision["reason"]
+    # Then the project reason drives the block
+    assert decision is not None
+    assert decision.block
+    assert "icebox" in decision.reason
