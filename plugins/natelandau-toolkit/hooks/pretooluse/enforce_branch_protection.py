@@ -164,7 +164,7 @@ PROTECTED_FILE_MOD_RULES: tuple[Rule, ...] = (
 
 
 def _run_git(*args: str, cwd: str | None = None) -> str:
-    """Run a git command and return stripped stdout."""
+    """Run git capturing stdout, failing to "" so a missing repo or binary never wedges the hook."""
     cmd = ["git"]
     if cwd:
         cmd.extend(["-C", cwd])
@@ -180,8 +180,8 @@ def _run_git(*args: str, cwd: str | None = None) -> str:
 
 def _resolve_dir(path: str) -> Path | None:
     """Resolve a file or directory path to its nearest existing parent directory."""
-    p = Path(path)
-    dir_path = p if p.is_dir() else p.parent
+    target = Path(path)
+    dir_path = target if target.is_dir() else target.parent
 
     while dir_path != dir_path.parent and not dir_path.is_dir():
         dir_path = dir_path.parent
@@ -208,17 +208,17 @@ def _is_git_ignored(file_path: str) -> bool:
 
 
 def _split_compound(command: str) -> list[str]:
-    """Split a compound bash command on &&, ||, and ;."""
+    """Split a compound bash command into its sub-commands so each is rule-checked alone."""
     return re.split(COMPOUND_SPLIT, command)
 
 
 def _is_git_command(part: str) -> bool:
-    """Check if a command part is a git or gh command."""
+    """Return whether a command part is a git or gh invocation."""
     return bool(re.match(r"^\s*(git|gh)\b", part))
 
 
 def _is_excluded(rule: Rule, text: str) -> bool:
-    """Check if a rule's exclude pattern matches, negating the rule."""
+    """Return whether the rule's exclude pattern matches, negating the rule (e.g. --dry-run)."""
     return bool(rule.exclude and re.search(rule.exclude, text))
 
 
@@ -255,7 +255,7 @@ def match_rules(
 
 
 def get_branch_at_path(path: str) -> str:
-    """Get the git branch for the repo or worktree containing the given path."""
+    """Return the git branch for the repo or worktree containing the given path."""
     dir_path = _resolve_dir(path)
     if not dir_path:
         return ""

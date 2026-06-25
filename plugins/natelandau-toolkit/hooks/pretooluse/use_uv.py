@@ -1,4 +1,10 @@
 #!/usr/bin/env -S uv run --script
+
+# /// script
+# requires-python = ">=3.14"
+# dependencies = []
+# ///
+
 """PreToolUse nudge: suggest the uv-prefixed form for python/pip/pytest/ruff.
 
 Non-blocking. Emits a `hookSpecificOutput.additionalContext` JSON payload on

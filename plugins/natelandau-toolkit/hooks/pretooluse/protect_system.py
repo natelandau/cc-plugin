@@ -75,9 +75,11 @@ def _threshold(cfg: Config) -> int:
 def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a destructive system command, else None.
 
-    Checks the bash command against system-destruction rules filtered by
-    the configured threshold level. Returns a blocking Decision with the
-    BLOCKED reason string, or None when the command is allowed.
+    Matches the bash command against the built-in `[[rule]]` list plus any
+    additive per-project rules, filtered by the configured threshold. The
+    command is passed both as the primary `text` and as a named `command`
+    field so a rule may target it explicitly. Returns a blocking Decision
+    with the BLOCKED reason string, or None when the command is allowed.
     """
     if payload.get("tool_name") != "Bash":
         return None

@@ -105,7 +105,9 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
         _apply(_read_toml(proj_path), profile, disabled, hook_options)
 
     resolved_profile = profile[0] if profile[0] in VALID_PROFILES else DEFAULT_PROFILE
-    if profile[0] not in VALID_PROFILES and profile[0] != DEFAULT_PROFILE:
+    # DEFAULT_PROFILE is itself a member of VALID_PROFILES, so an out-of-set
+    # value can never equal it; the membership test alone gates the warning.
+    if profile[0] not in VALID_PROFILES:
         print(  # noqa: T201
             f"natelandau-toolkit: unknown profile {profile[0]!r}, using {DEFAULT_PROFILE}",
             file=sys.stderr,
