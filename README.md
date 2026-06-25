@@ -152,24 +152,7 @@ Use `disabled_hooks` to force a hook off no matter the profile:
 disabled_hooks = ["use-uv", "commit-message"]
 ```
 
-### Tune hook strictness
-
-The `protect-system` and `protect-secrets` hooks take a `level` that controls
-how much they block, from loosest to strictest:
-
-- `critical` blocks only catastrophic, unrecoverable operations.
-- `high` (the default) adds significant-risk operations.
-- `strict` adds cautionary operations on top of `high`.
-
-Set a level per hook:
-
-```toml
-[hooks.protect-system]
-level = "strict"
-
-[hooks.protect-secrets]
-level = "critical"
-```
+### Set the follow-up backlog path
 
 The `capture-followups` hook takes a `backlog` path (relative to the project
 root) that sets where it expects deferred work to be recorded; writing that file
@@ -191,10 +174,10 @@ under your project's
     <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
 
 These rules are additive only: a project can add blocks but never weaken or
-remove a built-in one. To turn a hook off entirely use `disabled_hooks`; to
-lower its threshold use `level`. A malformed project file is ignored (the hook
-warns and keeps enforcing its built-in rules), and the file is read whether or
-not you also keep a `natelandau-toolkit.toml`.
+remove a built-in one. To turn a hook off entirely use `disabled_hooks`. A
+malformed project file is ignored (the hook warns and keeps enforcing its
+built-in rules), and the file is read whether or not you also keep a
+`natelandau-toolkit.toml`.
 
 Each file uses the same format as the hook's built-in rules. For example, to
 block a project's production config from being read or edited:
@@ -203,10 +186,20 @@ block a project's production config from being read or edited:
 # <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
 [[rule]]
 id      = "acme-prod-conf"
-level   = "high"
 reason  = "production secrets live in this file"
 field   = "file_path"
 pattern = 'acme-prod\.conf$'
+```
+
+`pattern` may be a single regex (as above) or a list of regexes, which match if
+any one hits — handy for folding several paths into one rule:
+
+```toml
+[[rule]]
+id      = "acme-secrets"
+reason  = "Acme credential files"
+field   = "file_path"
+pattern = ['acme-prod\.conf$', '(?:^|/)\.acme/token$']
 ```
 
 Match the array name to the hook's built-in file: `[[rule]]` for

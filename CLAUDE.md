@@ -146,7 +146,7 @@ imports still resolve via the hooks root the dispatcher script puts on
 Config is file-based and cascades: global file is loaded first, then
 project file overrides per key. Scalar and list keys are replaced by the
 project file, while `[hooks.*]` tables are deep-merged per key, so a
-project file can override `[hooks.protect-system].level` without
+project file can override `[hooks.capture-followups].backlog` without
 redefining any other hook table.
 
 - Global: `~/.claude/natelandau-toolkit.toml`
@@ -167,14 +167,8 @@ Profile tiers:
 
 Per-hook options go under `[hooks.<hook-id>]`. Currently supported:
 
-- `[hooks.protect-system].level` - `critical`, `high`, or `strict` (default `high`)
-- `[hooks.protect-secrets].level` - `critical`, `high`, or `strict` (default `high`)
 - `[hooks.capture-followups].backlog` - path to the deferred-work file, relative
   to the project root (default `.agent/BACKLOG.md`)
-
-**Note:** the `CLAUDE_PROTECT_SYSTEM_LEVEL` and
-`CLAUDE_PROTECT_SECRETS_LEVEL` environment variables are retired. Set
-levels in the TOML config instead.
 
 ### Noop stages
 
@@ -211,8 +205,8 @@ Project rules use the same schema and array section name as the built-in file
 `stop-phrase-guard`, `[[trigger]]` for `capture-followups`, and
 `protected_files`/`protected_pyproject_tables` lists
 for `config-protection`) and are **additive-only**: a project may only add
-blocking rules, never remove or weaken a built-in one. To turn a hook off entirely use `disabled_hooks`; to
-lower a threshold use `[hooks.<id>].level`. For `protect-secrets`, an
+blocking rules, never remove or weaken a built-in one. To turn a hook off
+entirely use `disabled_hooks`. For `protect-secrets`, an
 `allowlist` in a project file is ignored (extending it would *unblock* files).
 
 A `protect-secrets` `[[rule]]` must target a named input (`field = "file_path"`,
@@ -329,14 +323,12 @@ Non-obvious mechanics:
 ### `hooks/pretooluse/protect_secrets.py` (PreToolUse)
 
 Blocks reads/edits/writes/exfiltration of sensitive files. Rules in
-`protect_secrets.rules.toml`; threshold controlled by
-`[hooks.protect-secrets].level` in the config file (default `high`).
+`protect_secrets.rules.toml`.
 
 ### `hooks/pretooluse/protect_system.py` (PreToolUse)
 
-Blocks system-destructive Bash. Rules in `protect_system.rules.toml`;
-threshold controlled by `[hooks.protect-system].level` in the config
-file (default `high`). No allowlist; patterns are scoped to dangerous
+Blocks system-destructive Bash. Rules in `protect_system.rules.toml`.
+No allowlist; patterns are scoped to dangerous
 targets so safe paths (`/tmp/...`, `node_modules`, `.worktrees/...`)
 pass naturally.
 
@@ -353,14 +345,13 @@ Non-obvious scope decisions in current rules:
   (`rm *.log`) and explicit subdirs (`rm -rf ./build`) pass.
 - `rm-home` only catches `~` or `$HOME` as the rm target itself;
   `rm -rf ~/.cache` is allowed.
-- `kill-init` matches `kill ... 1` (PID 1 as a positional arg).
-  `kill 12345` passes; `kill 1` and `kill -9 1` block.
-- `kill-all` requires a signal flag _before_ the `-1` target, so
-  `kill -1 12345` (SIGHUP to a real PID) passes while `kill -9 -1`
-  blocks.
-- `pkill-init` requires the daemon name as a whole word at end of arg,
-  so `killall systemd-journald` and `pkill -f launchctl` pass.
-- Cloud rules require the explicit `--auto-approve` / `--force` /
+- `kill-critical` OR-combines three patterns: `kill ... 1` (PID 1 as a
+  positional arg, so `kill 12345` passes but `kill 1` and `kill -9 1`
+  block); a signal flag _before_ a `-1` target (so `kill -1 12345`, SIGHUP
+  to a real PID, passes while `kill -9 -1` blocks); and `pkill`/`killall`
+  of init/systemd/launchd as a whole word at end of arg (so `killall
+  systemd-journald` and `pkill -f launchctl` pass).
+- `cloud-destroy` requires the explicit `--auto-approve` / `--force` /
   `--recursive` / `--quiet` / `--yes` flag; interactive variants pass.
 
 Secret-handling and git destructive ops are intentionally not
@@ -578,7 +569,7 @@ The TOML-driven pattern hooks (`protect_system`, `protect_secrets`,
 `hooks/lib/rules.py` engine rather than per-hook loaders. One `parse_rules()` validates an
 `[[<section>]]` array against a caller-supplied `required` / `optional`
 field set, rejecting unknown keys; `first_match()` does the
-threshold-gated, first-match-wins scan. The file is parsed on every
+first-match-wins scan. The file is parsed on every
 invocation; load failure exits 1 non-blocking with stderr.
 
 Every rule shares one canonical schema:
@@ -587,15 +578,15 @@ Every rule shares one canonical schema:
   it, e.g. `stop_phrase_guard`, where it defaults to "").
 - `reason` - human-facing explanation (the Stop hook used to call this
   `correction`; it is now `reason` like the others).
-- `level` - optional threshold tier (`critical` < `high` < `strict`);
-  omit it for hooks without a threshold. `rules.LEVELS` is the one source
-  of truth for the ordering.
-- exactly one matcher: a single `pattern` **or** a `conditions` array.
-    - `pattern` is a regex matched against the hook's primary `text` by
+- exactly one matcher: a `pattern` **or** a `conditions` array.
+    - `pattern` is a regex **or a list of regexes** (OR-combined: the rule
+      matches if any one matches), tested against the hook's primary `text` by
       default, or against `fields[field]` when the rule sets an optional
-      `field` key. `field` lets one rule list mix rules targeting different
-      named inputs without per-tool branching: `protect_secrets` is one
-      `[[rule]]` list where each rule sets `field = "file_path"` or
+      `field` key. A list collapses many same-`reason` rules into one (e.g.
+      one `cloud-creds` rule listing the AWS, GCloud, Azure, and kube config
+      paths instead of four). `field` lets one rule list mix rules targeting
+      different named inputs without per-tool branching: `protect_secrets` is
+      one `[[rule]]` list where each rule sets `field = "file_path"` or
       `field = "command"`, and a file_path rule simply can't match a Bash
       call (empty `file_path`). `field` is invalid alongside `conditions`.
     - `conditions` is an array of `{field, operator, pattern}`, AND-combined,
@@ -603,7 +594,10 @@ Every rule shares one canonical schema:
       pattern and a `content` substring) without new Python. Operators:
       `regex_match`, `contains`, `not_contains`, `equals`, `starts_with`,
       `ends_with`; the non-regex operators are case-insensitive, matching
-      the `re.IGNORECASE` convention.
+      the `re.IGNORECASE` convention. A condition's `pattern` is a single
+      string only; the list form is the top-level `pattern` matcher's, not
+      conditions' (no built-in rule uses `conditions`, so this is untested
+      surface, not a gap to fill speculatively).
 
 Both `field` and `conditions` resolve names against a `fields` dict the
 hook passes to `first_match`. Every hook exposes its inputs as named fields

@@ -11,13 +11,6 @@ profile = "standard"
 # e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 
-# Per-hook options. level: critical | high | strict
-[hooks.protect-system]
-level = "high"
-
-[hooks.protect-secrets]
-level = "high"
-
 # Where capture-followups records deferred work (relative to the project
 # root). The Stop hook catches a turn that names work it is not doing
 # (out-of-scope items, follow-up PRs, TODOs) and asks the agent to either do
@@ -39,10 +32,12 @@ backlog = ".agent/BACKLOG.md"
 #
 #   [[rule]]
 #   id      = "acme-prod-conf"
-#   level   = "high"
 #   reason  = "production secrets live in this file"
 #   field   = "file_path"
 #   pattern = 'acme-prod\.conf$'
+#
+# `pattern` may be a single regex (above) or a list of regexes (OR-combined,
+# matches if any one hits): pattern = ['acme-prod\.conf$', '(?:^|/)\.acme/token$'].
 #
 # Match the array name to the hook's built-in file: [[rule]] for protect-secrets
 # and protect-system, [[violation]] for stop-phrase-guard, [[trigger]] for

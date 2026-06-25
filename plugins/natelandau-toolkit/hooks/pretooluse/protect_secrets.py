@@ -13,16 +13,6 @@ For Bash the command is matched against a list of risky patterns
 (`cat .env`, env dumps, `scp` of secrets, deletion of credentials, etc.).
 Allowlisted templates like `.env.example` always pass through.
 
-Three escalating thresholds gate which rules apply:
-
-- `critical` -- only the highest-impact rules (private keys, .env, AWS).
-- `high` (default) -- adds secrets files, env dumps, exfiltration patterns.
-- `strict` -- adds dotfiles that may contain credentials (`.gitconfig`,
-  `database.yaml`, `known_hosts`).
-
-Set the level via the `[hooks.protect-secrets]` `level` key in
-`natelandau-toolkit.toml`.
-
 Rule data (allowlist, sensitive-file rules, bash-command rules) lives in
 `protect_secrets.rules.toml` next to this file; the script loads it on
 every invocation. Edit that file to add, remove, or tune a rule.
@@ -46,12 +36,11 @@ if TYPE_CHECKING:
     from lib.config import Config
 
 ID = "protect-secrets"
-DEFAULT_LEVEL = "high"
 RULES_FILE = Path(__file__).parent / "protect_secrets.rules.toml"
-# Required [[rule]] fields shared with protect_system (see rules.THRESHOLD_RULE_FIELDS).
+# Required [[rule]] fields shared with protect_system (see rules.BLOCK_RULE_FIELDS).
 # Each rule additionally sets `field` to target a named input (file_path or
 # command), so one list serves every tool.
-SECRET_FIELDS = rules.THRESHOLD_RULE_FIELDS
+SECRET_FIELDS = rules.BLOCK_RULE_FIELDS
 
 # Maps a tool name to the verb used in the user-facing block message.
 ACTION_VERBS: dict[str, str] = {
@@ -91,8 +80,8 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
 
     Builds the tool input into named fields, short-circuits on an
     allowlisted template, then matches one `[[rule]]` list (each rule
-    targeting a named field) filtered by the configured threshold. Returns
-    a blocking Decision with the BLOCKED reason string, or None when allowed.
+    targeting a named field). Returns a blocking Decision with the BLOCKED
+    reason string, or None when allowed.
     """
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
@@ -131,11 +120,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     # One rule list serves every tool because each rule targets a named
     # field: a file_path rule can't match a Bash call (empty file_path),
     # and a command rule can't match a file edit.
-    matched = rules.first_match(
-        secret_rules,
-        fields=fields,
-        threshold=rules.threshold(cfg, hook_id=ID, default=DEFAULT_LEVEL),
-    )
+    matched = rules.first_match(secret_rules, fields=fields)
     if matched:
         return Decision.blocked(matched.id, f"Cannot {ACTION_VERBS[tool_name]}: {matched.reason}")
     return None

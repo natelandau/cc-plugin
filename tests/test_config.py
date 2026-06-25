@@ -33,7 +33,7 @@ def test_defaults_when_no_files(hooks_dir: Path, tmp_path: Path) -> None:
     cfg = _load_config_mod(hooks_dir).load_config(home=tmp_path, project_dir=str(tmp_path))
     assert cfg.profile == "standard"
     assert cfg.disabled_hooks == frozenset()
-    assert cfg.option("protect-secrets", "level", "high") == "high"
+    assert cfg.option("capture-followups", "backlog", ".agent/BACKLOG.md") == ".agent/BACKLOG.md"
 
 
 def test_project_overrides_global_scalar(hooks_dir: Path, tmp_path: Path) -> None:
@@ -47,20 +47,20 @@ def test_project_overrides_global_scalar(hooks_dir: Path, tmp_path: Path) -> Non
 
 
 def test_hook_tables_deep_merge(hooks_dir: Path, tmp_path: Path) -> None:
-    """Verify project overrides one hook table key without wiping others."""
+    """Verify project overrides one hook table key without wiping siblings."""
     home = tmp_path / "home"
     proj = tmp_path / "proj"
     _write(
         home / ".claude" / "natelandau-toolkit.toml",
-        '[hooks.protect-system]\nlevel = "high"\n[hooks.protect-secrets]\nlevel = "high"\n',
+        '[hooks.capture-followups]\nbacklog = "home.md"\nextra = "keep"\n',
     )
     _write(
         proj / ".claude" / "natelandau-toolkit.toml",
-        '[hooks.protect-system]\nlevel = "strict"\n',
+        '[hooks.capture-followups]\nbacklog = "proj.md"\n',
     )
     cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
-    assert cfg.option("protect-system", "level", "high") == "strict"
-    assert cfg.option("protect-secrets", "level", "high") == "high"
+    assert cfg.option("capture-followups", "backlog", "x") == "proj.md"
+    assert cfg.option("capture-followups", "extra", "x") == "keep"
 
 
 def test_malformed_toml_falls_back_no_raise(hooks_dir: Path, tmp_path: Path) -> None:

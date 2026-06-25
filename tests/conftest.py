@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 
 # Strip GIT_* vars so subprocess git commands don't inherit state from a parent
@@ -70,3 +71,36 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
 def hooks_dir() -> Path:
     """Resolve the plugin's hooks directory."""
     return Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit" / "hooks"
+
+
+@pytest.fixture
+def run_pretooluse(
+    hooks_dir: Path, tmp_path: Path
+) -> Callable[[dict[str, Any]], subprocess.CompletedProcess[str]]:
+    """Return a callable that pipes a payload through the PreToolUse dispatcher.
+
+    Shared by every suite that drives the full dispatcher (protect_secrets,
+    protect_system, use_uv, enforce_commit_message). Runs the subprocess in an
+    isolated non-git directory and clears CLAUDE_PROJECT_DIR so neither the host
+    repo's branch nor a developer's project config can perturb the rule under
+    test: `enforce_branch_protection` resolves the branch from the process cwd,
+    so running inside the repo on `main` would otherwise block every
+    file-modifying payload before the rule being exercised is reached.
+    """
+    hook = hooks_dir / "pretooluse.py"
+
+    def _run(payload: dict[str, Any]) -> subprocess.CompletedProcess[str]:
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        return subprocess.run(
+            [str(hook)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            cwd=str(tmp_path),
+            env=env,
+        )
+
+    return _run

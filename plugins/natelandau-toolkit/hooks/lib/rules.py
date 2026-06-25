@@ -6,15 +6,17 @@ Consolidates the per-hook TOML loaders that `protect_system`,
 Every rule is an `[[<section>]]` table sharing one canonical schema:
 
 - `id` (slug shown in block messages; optional for hooks that don't use it),
-- `reason` (human-facing explanation),
-- `level` (optional threshold tier: `critical` < `high` < `strict`), and
-- exactly one matcher: a single `pattern` (regex tested against a
-  hook-chosen string) **or** a `conditions` list (each entry matches a
-  named field with an operator, AND-combined across the list).
+- `reason` (human-facing explanation), and
+- exactly one matcher: a `pattern` (a single regex string **or a list of
+  regex strings**, OR-combined, tested against a hook-chosen string) **or** a
+  `conditions` list (each entry matches a named field with an operator,
+  AND-combined across the list).
 
-The single-`pattern` form preserves the original hooks' behavior; the
-`conditions` form adds multi-field matching as data, so a rule can require,
-say, a `file_path` pattern *and* a `content` substring without new Python.
+The single-`pattern` form preserves the original hooks' behavior; a list
+`pattern` collapses many near-duplicate rules that share one `reason` into a
+single rule (it matches if any pattern matches). The `conditions` form adds
+multi-field matching as data, so a rule can require, say, a `file_path`
+pattern *and* a `content` substring without new Python.
 
 All regex matching is case-insensitive (`re.IGNORECASE`); the non-regex
 string operators lowercase both sides to match that convention. Patterns
@@ -27,21 +29,17 @@ from __future__ import annotations
 import re
 import sys
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from lib.config import Config
-
-LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
-
-# Required `[[rule]]` fields for the threshold-gated block hooks
-# (protect_secrets, protect_system): a slug, a threshold tier, and a reason.
-# Shared so the two hooks declare one vocabulary instead of two identical sets.
-THRESHOLD_RULE_FIELDS: frozenset[str] = frozenset({"id", "level", "reason"})
+# Required `[[rule]]` fields for the block hooks (protect_secrets,
+# protect_system): a slug and a reason. Shared so the two hooks declare one
+# vocabulary instead of two identical sets.
+BLOCK_RULE_FIELDS: frozenset[str] = frozenset({"id", "reason"})
 
 # Errors a rules-file read or parse can raise that the loaders treat as
 # "this file is unusable": I/O failure, malformed TOML, a schema/type error
@@ -85,13 +83,12 @@ class Condition:
 class Rule:
     """A loaded, compiled rule ready for first-match-wins iteration.
 
-    `level` gates whether the rule fires at the active threshold (None
-    means "always eligible", used by hooks without thresholds). A rule
-    carries exactly one matcher: `regex` for the single-`pattern` form, or
-    a non-empty `conditions` tuple for the multi-field form.
+    A rule carries exactly one matcher: a non-empty `patterns` tuple for the
+    `pattern` form (one entry for a string `pattern`, several for a list one,
+    OR-combined), or a non-empty `conditions` tuple for the multi-field form.
 
-    `match_field` names which input a single-`pattern` rule tests: when set,
-    the regex runs against `fields[match_field]`; when None, it runs against
+    `match_field` names which input a `pattern` rule tests: when set, the
+    patterns run against `fields[match_field]`; when None, they run against
     the hook's primary `text`. It lets one rule list mix rules that target
     different named inputs (e.g. a file path vs a command) without per-tool
     branching in the hook. It does not apply to the `conditions` form, where
@@ -100,9 +97,8 @@ class Rule:
 
     id: str
     reason: str
-    level: str | None
-    regex: re.Pattern[str] | None
-    conditions: tuple[Condition, ...] = field(default_factory=tuple)
+    patterns: tuple[re.Pattern[str], ...] = ()
+    conditions: tuple[Condition, ...] = ()
     match_field: str | None = None
 
 
@@ -118,6 +114,19 @@ def _require_str(entry: Mapping[str, object], key: str, where: str) -> str:
         msg = f"{where}.{key} must be a string, got {type(value).__name__}"
         raise TypeError(msg)
     return value
+
+
+def _compile_regex(value: object, where: str) -> re.Pattern[str]:
+    """Compile one regex string with the module-wide IGNORECASE flag.
+
+    The single primitive behind every rule-file pattern (single `pattern`,
+    list `pattern`, condition `pattern`, and the flat allowlist), so the
+    "compile at load time, case-insensitive" convention lives in one place.
+    """
+    if not isinstance(value, str):
+        msg = f"{where} must be a string, got {type(value).__name__}"
+        raise TypeError(msg)
+    return re.compile(value, re.IGNORECASE)
 
 
 def _parse_conditions(raw: object, where: str) -> tuple[Condition, ...]:
@@ -156,10 +165,24 @@ def _parse_conditions(raw: object, where: str) -> tuple[Condition, ...]:
                 field=_require_str(cond, "field", cwhere),
                 operator=operator,
                 pattern=pattern,
-                regex=re.compile(pattern, re.IGNORECASE) if operator == "regex_match" else None,
+                regex=_compile_regex(pattern, cwhere) if operator == "regex_match" else None,
             )
         )
     return tuple(parsed)
+
+
+def _compile_patterns(value: object, where: str) -> tuple[re.Pattern[str], ...]:
+    """Compile a rule's `pattern` (a single regex string or a list of them).
+
+    A list is OR-combined at match time: the rule fires if any pattern hits,
+    which collapses many same-`reason` rules into one. Every pattern compiles
+    here so a bad regex surfaces as a load error, not in the matching hot path.
+    """
+    items = value if isinstance(value, list) else [value]
+    if not items:
+        msg = f"{where}.pattern must not be an empty list"
+        raise ValueError(msg)
+    return tuple(_compile_regex(item, f"{where}.pattern[{idx}]") for idx, item in enumerate(items))
 
 
 def parse_rules(
@@ -173,11 +196,11 @@ def parse_rules(
 
     Every entry must carry the `required` fields (besides its matcher),
     exactly one matcher (`pattern` or `conditions`), and no field outside
-    `required | optional | {pattern, conditions, field}`. A `level`, when
-    present, must be a known threshold. An optional `field` selects which
-    named input a `pattern` rule matches (invalid alongside `conditions`).
-    Errors name the offending entry so a TOML typo surfaces clearly instead
-    of producing a malformed Rule.
+    `required | optional | {pattern, conditions, field}`. A `pattern` may be
+    a single regex string or a list of them (OR-combined). An optional
+    `field` selects which named input a `pattern` rule matches (invalid
+    alongside `conditions`). Errors name the offending entry so a TOML typo
+    surfaces clearly instead of producing a malformed Rule.
 
     Args:
         data: The parsed TOML mapping.
@@ -220,22 +243,17 @@ def parse_rules(
         if match_field is not None and "conditions" in matcher_keys:
             msg = f"{where} sets 'field' but uses 'conditions'; 'field' applies only to 'pattern'"
             raise ValueError(msg)
-        level = entry["level"] if "level" in keys else None
-        if level is not None and (not isinstance(level, str) or level not in LEVELS):
-            msg = f"{where} has unknown level {level!r}"
-            raise ValueError(msg)
         if "conditions" in matcher_keys:
-            regex = None
+            patterns: tuple[re.Pattern[str], ...] = ()
             conditions = _parse_conditions(entry["conditions"], where)
         else:
-            regex = re.compile(_require_str(entry, "pattern", where), re.IGNORECASE)
+            patterns = _compile_patterns(entry["pattern"], where)
             conditions = ()
         rules.append(
             Rule(
                 id=_require_str(entry, "id", where) if "id" in keys else "",
                 reason=_require_str(entry, "reason", where),
-                level=level,
-                regex=regex,
+                patterns=patterns,
                 conditions=conditions,
                 match_field=match_field,
             )
@@ -397,13 +415,7 @@ def parse_pattern_list(data: Mapping[str, object], key: str) -> tuple[re.Pattern
     if not isinstance(raw, list):
         msg = f"missing or non-array '{key}' section"
         raise TypeError(msg)
-    compiled: list[re.Pattern[str]] = []
-    for idx, entry in enumerate(raw):
-        if not isinstance(entry, str):
-            msg = f"{key}[{idx}] must be a string, got {type(entry).__name__}"
-            raise TypeError(msg)
-        compiled.append(re.compile(entry, re.IGNORECASE))
-    return tuple(compiled)
+    return tuple(_compile_regex(entry, f"{key}[{idx}]") for idx, entry in enumerate(raw))
 
 
 # Non-regex string operators, keyed by name. Each takes the (lowercased)
@@ -435,17 +447,17 @@ def _condition_matches(cond: Condition, fields: Mapping[str, str]) -> bool:
 def rule_matches(rule: Rule, *, text: str, fields: Mapping[str, str]) -> bool:
     """Return whether a rule matches, by its matcher form.
 
-    A single-`pattern` rule tests its regex against `fields[match_field]`
+    A `pattern` rule tests its compiled patterns against `fields[match_field]`
     when the rule names a `match_field`, else against `text` (the primary
-    string the hook chose). A `conditions` rule requires every condition to
-    hold against `fields`.
+    string the hook chose), matching if any pattern hits (OR-combined). A
+    `conditions` rule requires every condition to hold against `fields`.
     """
     if rule.conditions:
         return all(_condition_matches(cond, fields) for cond in rule.conditions)
-    if rule.regex is None:
+    if not rule.patterns:
         return False
     haystack = fields.get(rule.match_field, "") if rule.match_field is not None else text
-    return rule.regex.search(haystack) is not None
+    return any(pattern.search(haystack) is not None for pattern in rule.patterns)
 
 
 def first_match(
@@ -453,31 +465,14 @@ def first_match(
     *,
     text: str = "",
     fields: Mapping[str, str] | None = None,
-    threshold: int | None = None,
 ) -> Rule | None:
-    """Return the first matching rule eligible at the active threshold.
+    """Return the first rule that matches, in declaration order.
 
-    Rules are tested in declaration order (first-match-wins). When
-    `threshold` is given, a rule whose `level` ranks above it is skipped;
-    rules without a `level` are always eligible. `text` feeds single-pattern
-    rules; `fields` feeds conditions rules.
+    Rules are tested first-match-wins. `text` feeds single-pattern rules;
+    `fields` feeds conditions rules.
     """
     field_map = fields or {}
     for rule in rules:
-        if threshold is not None and rule.level is not None and LEVELS[rule.level] > threshold:
-            continue
         if rule_matches(rule, text=text, fields=field_map):
             return rule
     return None
-
-
-def threshold(cfg: Config, hook_id: str, default: str) -> int:
-    """Resolve a hook's configured level string to its numeric threshold.
-
-    Reads `[hooks.<hook_id>].level` (falling back to `default`), lowercases
-    it, and maps it through `LEVELS`, defaulting to `default`'s rank for an
-    unrecognized value. Centralizes the level→int resolution every
-    threshold-gated hook shares so the lookup lives next to `LEVELS`.
-    """
-    raw = cfg.option(hook_id, "level", default).lower()
-    return LEVELS.get(raw, LEVELS[default])

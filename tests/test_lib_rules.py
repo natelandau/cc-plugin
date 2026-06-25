@@ -1,9 +1,9 @@
 """Unit tests for hooks/lib/rules.py: the shared loader and matcher.
 
-Exercises parsing/validation of both rule forms (single `pattern` and
-multi-field `conditions`), every condition operator, threshold gating, and
-the flat allowlist parser. Rules are built by passing plain dicts straight
-to `parse_rules`, so the parser is covered alongside the matcher.
+Exercises parsing/validation of both rule forms (single or list `pattern`
+and multi-field `conditions`), every condition operator, first-match-wins
+ordering, and the flat allowlist parser. Rules are built by passing plain
+dicts straight to `parse_rules`, so the parser is covered alongside the matcher.
 """
 
 from __future__ import annotations
@@ -31,12 +31,12 @@ def rules(hooks_dir: Path) -> ModuleType:
 
 def _pattern_rule(**over: Any) -> dict[str, Any]:
     """Build a single-pattern rule table, overriding any field."""
-    return {"id": "r1", "level": "high", "reason": "because", "pattern": "secret", **over}
+    return {"id": "r1", "reason": "because", "pattern": "secret", **over}
 
 
 def _conditions_rule(conditions: list[dict[str, str]], **over: Any) -> dict[str, Any]:
     """Build a conditions rule table with the given condition list."""
-    return {"id": "c1", "level": "high", "reason": "because", "conditions": conditions, **over}
+    return {"id": "c1", "reason": "because", "conditions": conditions, **over}
 
 
 # --- parsing: single-pattern form ------------------------------------------
@@ -48,12 +48,12 @@ def test_parse_rules_single_pattern(rules: ModuleType) -> None:
     data = {"rule": [_pattern_rule()]}
 
     # When parsing the section
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
-    # Then one Rule with a compiled regex and no conditions is returned
+    # Then one Rule with a single compiled pattern and no conditions is returned
     assert len(parsed) == 1
     assert parsed[0].id == "r1"
-    assert parsed[0].regex is not None
+    assert len(parsed[0].patterns) == 1
     assert parsed[0].conditions == ()
 
 
@@ -77,25 +77,20 @@ def test_parse_rules_optional_id_defaults_blank(rules: ModuleType) -> None:
 @pytest.mark.parametrize(
     ("entry", "exc"),
     [
-        pytest.param({"id": "x", "level": "high", "reason": "r"}, ValueError, id="no-matcher"),
+        pytest.param({"id": "x", "reason": "r"}, ValueError, id="no-matcher"),
         pytest.param(
-            {"id": "x", "level": "high", "reason": "r", "pattern": "p", "conditions": []},
+            {"id": "x", "reason": "r", "pattern": "p", "conditions": []},
             ValueError,
             id="two-matchers",
         ),
-        pytest.param({"level": "high", "reason": "r", "pattern": "p"}, ValueError, id="missing-id"),
+        pytest.param({"reason": "r", "pattern": "p"}, ValueError, id="missing-id"),
         pytest.param(
-            {"id": "x", "level": "high", "reason": "r", "pattern": "p", "extra": "1"},
+            {"id": "x", "reason": "r", "pattern": "p", "extra": "1"},
             ValueError,
             id="unknown-field",
         ),
         pytest.param(
-            {"id": "x", "level": "nope", "reason": "r", "pattern": "p"},
-            ValueError,
-            id="unknown-level",
-        ),
-        pytest.param(
-            {"id": 5, "level": "high", "reason": "r", "pattern": "p"},
+            {"id": 5, "reason": "r", "pattern": "p"},
             TypeError,
             id="non-string-field",
         ),
@@ -110,7 +105,7 @@ def test_parse_rules_rejects_bad_entry(
 
     # When/Then parsing raises the expected error type
     with pytest.raises(exc):
-        rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+        rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
 
 def test_parse_rules_non_array_section(rules: ModuleType) -> None:
@@ -136,11 +131,11 @@ def test_parse_conditions_compiles_regex_only(rules: ModuleType) -> None:
     data = {"rule": [_conditions_rule(conds)]}
 
     # When parsing
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
     # Then the regex condition is compiled and the string one is not
     rule = parsed[0]
-    assert rule.regex is None
+    assert rule.patterns == ()
     assert rule.conditions[0].regex is not None
     assert rule.conditions[1].regex is None
 
@@ -164,7 +159,7 @@ def test_parse_conditions_rejects_bad(rules: ModuleType, bad: list[dict[str, str
 
     # When/Then parsing raises
     with pytest.raises((ValueError, TypeError)):
-        rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+        rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
 
 # --- matching: single pattern ----------------------------------------------
@@ -174,28 +169,59 @@ def test_first_match_single_pattern_hits_text(rules: ModuleType) -> None:
     """Verify a single-pattern rule matches the primary text, not fields."""
     # Given a pattern rule
     data = {"rule": [_pattern_rule(pattern="token")]}
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
     # When the text contains the pattern
-    hit = rules.first_match(parsed, text="my token here", threshold=rules.LEVELS["strict"])
-    miss = rules.first_match(parsed, text="nothing", threshold=rules.LEVELS["strict"])
+    hit = rules.first_match(parsed, text="my token here")
+    miss = rules.first_match(parsed, text="nothing")
 
     # Then it matches the text and ignores absence in fields
     assert hit is not None
     assert miss is None
 
 
+def test_list_pattern_or_combines(rules: ModuleType) -> None:
+    """Verify a list `pattern` matches if any of its patterns matches."""
+    # Given one rule whose pattern is a list of alternatives
+    data = {"rule": [_pattern_rule(pattern=["alpha", "bravo", "charlie"])]}
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
+
+    # Then all three patterns compile under the one rule
+    assert len(parsed[0].patterns) == 3
+
+    # And the rule fires for any alternative and misses when none is present
+    assert rules.first_match(parsed, text="contains bravo here") is not None
+    assert rules.first_match(parsed, text="contains charlie") is not None
+    assert rules.first_match(parsed, text="none of them") is None
+
+
+@pytest.mark.parametrize(
+    ("pattern", "exc"),
+    [
+        pytest.param([], ValueError, id="empty-list"),
+        pytest.param(["ok", 5], TypeError, id="non-string-item"),
+    ],
+)
+def test_list_pattern_rejects_bad(rules: ModuleType, pattern: object, exc: type[Exception]) -> None:
+    """Verify an empty or non-string list pattern raises at load time."""
+    # Given a rule with a malformed list pattern
+    data = {"rule": [_pattern_rule(pattern=pattern)]}
+
+    # When/Then parsing raises the expected error type
+    with pytest.raises(exc):
+        rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
+
+
 def test_field_qualified_pattern_matches_named_field(rules: ModuleType) -> None:
     """Verify a `field`-qualified pattern matches that field, not primary text."""
     # Given a pattern rule pinned to the `command` field
     data = {"rule": [_pattern_rule(pattern="boom", field="command")]}
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
-    strict = rules.LEVELS["strict"]
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
     # When the named field holds the pattern (even if primary text does not)
-    hit = rules.first_match(parsed, text="nothing", fields={"command": "boom!"}, threshold=strict)
+    hit = rules.first_match(parsed, text="nothing", fields={"command": "boom!"})
     # And when only the primary text holds it (field set, so text is ignored)
-    miss = rules.first_match(parsed, text="boom", fields={"command": "clean"}, threshold=strict)
+    miss = rules.first_match(parsed, text="boom", fields={"command": "clean"})
 
     # Then it matches via the named field only
     assert hit is not None
@@ -210,7 +236,7 @@ def test_field_with_conditions_rejected(rules: ModuleType) -> None:
 
     # When/Then parsing rejects it
     with pytest.raises(ValueError, match="field"):
-        rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+        rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
 
 # --- matching: operators ---------------------------------------------------
@@ -245,10 +271,10 @@ def test_condition_operators(
     # Given a one-condition rule using the operator
     conds = [{"field": "f", "operator": operator, "pattern": pattern}]
     data = {"rule": [_conditions_rule(conds)]}
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
     # When matching against the field value
-    hit = rules.first_match(parsed, fields={"f": value}, threshold=rules.LEVELS["strict"])
+    hit = rules.first_match(parsed, fields={"f": value})
 
     # Then it matches iff expected
     assert (hit is not None) is expected
@@ -262,47 +288,27 @@ def test_conditions_are_anded(rules: ModuleType) -> None:
         {"field": "content", "operator": "contains", "pattern": "SECRET"},
     ]
     data = {"rule": [_conditions_rule(conds)]}
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
-    strict = rules.LEVELS["strict"]
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
     # When only one condition holds vs both
-    both = rules.first_match(
-        parsed, fields={"file_path": "a.py", "content": "x SECRET y"}, threshold=strict
-    )
-    one = rules.first_match(
-        parsed, fields={"file_path": "a.py", "content": "nothing"}, threshold=strict
-    )
+    both = rules.first_match(parsed, fields={"file_path": "a.py", "content": "x SECRET y"})
+    one = rules.first_match(parsed, fields={"file_path": "a.py", "content": "nothing"})
 
     # Then it fires only when both hold
     assert both is not None
     assert one is None
 
 
-# --- matching: thresholds --------------------------------------------------
+# --- matching: declaration order -------------------------------------------
 
 
-def test_threshold_skips_higher_level_rules(rules: ModuleType) -> None:
-    """Verify a rule above the active threshold is skipped."""
-    # Given a strict-level rule
-    data = {"rule": [_pattern_rule(level="strict", pattern="x")]}
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
-
-    # When the active threshold is only high
-    at_high = rules.first_match(parsed, text="x", threshold=rules.LEVELS["high"])
-    at_strict = rules.first_match(parsed, text="x", threshold=rules.LEVELS["strict"])
-
-    # Then the strict rule fires only at the strict threshold
-    assert at_high is None
-    assert at_strict is not None
-
-
-def test_no_threshold_treats_all_rules_eligible(rules: ModuleType) -> None:
-    """Verify omitting a threshold matches regardless of level."""
-    # Given a level-less rule (as stop_phrase_guard loads)
+def test_first_match_idless_rule(rules: ModuleType) -> None:
+    """Verify a rule carrying only reason+pattern matches (no id)."""
+    # Given an id-less rule (as stop_phrase_guard loads)
     data = {"violation": [{"reason": "stop", "pattern": "halt"}]}
     parsed = rules.parse_rules(data, "violation", required=frozenset({"reason"}))
 
-    # When matching with no threshold
+    # When matching text that holds the pattern
     hit = rules.first_match(parsed, text="please halt now")
 
     # Then it fires
@@ -318,10 +324,10 @@ def test_first_match_is_first_wins(rules: ModuleType) -> None:
             _pattern_rule(id="second", pattern="a"),
         ]
     }
-    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "level", "reason"}))
+    parsed = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
 
     # When matching text both would hit
-    hit = rules.first_match(parsed, text="a", threshold=rules.LEVELS["strict"])
+    hit = rules.first_match(parsed, text="a")
 
     # Then the first declared rule is returned
     assert hit is not None
@@ -366,15 +372,15 @@ def test_load_rules_reads_toml_file(rules: ModuleType, tmp_path: Path) -> None:
     # Given a TOML rules file on disk
     toml = tmp_path / "r.toml"
     toml.write_text(
-        '[[rule]]\nid = "x"\nlevel = "high"\nreason = "r"\npattern = "boom"\n',
+        '[[rule]]\nid = "x"\nreason = "r"\npattern = "boom"\n',
         encoding="utf-8",
     )
 
     # When loading it
-    parsed = rules.load_rules(toml, "rule", required=frozenset({"id", "level", "reason"}))
+    parsed = rules.load_rules(toml, "rule", required=frozenset({"id", "reason"}))
 
     # Then the rule is available and matches
-    assert rules.first_match(parsed, text="boom", threshold=rules.LEVELS["high"]) is not None
+    assert rules.first_match(parsed, text="boom") is not None
 
 
 # --- per-project additive rules --------------------------------------------
@@ -382,7 +388,6 @@ def test_load_rules_reads_toml_file(rules: ModuleType, tmp_path: Path) -> None:
 _PROJECT_RULE_TOML = """\
 [[rule]]
 id = "proj-block"
-level = "high"
 reason = "project specific block"
 pattern = "topsecret"
 """
@@ -433,7 +438,7 @@ def test_load_project_rules_empty_without_file(rules: ModuleType, tmp_path: Path
     result = rules.load_project_rules(
         "x.rules.toml",
         "rule",
-        required=frozenset({"id", "level", "reason"}),
+        required=frozenset({"id", "reason"}),
         project_dir=str(tmp_path),
     )
     # Then nothing is loaded
@@ -446,7 +451,7 @@ def test_load_project_rules_parses_present_file(rules: ModuleType, tmp_path: Pat
     proj = _project_file(tmp_path, "x.rules.toml", _PROJECT_RULE_TOML)
     # When loading project rules
     result = rules.load_project_rules(
-        "x.rules.toml", "rule", required=frozenset({"id", "level", "reason"}), project_dir=proj
+        "x.rules.toml", "rule", required=frozenset({"id", "reason"}), project_dir=proj
     )
     # Then the project rule is returned
     assert len(result) == 1
@@ -461,7 +466,7 @@ def test_load_project_rules_fails_open_on_malformed(
     proj = _project_file(tmp_path, "x.rules.toml", "this is = = not toml\n")
     # When loading project rules
     result = rules.load_project_rules(
-        "x.rules.toml", "rule", required=frozenset({"id", "level", "reason"}), project_dir=proj
+        "x.rules.toml", "rule", required=frozenset({"id", "reason"}), project_dir=proj
     )
     # Then nothing is loaded and a warning is emitted
     assert result == ()

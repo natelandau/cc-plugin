@@ -4,9 +4,9 @@
 # follows file order. The matched `reason` is spliced into the block message
 # (BLOCK_TEMPLATE) that tells the assistant what to do with the deferred item.
 #
-# Required field per trigger: reason. There is no threshold, so entries carry
-# no `level`. `id` is optional and unused here. The matcher is a single
-# `pattern`; omit `field` so it matches the closing message text.
+# Required field per trigger: reason. `id` is optional and unused here. The
+# matcher is a `pattern` (a single regex or a list of them, OR-combined); omit
+# `field` so it matches the closing message text.
 #
 # Pattern strings are TOML literal (single-quoted) so regex backslashes pass
 # through verbatim. Reason strings use the basic (double-quoted) form so

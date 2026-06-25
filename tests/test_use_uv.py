@@ -9,14 +9,14 @@ and an "allow silently" decision is expressed as no stdout at all.
 from __future__ import annotations
 
 import json
-import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    import subprocess
+    from collections.abc import Callable
 
 
 def _bash(cmd: str) -> dict[str, Any]:
@@ -136,20 +136,12 @@ CASES: tuple[Case, ...] = (
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
-def test_use_uv(case: Case, hooks_dir: Path) -> None:
+def test_use_uv(
+    case: Case, run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]]
+) -> None:
     """Verify the hook nudges or stays silent per its rules."""
-    # Given a hook script and a payload
-    hook = hooks_dir / "pretooluse.py"
-
     # When invoking the hook with the payload on stdin
-    proc = subprocess.run(
-        [str(hook)],
-        input=json.dumps(case.payload),
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
+    proc = run_pretooluse(case.payload)
 
     # Then the hook always exits 0; the difference between nudge and silent
     # is on stdout.

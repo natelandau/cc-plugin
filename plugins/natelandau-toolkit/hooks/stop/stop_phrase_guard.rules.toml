@@ -4,12 +4,12 @@
 # wins; iteration follows file order. The matched `reason` is returned to
 # Claude Code as the block reason with a `STOP HOOK VIOLATION:` prefix.
 #
-# Required field per violation: reason. The Stop hook has no threshold, so
-# entries carry no `level`. `id` is optional and unused here. The matcher
-# is a single `pattern`; it may set an optional `field` to target a named
-# input (the Stop hook exposes only `message`, the assistant turn text, so
-# omitting `field` is the norm). A `conditions` array is also accepted by
-# the engine but unnecessary for the single-text Stop match. See the
+# Required field per violation: reason. `id` is optional and unused here.
+# The matcher is a `pattern` (a single regex or a list of them, OR-combined);
+# it may set an optional `field` to target a named input (the Stop hook
+# exposes only `message`, the assistant turn text, so omitting `field` is the
+# norm). A `conditions` array is also accepted by the engine but unnecessary
+# for the single-text Stop match. See the
 # "Rule data" section of CLAUDE.md for the full schema.
 #
 # Pattern strings are TOML literals (single-quoted) so regex backslashes
