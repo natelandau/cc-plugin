@@ -338,6 +338,43 @@ def load_all_rules(
     return (*builtin, *project)
 
 
+def with_project_overlay[T](
+    builtin_path: Path,
+    *,
+    project_dir: str | None,
+    parse: Callable[[Path], T],
+    combine: Callable[[T, T], T],
+) -> T:
+    """Overlay a project's additive rules onto a hook's built-in rules, failing open.
+
+    The shape-agnostic sibling of `load_all_rules`: `load_all_rules` handles
+    hooks whose data is a `[[<section>]]` Rule tuple, while this handles any
+    other rule shape (e.g. `config_protection`'s name lists). Reads the
+    built-in file via `parse(builtin_path)` (its errors propagate to the
+    driver); when a per-project file of the same basename exists, parses it
+    and `combine`s it on top. A malformed *project* file is caught here, with
+    the same one-line stderr warning and caught-exception set as
+    `load_project_rules`, and the built-in result is returned unchanged, so a
+    project typo never disables a built-in.
+
+    Args:
+        builtin_path: Path to the hook's built-in `<hook>.rules.toml`.
+        project_dir: Project root for the additive per-project file, or None.
+        parse: Reads a rules file at a path into the hook's rule shape.
+        combine: Folds the project rules onto the built-in rules (additive).
+    """
+    builtin = parse(builtin_path)
+    proj_path = project_rules_path(builtin_path.name, project_dir=project_dir)
+    if proj_path is None:
+        return builtin
+    try:
+        project = parse(proj_path)
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+        print(f"natelandau-toolkit: ignoring project rules {proj_path}: {exc}", file=sys.stderr)  # noqa: T201
+        return builtin
+    return combine(builtin, project)
+
+
 def parse_pattern_list(data: Mapping[str, object], key: str) -> tuple[re.Pattern[str], ...]:
     """Compile a flat TOML array of regex strings (e.g. an allowlist).
 
