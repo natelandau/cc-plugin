@@ -1,4 +1,4 @@
-"""Shared I/O helpers for PreToolUse hooks: payload parsing and emission."""
+"""Shared I/O helpers for hook stages: payload parsing and per-stage emission."""
 
 from __future__ import annotations
 
@@ -74,4 +74,53 @@ def emit_pre_advisory(contexts: list[str]) -> NoReturn:
             }
         }
         print(json.dumps(payload))  # noqa: T201
+    sys.exit(0)
+
+
+def _emit_advisory(contexts: list[str], event_name: str) -> NoReturn:
+    """Emit joined advisory text as this stage's additionalContext, exit 0."""
+    if contexts:
+        payload = {
+            "hookSpecificOutput": {
+                "hookEventName": event_name,
+                "additionalContext": "\n".join(contexts),
+            }
+        }
+        print(json.dumps(payload))  # noqa: T201
+    sys.exit(0)
+
+
+def emit_pretooluse(blocking: Decision | None, contexts: list[str]) -> NoReturn:
+    """Translate a PreToolUse outcome: block via exit 2, else advisory context."""
+    if blocking is not None:
+        emit_block(blocking.reason)  # exits 2
+    _emit_advisory(contexts, "PreToolUse")
+
+
+def emit_posttooluse(blocking: Decision | None, contexts: list[str]) -> NoReturn:
+    """Translate a PostToolUse outcome: the tool already ran, so block is JSON."""
+    if blocking is not None:
+        payload = {
+            "hookSpecificOutput": {"hookEventName": "PostToolUse", "decision": "block"},
+            "reason": blocking.reason,
+        }
+        print(json.dumps(payload))  # noqa: T201
+        sys.exit(0)
+    _emit_advisory(contexts, "PostToolUse")
+
+
+def emit_stop(blocking: Decision | None, contexts: list[str]) -> NoReturn:  # noqa: ARG001
+    """Translate a Stop outcome: block prevents stopping via decision JSON."""
+    if blocking is not None:
+        print(json.dumps({"decision": "block", "reason": blocking.reason}))  # noqa: T201
+    sys.exit(0)
+
+
+def emit_sessionstart(blocking: Decision | None, contexts: list[str]) -> NoReturn:  # noqa: ARG001
+    """Translate a SessionStart outcome: advisory context only; block is N/A."""
+    _emit_advisory(contexts, "SessionStart")
+
+
+def emit_sessionend(blocking: Decision | None, contexts: list[str]) -> NoReturn:  # noqa: ARG001
+    """SessionEnd is read-only for side effects; emit nothing and exit 0."""
     sys.exit(0)
