@@ -15,7 +15,7 @@ import tomllib
 # Mapping is referenced in a runtime-evaluated dataclass annotation, so it must
 # stay a runtime import; TC003 would wrongly relocate it to a TYPE_CHECKING block.
 from collections.abc import Mapping  # noqa: TC003
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 VALID_PROFILES: frozenset[str] = frozenset({"minimal", "standard", "strict"})
@@ -67,20 +67,34 @@ def _merge_hook_options(base: dict[str, dict[str, str]], raw: object) -> dict[st
     return base
 
 
-def _apply(
-    layer: dict[str, object],
-    profile: list[str],
-    disabled: list[frozenset[str]],
-    hook_options: dict[str, dict[str, str]],
-) -> None:
-    """Overlay one config layer onto the accumulating values."""
+@dataclass
+class _Accumulator:
+    """Mutable config values folded across the global→project layers.
+
+    A plain mutable holder so `_apply` overlays each layer in place; the
+    final values are copied into the frozen `Config` once resolution and
+    validation are done.
+    """
+
+    profile: str = DEFAULT_PROFILE
+    disabled: frozenset[str] = frozenset()
+    hook_options: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+def _apply(layer: dict[str, object], acc: _Accumulator) -> None:
+    """Overlay one config layer onto the accumulating values.
+
+    A scalar or list key present in the layer replaces the accumulated
+    value; `[hooks.*]` tables deep-merge per key. A key the layer omits
+    leaves the accumulated value untouched, giving the low→high cascade.
+    """
     raw_profile = layer.get("profile")
     if isinstance(raw_profile, str):
-        profile[0] = raw_profile
+        acc.profile = raw_profile
     raw_disabled = layer.get("disabled_hooks")
     if isinstance(raw_disabled, list):
-        disabled[0] = frozenset(x for x in raw_disabled if isinstance(x, str))
-    _merge_hook_options(hook_options, layer.get("hooks"))
+        acc.disabled = frozenset(x for x in raw_disabled if isinstance(x, str))
+    _merge_hook_options(acc.hook_options, layer.get("hooks"))
 
 
 def load_config(*, home: Path | None = None, project_dir: str | None = None) -> Config:
@@ -95,26 +109,23 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
     home = home or Path.home()
     project_dir = project_dir if project_dir is not None else os.environ.get("CLAUDE_PROJECT_DIR")
 
-    profile: list[str] = [DEFAULT_PROFILE]
-    disabled: list[frozenset[str]] = [frozenset()]
-    hook_options: dict[str, dict[str, str]] = {}
-
-    _apply(_read_toml(home / ".claude" / CONFIG_NAME), profile, disabled, hook_options)
+    acc = _Accumulator()
+    _apply(_read_toml(home / ".claude" / CONFIG_NAME), acc)
     if project_dir:
         proj_path = Path(project_dir) / ".claude" / CONFIG_NAME
-        _apply(_read_toml(proj_path), profile, disabled, hook_options)
+        _apply(_read_toml(proj_path), acc)
 
-    resolved_profile = profile[0] if profile[0] in VALID_PROFILES else DEFAULT_PROFILE
+    resolved_profile = acc.profile if acc.profile in VALID_PROFILES else DEFAULT_PROFILE
     # DEFAULT_PROFILE is itself a member of VALID_PROFILES, so an out-of-set
     # value can never equal it; the membership test alone gates the warning.
-    if profile[0] not in VALID_PROFILES:
+    if acc.profile not in VALID_PROFILES:
         print(  # noqa: T201
-            f"natelandau-toolkit: unknown profile {profile[0]!r}, using {DEFAULT_PROFILE}",
+            f"natelandau-toolkit: unknown profile {acc.profile!r}, using {DEFAULT_PROFILE}",
             file=sys.stderr,
         )
     return Config(
         profile=resolved_profile,
-        disabled_hooks=disabled[0],
-        hook_options={k: dict(v) for k, v in hook_options.items()},
+        disabled_hooks=acc.disabled,
+        hook_options={k: dict(v) for k, v in acc.hook_options.items()},
         project_dir=project_dir,
     )
