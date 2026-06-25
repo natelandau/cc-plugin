@@ -79,13 +79,14 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     command: str = (event.get("tool_input") or {}).get("command", "")
     if not command:
         return None
-    # May raise on malformed TOML; caught by caller / main. Project rules are
-    # additive and fail open inside load_project_rules.
-    system_rules = (
-        *rules.load_rules(RULES_FILE, "rule", required=SYSTEM_FIELDS),
-        *rules.load_project_rules(
-            RULES_FILE.name, "rule", required=SYSTEM_FIELDS, project_dir=cfg.project_dir
-        ),
+    # Built-in rules raise on malformed TOML (caught by the driver); project
+    # rules are additive and fail open inside load_all_rules.
+    system_rules = rules.load_all_rules(
+        RULES_FILE,
+        "rule",
+        required=SYSTEM_FIELDS,
+        project_dir=cfg.project_dir,
+        label="protect_system",
     )
     # `command` is the primary match text; also expose named fields so a rule
     # may target one explicitly with `field` (e.g. field = "command").

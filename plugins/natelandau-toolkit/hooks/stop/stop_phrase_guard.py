@@ -29,9 +29,6 @@ remove, or tune a phrase.
 
 from __future__ import annotations
 
-import re
-import sys
-import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -62,31 +59,15 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     if not text:
         return None
 
-    # Load violations at invocation, not import, so a malformed TOML surfaces
-    # a focused error message rather than a confusing import-time traceback.
-    # The driver swallows the raise; built-in rules reload next invocation.
-    try:
-        violations = rules.load_rules(
-            RULES_FILE, "violation", required=STOP_REQUIRED, optional=STOP_OPTIONAL
-        )
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
-        print(  # noqa: T201
-            f"stop_phrase_guard: failed to load {RULES_FILE.name}: {exc}",
-            file=sys.stderr,
-        )
-        raise
-
-    # Additive per-project violations. Fail open inside load_project_rules so a
-    # project typo never disables the built-in phrases.
-    violations = (
-        *violations,
-        *rules.load_project_rules(
-            RULES_FILE.name,
-            "violation",
-            required=STOP_REQUIRED,
-            optional=STOP_OPTIONAL,
-            project_dir=cfg.project_dir,
-        ),
+    # Built-in violations raise on malformed TOML (the driver swallows it and
+    # reloads next invocation); project violations are additive and fail open.
+    violations = rules.load_all_rules(
+        RULES_FILE,
+        "violation",
+        required=STOP_REQUIRED,
+        optional=STOP_OPTIONAL,
+        project_dir=cfg.project_dir,
+        label="stop_phrase_guard",
     )
 
     # `text` is the primary match text; also expose it as the named field

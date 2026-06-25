@@ -300,6 +300,44 @@ def load_project_rules(
         return ()
 
 
+def load_all_rules(
+    rules_file: Path,
+    section: str,
+    *,
+    required: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+    project_dir: str | None,
+    label: str,
+) -> tuple[Rule, ...]:
+    """Load a hook's built-in rules plus its additive per-project rules.
+
+    The single entry every rule-driven hook shares: read `rules_file`'s
+    `[[section]]` (the built-in rules) and append the project's additive
+    rules. A malformed *built-in* file raises, after a `<label>: ...` stderr
+    note so the diagnostic names the failing hook; the dispatcher swallows
+    the raise and the built-ins reload next invocation. Project rules fail
+    open inside `load_project_rules`, so a project typo never disables the
+    built-ins. Returns built-in-then-project in declaration order.
+
+    Args:
+        rules_file: Path to the hook's built-in `<hook>.rules.toml`.
+        section: The `[[<section>]]` array to read (e.g. "rule", "trigger").
+        required: Field names every entry must provide, besides the matcher.
+        optional: Field names entries may provide.
+        project_dir: Project root for the additive per-project file, or None.
+        label: Hook name prefixed to the built-in load-failure warning.
+    """
+    try:
+        builtin = load_rules(rules_file, section, required=required, optional=optional)
+    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+        print(f"{label}: failed to load {rules_file.name}: {exc}", file=sys.stderr)  # noqa: T201
+        raise
+    project = load_project_rules(
+        rules_file.name, section, required=required, optional=optional, project_dir=project_dir
+    )
+    return (*builtin, *project)
+
+
 def parse_pattern_list(data: Mapping[str, object], key: str) -> tuple[re.Pattern[str], ...]:
     """Compile a flat TOML array of regex strings (e.g. an allowlist).
 
