@@ -43,6 +43,18 @@ LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
 # Shared so the two hooks declare one vocabulary instead of two identical sets.
 THRESHOLD_RULE_FIELDS: frozenset[str] = frozenset({"id", "level", "reason"})
 
+# Errors a rules-file read or parse can raise that the loaders treat as
+# "this file is unusable": I/O failure, malformed TOML, a schema/type error
+# from `parse_rules`, or a bad regex. One tuple so the built-in and
+# project-overlay loaders catch exactly the same set and cannot drift.
+RULES_LOAD_ERRORS: tuple[type[Exception], ...] = (
+    OSError,
+    tomllib.TOMLDecodeError,
+    TypeError,
+    ValueError,
+    re.error,
+)
+
 # Operators valid in a condition. `regex_match` uses the pre-compiled
 # pattern; the rest are plain (case-insensitive) string tests.
 CONDITION_OPERATORS: frozenset[str] = frozenset(
@@ -295,7 +307,7 @@ def load_project_rules(
         return ()
     try:
         return load_rules(path, section, required=required, optional=optional)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+    except RULES_LOAD_ERRORS as exc:
         print(f"natelandau-toolkit: ignoring project rules {path}: {exc}", file=sys.stderr)  # noqa: T201
         return ()
 
@@ -329,7 +341,7 @@ def load_all_rules(
     """
     try:
         builtin = load_rules(rules_file, section, required=required, optional=optional)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+    except RULES_LOAD_ERRORS as exc:
         print(f"{label}: failed to load {rules_file.name}: {exc}", file=sys.stderr)  # noqa: T201
         raise
     project = load_project_rules(
@@ -369,7 +381,7 @@ def with_project_overlay[T](
         return builtin
     try:
         project = parse(proj_path)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+    except RULES_LOAD_ERRORS as exc:
         print(f"natelandau-toolkit: ignoring project rules {proj_path}: {exc}", file=sys.stderr)  # noqa: T201
         return builtin
     return combine(builtin, project)

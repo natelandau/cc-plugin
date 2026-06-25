@@ -54,7 +54,10 @@ def _load_module(unique_name: str, path: Path) -> ModuleType:
     execution because a slotted dataclass (`@dataclass(slots=True)`) recreates
     its class and looks itself up via `sys.modules[cls.__module__]` mid-exec;
     an unregistered module makes that lookup fail. Each call re-creates and
-    re-executes the module, overwriting any prior entry under the same name.
+    re-executes the module, overwriting any prior entry under the same name. If
+    execution raises, the half-initialized module is evicted (as
+    `importlib.import_module` does) so a broken plugin never leaves a corrupt
+    entry cached under its name.
     """
     spec = importlib.util.spec_from_file_location(unique_name, path)
     if spec is None or spec.loader is None:
@@ -62,7 +65,11 @@ def _load_module(unique_name: str, path: Path) -> ModuleType:
         raise ImportError(msg)
     module = importlib.util.module_from_spec(spec)
     sys.modules[unique_name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(unique_name, None)
+        raise
     return module
 
 

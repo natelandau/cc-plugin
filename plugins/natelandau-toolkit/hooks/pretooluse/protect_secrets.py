@@ -132,7 +132,9 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     # field: a file_path rule can't match a Bash call (empty file_path),
     # and a command rule can't match a file edit.
     matched = rules.first_match(
-        secret_rules, fields=fields, threshold=rules.threshold(cfg, ID, DEFAULT_LEVEL)
+        secret_rules,
+        fields=fields,
+        threshold=rules.threshold(cfg, hook_id=ID, default=DEFAULT_LEVEL),
     )
     if matched:
         return Decision.blocked(matched.id, f"Cannot {ACTION_VERBS[tool_name]}: {matched.reason}")

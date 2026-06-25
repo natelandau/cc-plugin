@@ -95,7 +95,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
         system_rules,
         text=command,
         fields=fields,
-        threshold=rules.threshold(cfg, ID, DEFAULT_LEVEL),
+        threshold=rules.threshold(cfg, hook_id=ID, default=DEFAULT_LEVEL),
     )
     if matched:
         return Decision.blocked(matched.id, f"Cannot execute: {matched.reason}")
