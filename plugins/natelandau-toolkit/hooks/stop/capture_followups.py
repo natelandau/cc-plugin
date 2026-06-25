@@ -39,19 +39,19 @@ loaded on every invocation. A project may add triggers via
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lib import rules, transcript
-from lib.config import load_config
-from lib.io import read_payload
-from lib.profiles import hook_enabled
+from lib.io import Decision
 
-HOOK_ID = "capture-followups"
+if TYPE_CHECKING:
+    from lib.config import Config
+
+ID = "capture-followups"
 RULES_FILE = Path(__file__).parent / "capture_followups.rules.toml"
 # Each [[trigger]] needs a `reason` (a short description of the deferral,
 # spliced into the block message); `id` is optional and unused in the output.
@@ -80,32 +80,24 @@ BLOCK_TEMPLATE = (
 )
 
 
-def main() -> None:
-    """Entry point for the Stop hook."""
-    # Shared capped reader: bounds stdin and fails open to {} on malformed,
-    # oversized, or non-object input (the guards below then no-op via .get()).
-    data: dict[str, Any] = read_payload()
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
+    """Block a Stop turn that names deferred work without capturing it.
 
-    # Already fired once this turn; let the assistant stop to avoid loops. By
-    # the time this re-fires the model has had its chance to record the item.
-    if data.get("stop_hook_active"):
-        sys.exit(0)
-
-    transcript_path = data.get("transcript_path")
-    if not transcript_path:
-        sys.exit(0)
-
-    cfg = load_config()
-    if not hook_enabled(HOOK_ID, cfg):
-        sys.exit(0)
-
-    entries = transcript.read_entries(transcript_path)
-    text = transcript.last_assistant_message_text(entries)
+    The dispatcher pre-parses the transcript and exposes the closing
+    assistant text as `event["assistant_message"]` and the turn's parsed
+    entries as `event["entries"]`. This check matches the text against the
+    trigger rules, then suppresses the block when the backlog file was
+    written this turn (the model captured the item inline). Returns a
+    blocking Decision, or None when clean, empty, or already captured.
+    """
+    text = event.get("assistant_message", "")
     if not text:
-        sys.exit(0)
+        return None
+    entries = event.get("entries", [])
 
     # Load triggers at invocation, not import, so a malformed TOML surfaces a
-    # focused error rather than a confusing import-time traceback.
+    # focused error rather than a confusing import-time traceback. The driver
+    # swallows the raise; built-in rules reload next invocation.
     try:
         triggers = rules.load_rules(
             RULES_FILE, "trigger", required=TRIGGER_REQUIRED, optional=TRIGGER_OPTIONAL
@@ -115,7 +107,7 @@ def main() -> None:
             f"capture_followups: failed to load {RULES_FILE.name}: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        raise
 
     # Additive per-project triggers. Fail open inside load_project_rules so a
     # project typo never disables the built-in phrases.
@@ -134,23 +126,15 @@ def main() -> None:
     # may target it explicitly with `field = "message"`.
     trigger = rules.first_match(triggers, text=text, fields={"message": text})
     if trigger is None:
-        sys.exit(0)
+        return None
 
     # Already captured this turn (the model wrote the backlog inline, or this
     # is the continuation after an earlier block): nothing to enforce.
-    backlog = cfg.option(HOOK_ID, "backlog", DEFAULT_BACKLOG)
+    backlog = cfg.option(ID, "backlog", DEFAULT_BACKLOG)
     if transcript.file_written_since_last_user(
         entries, filename=Path(backlog).name, tool_names=WRITE_TOOLS
     ):
-        sys.exit(0)
-
-    decision = {
-        "decision": "block",
-        "reason": BLOCK_TEMPLATE.format(detail=trigger.reason, backlog=backlog),
-    }
-    print(json.dumps(decision))  # noqa: T201
-    sys.exit(0)
-
-
-if __name__ == "__main__":
-    main()
+        return None
+    return Decision(
+        block=True, reason=BLOCK_TEMPLATE.format(detail=trigger.reason, backlog=backlog)
+    )

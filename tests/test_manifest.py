@@ -26,13 +26,11 @@ COMMANDS_WITHOUT_FRONTMATTER = frozenset({"transfer-context.md"})
 # Per-stage dispatcher scripts that exist but are not yet wired into hooks.json.
 # Each will replace the legacy wiring for its event in a later task; listing them
 # here exempts them from the orphan guard until that cutover lands. PreToolUse
-# (pretooluse.py) is already wired, so it is intentionally absent. Stop currently
-# runs the flat stop_phrase_guard.py / capture_followups.py scripts, so stop.py
-# stays exempt until Task 6 cuts it over.
+# (pretooluse.py) and Stop (stop.py) are already wired, so they are intentionally
+# absent.
 STAGE_DISPATCHERS = frozenset(
     {
         "posttooluse.py",
-        "stop.py",
         "sessionstart.py",
         "sessionend.py",
     }
@@ -204,8 +202,8 @@ def test_hook_script_is_registered(script_path: Path) -> None:
     forgetting the manifest entry, which leaves it dead on disk. Plugin modules
     no longer live at the hooks root (they sit under hooks/<stage>/ and are
     reached via that stage's _registry.py, covered by
-    test_stage_plugin_is_registered); only dispatcher entry points and the flat
-    Stop hooks live here.
+    test_stage_plugin_is_registered); only per-stage dispatcher entry points
+    live here.
     """
     # Given the set of scripts referenced from hooks.json
     registered = _registered_hook_paths()

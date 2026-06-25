@@ -16,9 +16,26 @@ HOOKS_ROOT = Path(__file__).resolve().parent
 if str(HOOKS_ROOT) not in sys.path:
     sys.path.insert(0, str(HOOKS_ROOT))
 
+from lib import transcript  # noqa: E402
 from lib.config import load_config  # noqa: E402
 from lib.dispatch import run_stage  # noqa: E402
 from lib.io import emit_stop, read_payload  # noqa: E402
+
+
+def parse_stop(payload: dict) -> dict:
+    """Read and parse the transcript once, exposing it to every Stop plugin.
+
+    Stop input carries no assistant text directly, only a `transcript_path`.
+    Reading and reconstructing the closing message here means each plugin
+    sees `assistant_message` and `entries` without re-reading the JSONL.
+    """
+    transcript_path = payload.get("transcript_path")
+    entries = transcript.read_entries(transcript_path) if transcript_path else []
+    return {
+        **payload,
+        "entries": entries,
+        "assistant_message": transcript.last_assistant_message_text(entries),
+    }
 
 
 def main() -> None:
@@ -30,7 +47,7 @@ def main() -> None:
     cfg = load_config()
     run_stage(
         stage_dir=HOOKS_ROOT / "stop",
-        event=payload,
+        event=parse_stop(payload),
         cfg=cfg,
         emit=emit_stop,
     )
