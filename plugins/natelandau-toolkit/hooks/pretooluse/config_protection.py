@@ -154,8 +154,15 @@ def _read_text(path: Path) -> str | None:
         return None
 
 
-def _parse_toml(text: str) -> dict[str, Any] | None:
-    """Parse TOML text, or None when it is malformed."""
+def _parse_toml(text: str | None) -> dict[str, Any] | None:
+    """Parse TOML text, or None when it is malformed or not a string.
+
+    A non-string `text` (e.g. a `Write` payload carrying `"content": null`)
+    is unparsable and treated as None so the caller fails open rather than
+    raising a TypeError inside `tomllib.loads`.
+    """
+    if not isinstance(text, str):
+        return None
     try:
         return tomllib.loads(text)
     except tomllib.TOMLDecodeError, ValueError:
@@ -230,6 +237,9 @@ def _check_pyproject(
         return None
 
     if tool_name == "Write":
+        # `.get("content", "")` yields None for a payload with `"content":
+        # null`; `_parse_toml` treats that non-string as unparsable (fail
+        # open) rather than raising in `tomllib.loads`.
         new_text = tool_input.get("content", "")
     else:  # Edit
         new_text = _apply_edit(

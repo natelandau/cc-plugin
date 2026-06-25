@@ -77,7 +77,11 @@ CASES: tuple[Case, ...] = (
         id="edit on master blocked",
         make_payload=lambda r: _edit(f"{r['master']}/foo.py"),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        # Protected-branch blocks carry the canonical `BLOCKED [<id>]:` prefix.
+        stderr_contains=(
+            "BLOCKED [branch-protection]",
+            "Cannot modify files on the 'master' branch",
+        ),
     ),
     Case(
         id="write on master blocked",
@@ -118,7 +122,8 @@ CASES: tuple[Case, ...] = (
         id="git push --force blocked on feat",
         make_payload=lambda r: _bash("git push --force origin feat", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Force push", "BLOCKED"),
+        # Destructive blocks carry the canonical `BLOCKED [<id>]:` prefix.
+        stderr_contains=("Force push", "BLOCKED [branch-protection]"),
     ),
     Case(
         id="git push -f blocked",
@@ -306,6 +311,24 @@ CASES: tuple[Case, ...] = (
         id="touch /tmp/x on master allowed",
         make_payload=lambda r: _bash("touch /tmp/x", cwd=r["master"]),
         expect_exit=0,
+    ),
+    # A redirect whose only write target is under /tmp is a /tmp-only write:
+    # the echoed args and the `>` operator are not file paths.
+    Case(
+        id="redirect to /tmp on master allowed",
+        make_payload=lambda r: _bash("echo hi > /tmp/log", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="append redirect to /tmp on master allowed",
+        make_payload=lambda r: _bash("echo config >> /tmp/out.txt", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="redirect to non-tmp file on master blocked",
+        make_payload=lambda r: _bash("echo hi > out.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
     ),
     # Protected branch: pure git read commands allowed
     Case(
