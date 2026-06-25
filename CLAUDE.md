@@ -80,9 +80,14 @@ event. Only `pretooluse.py` and `stop.py` are currently wired in
 `hooks.json`; the others exist so their stage dirs are ready but are
 not fired until they have at least one plugin.
 
-**`lib/dispatch.py` is the generic driver.** All dispatchers call
-`run_stage(stage_dir=..., event=..., cfg=..., emit=...)` (the parameters are
-keyword-only). The driver:
+**`lib/dispatch.py` is the generic driver.** Each dispatcher script is a
+one-liner that calls `run_dispatcher("<stage>", ...)`; the driver owns the
+shared entry sequence (read payload, optional `skip_if` short-circuit, load
+config, optional `prepare` transform, run the stage, emit). It resolves the
+stage's emit function from `io.STAGE_EMITTERS` keyed by stage name, so a stage
+script names only its stage (and, for Stop, its `prepare`/`skip_if`). Internally
+`run_dispatcher` calls `run_stage(stage_dir=..., event=..., cfg=..., emit=...)`
+(keyword-only), which:
 
 1. Imports `_registry.py` from the stage dir and reads `PLUGINS`, which
    is an ordered `list[tuple[str, frozenset[str]]]` of
@@ -104,27 +109,37 @@ holds the two profile-set constants every registry imports: `ALL`
 
 - `ID` - slug used in `disabled_hooks` entries and block messages.
 - `evaluate(event: dict, cfg: Config) -> Decision | None` - the plugin's
-  logic. (The parameter name is not enforced; existing PreToolUse plugins call
-  it `payload` and Stop plugins call it `event`.) The plugin is responsible for
-  self-filtering on the fields it handles (e.g., checking
-  `event.get("tool_name") == "Bash"`); the dispatcher passes the full event
-  dict to every enabled plugin.
+  logic. Every plugin names the first parameter `event` (the dispatcher
+  passes it positionally, so the name is convention, not contract). The
+  plugin is responsible for self-filtering on the fields it handles (e.g.,
+  checking `event.get("tool_name") == "Bash"`); the dispatcher passes the
+  full event dict to every enabled plugin.
 
 Plugins no longer carry `__main__` blocks. The dispatcher script is the
 single entry point; debug a plugin by piping a JSON payload directly to
 the dispatcher: `echo '<payload>' | hooks/pretooluse.py`.
 
-**Per-stage event and emit.** Each dispatcher parses its raw payload
-into the stage's `event` dict and selects the matching `emit_*` function
-from `lib/io.py`. The Stop dispatcher's `parse_stop` reads the transcript
-once before dispatch, adding `entries` and `assistant_message` to the
-event dict so every Stop plugin can inspect the closing assistant turn
-without re-reading the JSONL. The Stop dispatcher also bails early when
-`stop_hook_active` is true to prevent re-fire loops.
+**Per-stage event and emit.** `io.STAGE_EMITTERS` maps each stage name to
+the `emit_*` function that translates its outcome to the wire format, so the
+stage-to-emitter relationship is one table rather than a per-script import.
+The Stop dispatcher passes `transcript.parse_stop` as its `prepare`, which
+reads the transcript once before dispatch and adds `entries` and
+`assistant_message` to the event dict so every Stop plugin can inspect the
+closing assistant turn without re-reading the JSONL. The Stop dispatcher also
+passes a `skip_if` that bails early when `stop_hook_active` is true to prevent
+re-fire loops.
 
 **Stage dirs are Python packages.** Each `hooks/<stage>/` dir contains
-`__init__.py` so ruff treats it as a package; the driver loads its registry via
-`importlib.import_module("_registry")` after putting the stage dir on `sys.path`.
+`__init__.py` so ruff treats it as a package. The driver loads each stage's
+`_registry.py` and plugin modules by explicit file path
+(`importlib.util.spec_from_file_location` under a stage-qualified name in
+`dispatch._load_module`), not by bare import name, so two stages may hold
+same-named files without colliding and the driver never mutates `sys.path` or
+pops `sys.modules` to disambiguate them. Each module is registered in
+`sys.modules` under its stage-qualified name before execution (a slotted
+`@dataclass` looks itself up there mid-exec). A plugin's own `from lib...`
+imports still resolve via the hooks root the dispatcher script puts on
+`sys.path`.
 
 ### Hook configuration
 
@@ -212,9 +227,12 @@ rules that did parse). This matches how a malformed `natelandau-toolkit.toml`
 is treated. A project rules file is read whenever `CLAUDE_PROJECT_DIR` is set,
 with or without a `natelandau-toolkit.toml` present.
 
-The loader lives in `lib/rules.py` (`project_rules_path`,
-`load_project_rules`); `config_protection` merges via its own `_merged_rules`
-because its rule data is name lists rather than `[[rule]]` tables.
+The loader lives in `lib/rules.py`. `load_all_rules` is the one entry the
+`[[rule]]`-table hooks share: it reads the built-in section plus the additive
+project rules in a single call. `config_protection` keeps its own `RuleSet`
+shape (name lists, not `[[rule]]` tables) but routes its built-in-plus-project
+merge through the shape-agnostic `with_project_overlay`, so both paths share
+one fail-open contract and the `RULES_LOAD_ERRORS` exception set.
 
 ### `hooks/pretooluse/enforce_branch_protection.py` (PreToolUse)
 
@@ -253,8 +271,8 @@ Blocks Stop turns whose assistant text matches a pattern in
 `stop_phrase_guard.rules.toml`.
 
 **Critical gotcha:** The raw Stop payload does NOT contain the assistant
-text. The `stop.py` dispatcher calls `parse_stop`, which reads the
-transcript once and adds `assistant_message` and `entries` to the event
+text. The Stop dispatcher's `prepare` step (`transcript.parse_stop`) reads
+the transcript once and adds `assistant_message` and `entries` to the event
 dict before passing it to plugins. Plugins read `event["assistant_message"]`.
 Any plugin code that reaches for `last_assistant_message` on the raw
 payload (before `parse_stop`) is broken and returns None silently.
@@ -751,11 +769,12 @@ concatenation of `text` fields across `{"type":"text", ...}` blocks in
 and should be skipped).
 
 Transcript parsing is centralized in `hooks/lib/transcript.py`
-(`read_entries`, `last_assistant_message_text`, plus
+(`read_entries`, `last_assistant_message_text`, `parse_stop`, plus
 `file_written_since_last_user` for "did a tool touch file X this turn"
-turn-scoped to the entries after the last human message). The `stop.py`
-dispatcher calls `parse_stop` once before running any plugins, which reads
-the JSONL and adds `entries` and `assistant_message` to the event dict.
+turn-scoped to the entries after the last human message). The Stop
+dispatcher passes `transcript.parse_stop` as its `prepare`, so it runs once
+before any plugin, reading the JSONL and adding `entries` and
+`assistant_message` to the event dict.
 Stop plugins receive that pre-parsed event; they do not read the transcript
 themselves. `tests/test_lib_transcript.py` covers the reader and each Stop
 plugin's own tests cover the wiring.

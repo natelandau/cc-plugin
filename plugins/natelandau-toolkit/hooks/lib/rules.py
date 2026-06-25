@@ -34,7 +34,26 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from lib.config import Config
+
 LEVELS: dict[str, int] = {"critical": 1, "high": 2, "strict": 3}
+
+# Required `[[rule]]` fields for the threshold-gated block hooks
+# (protect_secrets, protect_system): a slug, a threshold tier, and a reason.
+# Shared so the two hooks declare one vocabulary instead of two identical sets.
+THRESHOLD_RULE_FIELDS: frozenset[str] = frozenset({"id", "level", "reason"})
+
+# Errors a rules-file read or parse can raise that the loaders treat as
+# "this file is unusable": I/O failure, malformed TOML, a schema/type error
+# from `parse_rules`, or a bad regex. One tuple so the built-in and
+# project-overlay loaders catch exactly the same set and cannot drift.
+RULES_LOAD_ERRORS: tuple[type[Exception], ...] = (
+    OSError,
+    tomllib.TOMLDecodeError,
+    TypeError,
+    ValueError,
+    re.error,
+)
 
 # Operators valid in a condition. `regex_match` uses the pre-compiled
 # pattern; the rest are plain (case-insensitive) string tests.
@@ -288,9 +307,84 @@ def load_project_rules(
         return ()
     try:
         return load_rules(path, section, required=required, optional=optional)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
+    except RULES_LOAD_ERRORS as exc:
         print(f"natelandau-toolkit: ignoring project rules {path}: {exc}", file=sys.stderr)  # noqa: T201
         return ()
+
+
+def load_all_rules(
+    rules_file: Path,
+    section: str,
+    *,
+    required: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+    project_dir: str | None,
+    label: str,
+) -> tuple[Rule, ...]:
+    """Load a hook's built-in rules plus its additive per-project rules.
+
+    The single entry every rule-driven hook shares: read `rules_file`'s
+    `[[section]]` (the built-in rules) and append the project's additive
+    rules. A malformed *built-in* file raises, after a `<label>: ...` stderr
+    note so the diagnostic names the failing hook; the dispatcher swallows
+    the raise and the built-ins reload next invocation. Project rules fail
+    open inside `load_project_rules`, so a project typo never disables the
+    built-ins. Returns built-in-then-project in declaration order.
+
+    Args:
+        rules_file: Path to the hook's built-in `<hook>.rules.toml`.
+        section: The `[[<section>]]` array to read (e.g. "rule", "trigger").
+        required: Field names every entry must provide, besides the matcher.
+        optional: Field names entries may provide.
+        project_dir: Project root for the additive per-project file, or None.
+        label: Hook name prefixed to the built-in load-failure warning.
+    """
+    try:
+        builtin = load_rules(rules_file, section, required=required, optional=optional)
+    except RULES_LOAD_ERRORS as exc:
+        print(f"{label}: failed to load {rules_file.name}: {exc}", file=sys.stderr)  # noqa: T201
+        raise
+    project = load_project_rules(
+        rules_file.name, section, required=required, optional=optional, project_dir=project_dir
+    )
+    return (*builtin, *project)
+
+
+def with_project_overlay[T](
+    builtin_path: Path,
+    *,
+    project_dir: str | None,
+    parse: Callable[[Path], T],
+    combine: Callable[[T, T], T],
+) -> T:
+    """Overlay a project's additive rules onto a hook's built-in rules, failing open.
+
+    The shape-agnostic sibling of `load_all_rules`: `load_all_rules` handles
+    hooks whose data is a `[[<section>]]` Rule tuple, while this handles any
+    other rule shape (e.g. `config_protection`'s name lists). Reads the
+    built-in file via `parse(builtin_path)` (its errors propagate to the
+    driver); when a per-project file of the same basename exists, parses it
+    and `combine`s it on top. A malformed *project* file is caught here, with
+    the same one-line stderr warning and caught-exception set as
+    `load_project_rules`, and the built-in result is returned unchanged, so a
+    project typo never disables a built-in.
+
+    Args:
+        builtin_path: Path to the hook's built-in `<hook>.rules.toml`.
+        project_dir: Project root for the additive per-project file, or None.
+        parse: Reads a rules file at a path into the hook's rule shape.
+        combine: Folds the project rules onto the built-in rules (additive).
+    """
+    builtin = parse(builtin_path)
+    proj_path = project_rules_path(builtin_path.name, project_dir=project_dir)
+    if proj_path is None:
+        return builtin
+    try:
+        project = parse(proj_path)
+    except RULES_LOAD_ERRORS as exc:
+        print(f"natelandau-toolkit: ignoring project rules {proj_path}: {exc}", file=sys.stderr)  # noqa: T201
+        return builtin
+    return combine(builtin, project)
 
 
 def parse_pattern_list(data: Mapping[str, object], key: str) -> tuple[re.Pattern[str], ...]:
@@ -375,3 +469,15 @@ def first_match(
         if rule_matches(rule, text=text, fields=field_map):
             return rule
     return None
+
+
+def threshold(cfg: Config, hook_id: str, default: str) -> int:
+    """Resolve a hook's configured level string to its numeric threshold.
+
+    Reads `[hooks.<hook_id>].level` (falling back to `default`), lowercases
+    it, and maps it through `LEVELS`, defaulting to `default`'s rank for an
+    unrecognized value. Centralizes the level→int resolution every
+    threshold-gated hook shares so the lookup lives next to `LEVELS`.
+    """
+    raw = cfg.option(hook_id, "level", default).lower()
+    return LEVELS.get(raw, LEVELS[default])

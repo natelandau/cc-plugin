@@ -61,46 +61,42 @@ if TYPE_CHECKING:
 ID = "protect-system"
 DEFAULT_LEVEL = "high"
 RULES_FILE = Path(__file__).parent / "protect_system.rules.toml"
-# Fields every [[rule]] entry must carry besides its matcher (pattern or
-# conditions). The shared loader validates these and rejects unknown keys.
-SYSTEM_FIELDS = frozenset({"id", "level", "reason"})
+# Required [[rule]] fields shared with protect_secrets (see rules.THRESHOLD_RULE_FIELDS).
+SYSTEM_FIELDS = rules.THRESHOLD_RULE_FIELDS
 
 
-def _threshold(cfg: Config) -> int:
-    """Return the numeric threshold from config, defaulting to 'high'."""
-    raw = cfg.option("protect-system", "level", DEFAULT_LEVEL).lower()
-    return rules.LEVELS.get(raw, rules.LEVELS[DEFAULT_LEVEL])
-
-
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a destructive system command, else None.
 
-    Checks the bash command against system-destruction rules filtered by
-    the configured threshold level. Returns a blocking Decision with the
-    BLOCKED reason string, or None when the command is allowed.
+    Matches the bash command against the built-in `[[rule]]` list plus any
+    additive per-project rules, filtered by the configured threshold. The
+    command is passed both as the primary `text` and as a named `command`
+    field so a rule may target it explicitly. Returns a blocking Decision
+    with the BLOCKED reason string, or None when the command is allowed.
     """
-    if payload.get("tool_name") != "Bash":
+    if event.get("tool_name") != "Bash":
         return None
-    command: str = (payload.get("tool_input") or {}).get("command", "")
+    command: str = (event.get("tool_input") or {}).get("command", "")
     if not command:
         return None
-    # May raise on malformed TOML; caught by caller / main. Project rules are
-    # additive and fail open inside load_project_rules.
-    system_rules = (
-        *rules.load_rules(RULES_FILE, "rule", required=SYSTEM_FIELDS),
-        *rules.load_project_rules(
-            RULES_FILE.name, "rule", required=SYSTEM_FIELDS, project_dir=cfg.project_dir
-        ),
+    # Built-in rules raise on malformed TOML (caught by the driver); project
+    # rules are additive and fail open inside load_all_rules.
+    system_rules = rules.load_all_rules(
+        RULES_FILE,
+        "rule",
+        required=SYSTEM_FIELDS,
+        project_dir=cfg.project_dir,
+        label="protect_system",
     )
     # `command` is the primary match text; also expose named fields so a rule
     # may target one explicitly with `field` (e.g. field = "command").
     fields = {"tool_name": "Bash", "command": command}
     matched = rules.first_match(
-        system_rules, text=command, fields=fields, threshold=_threshold(cfg)
+        system_rules,
+        text=command,
+        fields=fields,
+        threshold=rules.threshold(cfg, hook_id=ID, default=DEFAULT_LEVEL),
     )
     if matched:
-        return Decision(
-            block=True,
-            reason=f"BLOCKED [{matched.id}]: Cannot execute: {matched.reason}",
-        )
+        return Decision.blocked(matched.id, f"Cannot execute: {matched.reason}")
     return None

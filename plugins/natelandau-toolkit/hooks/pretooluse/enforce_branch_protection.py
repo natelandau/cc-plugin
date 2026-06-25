@@ -68,8 +68,13 @@ GIT_C_RE = re.compile(r"\bgit\s+-C\b")
 
 
 @dataclass(frozen=True, slots=True)
-class Rule:
+class CommandRule:
     r"""Declarative command-matching rule.
+
+    Named `CommandRule` (not `Rule`) to stay distinct from `lib.rules.Rule`,
+    the TOML-driven engine the other hooks share. This hook keeps its own
+    rule type because its matcher carries `match_full`/`exclude` semantics
+    and the bypass logic lives alongside the data in this module.
 
     `pattern` is a regex tested against each compound sub-part of a command
     by default (split on `&&`, `||`, `;`). Set `match_full=True` to test
@@ -85,7 +90,7 @@ class Rule:
 
     Example::
 
-        Rule(
+        CommandRule(
             pattern=r"^\\s*git\\s+stash\\s+drop\\b",
             reason="git stash drop permanently discards stashed changes",
         )
@@ -99,64 +104,64 @@ class Rule:
 
 # === RULE DEFINITIONS ===
 #
-# To add a rule, append a Rule(...) to the appropriate tuple below.
-# See the Rule docstring above for field semantics and a syntax example.
+# To add a rule, append a CommandRule(...) to the appropriate tuple below.
+# See the CommandRule docstring above for field semantics and a syntax example.
 #
 # DESTRUCTIVE_RULES        -- blocked on every branch; `reason` is shown.
 # PROTECTED_FILE_MOD_RULES -- blocked only on main/master; the user always
 #                             sees PROTECTED_BRANCH_HINT, so `reason` may
 #                             be omitted.
 
-DESTRUCTIVE_RULES: tuple[Rule, ...] = (
-    Rule(
+DESTRUCTIVE_RULES: tuple[CommandRule, ...] = (
+    CommandRule(
         pattern=r"^\s*git\s+push\b.*(?:--force\b|--force-with-lease\b|\s-[a-zA-Z]*f)",
         reason="Force push rewrites remote history and can destroy others' work",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+push\b.*\s\+\S",
         reason="Force push via refspec (+ref) rewrites remote history",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+reset\b.*--hard\b",
         reason="git reset --hard destroys uncommitted changes irrecoverably",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+clean\b.*-[a-zA-Z]*f",
         reason="git clean -f permanently deletes untracked files",
         exclude=r"-[a-zA-Z]*n|--dry-run",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+checkout\s+(--\s+)?\.(\s|$)",
         reason="git checkout . discards all unstaged changes",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+restore\b.*\s\.(\s|$)",
         reason="git restore . discards all working tree changes",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+rebase\b.*--no-verify\b",
         reason="git rebase --no-verify bypasses safety hooks",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+branch\s+-D\s+main(\s|$)",
         reason="Force-deleting the protected branch 'main' is not allowed",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+branch\s+-D\s+master(\s|$)",
         reason="Force-deleting the protected branch 'master' is not allowed",
     ),
 )
 
-PROTECTED_FILE_MOD_RULES: tuple[Rule, ...] = (
-    Rule(pattern=r"^\s*(rm|rmdir|mv|cp|touch|mkdir|chmod|chown|ln|install)\b"),
-    Rule(pattern=r"\bsed\b.*\s-i"),
-    Rule(pattern=r"\bperl\b.*\s-i"),
-    Rule(pattern=r"\bcurl\b.*\s-[oO]\b"),
-    Rule(pattern=r"^\s*wget\b"),
-    Rule(pattern=r"\btee\b"),
+PROTECTED_FILE_MOD_RULES: tuple[CommandRule, ...] = (
+    CommandRule(pattern=r"^\s*(rm|rmdir|mv|cp|touch|mkdir|chmod|chown|ln|install)\b"),
+    CommandRule(pattern=r"\bsed\b.*\s-i"),
+    CommandRule(pattern=r"\bperl\b.*\s-i"),
+    CommandRule(pattern=r"\bcurl\b.*\s-[oO]\b"),
+    CommandRule(pattern=r"^\s*wget\b"),
+    CommandRule(pattern=r"\btee\b"),
     # Excludes /dev/null targets so noise-suppression idioms like
     # `cmd 2>/dev/null` and `cmd > /dev/null 2>&1` pass through.
-    Rule(pattern=r"(?<![>&])\s*>(?!&)(?!\s*/dev/null\b)", match_full=True),
+    CommandRule(pattern=r"(?<![>&])\s*>(?!&)(?!\s*/dev/null\b)", match_full=True),
 )
 
 
@@ -164,7 +169,7 @@ PROTECTED_FILE_MOD_RULES: tuple[Rule, ...] = (
 
 
 def _run_git(*args: str, cwd: str | None = None) -> str:
-    """Run a git command and return stripped stdout."""
+    """Run git capturing stdout, failing to "" so a missing repo or binary never wedges the hook."""
     cmd = ["git"]
     if cwd:
         cmd.extend(["-C", cwd])
@@ -180,8 +185,8 @@ def _run_git(*args: str, cwd: str | None = None) -> str:
 
 def _resolve_dir(path: str) -> Path | None:
     """Resolve a file or directory path to its nearest existing parent directory."""
-    p = Path(path)
-    dir_path = p if p.is_dir() else p.parent
+    target = Path(path)
+    dir_path = target if target.is_dir() else target.parent
 
     while dir_path != dir_path.parent and not dir_path.is_dir():
         dir_path = dir_path.parent
@@ -208,22 +213,22 @@ def _is_git_ignored(file_path: str) -> bool:
 
 
 def _split_compound(command: str) -> list[str]:
-    """Split a compound bash command on &&, ||, and ;."""
+    """Split a compound bash command into its sub-commands so each is rule-checked alone."""
     return re.split(COMPOUND_SPLIT, command)
 
 
 def _is_git_command(part: str) -> bool:
-    """Check if a command part is a git or gh command."""
+    """Return whether a command part is a git or gh invocation."""
     return bool(re.match(r"^\s*(git|gh)\b", part))
 
 
-def _is_excluded(rule: Rule, text: str) -> bool:
-    """Check if a rule's exclude pattern matches, negating the rule."""
+def _is_excluded(rule: CommandRule, text: str) -> bool:
+    """Return whether the rule's exclude pattern matches, negating the rule (e.g. --dry-run)."""
     return bool(rule.exclude and re.search(rule.exclude, text))
 
 
 def match_rules(
-    command: str, rules: tuple[Rule, ...], *, skip_git_parts: bool = False
+    command: str, rules: tuple[CommandRule, ...], *, skip_git_parts: bool = False
 ) -> str | None:
     """Return the first matching rule's reason, or None.
 
@@ -255,23 +260,23 @@ def match_rules(
 
 
 def get_branch_at_path(path: str) -> str:
-    """Get the git branch for the repo or worktree containing the given path."""
+    """Return the git branch for the repo or worktree containing the given path."""
     dir_path = _resolve_dir(path)
     if not dir_path:
         return ""
     return _run_git("branch", "--show-current", cwd=str(dir_path))
 
 
-def get_effective_branch(data: dict[str, Any]) -> str:
+def get_effective_branch(event: dict[str, Any]) -> str:
     """Determine the effective git branch based on tool context.
 
     For file tools (Edit/Write/NotebookEdit), check the branch at the
     file's location so edits inside a worktree are correctly allowed.
     Falls back to the session's cwd, then the hook process's own cwd.
     """
-    tool_name: str = data.get("tool_name", "")
-    tool_input: dict[str, Any] = data.get("tool_input", {})
-    cwd: str = data.get("cwd", "")
+    tool_name: str = event.get("tool_name", "")
+    tool_input: dict[str, Any] = event.get("tool_input") or {}
+    cwd: str = event.get("cwd", "")
 
     if tool_name in ("Edit", "Write", "NotebookEdit"):
         file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
@@ -418,11 +423,11 @@ def _check_protected_bash(command: str, cwd: str, branch: str) -> str | None:
     return None
 
 
-def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
+def check_protected_branch(event: dict[str, Any], branch: str) -> str | None:
     """Return a block reason if the action is forbidden on the protected branch."""
-    tool_name: str = data.get("tool_name", "")
-    tool_input: dict[str, Any] = data.get("tool_input", {})
-    cwd: str = data.get("cwd", "")
+    tool_name: str = event.get("tool_name", "")
+    tool_input: dict[str, Any] = event.get("tool_input") or {}
+    cwd: str = event.get("cwd", "")
 
     if tool_name in ("Edit", "Write", "NotebookEdit"):
         return _check_file_tool(tool_input, branch)
@@ -433,14 +438,14 @@ def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
     return _check_protected_bash(tool_input.get("command", ""), cwd, branch)
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
     """Return a block/advisory Decision for branch protection, else None."""
-    tool_name = payload.get("tool_name", "")
+    tool_name = event.get("tool_name", "")
     # Self-filter: only file-mod tools and Bash can write to a protected branch.
     # Skip others (notably Read) so the branch lookup's git call is not run per read.
     if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
         return None
-    command = payload.get("tool_input", {}).get("command", "") if tool_name == "Bash" else ""
+    command = (event.get("tool_input") or {}).get("command", "") if tool_name == "Bash" else ""
 
     if tool_name == "Bash":
         reason = check_destructive(command)
@@ -450,9 +455,9 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: 
                 reason=f"BLOCKED: {reason}. Run this command outside Claude Code if you must.",
             )
 
-    branch = get_effective_branch(payload)
+    branch = get_effective_branch(event)
     if branch in PROTECTED_BRANCHES:
-        reason = check_protected_branch(payload, branch)
+        reason = check_protected_branch(event, branch)
         if reason:
             return Decision(block=True, reason=f"BLOCKED: {reason}")
 

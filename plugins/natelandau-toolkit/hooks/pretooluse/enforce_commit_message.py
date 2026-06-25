@@ -502,17 +502,17 @@ def _validate(line: str, noun: str) -> Violation | None:
     return _check_content(shape)
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001, PLR0911
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001, PLR0911
     """Return a block Decision on a commit-message or PR-title violation, else None.
 
-    Inspects the payload for `git commit -m` and `gh pr create|edit|merge`
+    Inspects the event for `git commit -m` and `gh pr create|edit|merge`
     commands and validates the message or title against the conventional-commit
     rules. Returns None for all pass-through cases.
     """
-    if payload.get("tool_name") != "Bash":
+    if event.get("tool_name") != "Bash":
         return None
 
-    cmd = (payload.get("tool_input") or {}).get("command", "")
+    cmd = (event.get("tool_input") or {}).get("command", "")
     if not cmd:
         return None
 
@@ -542,9 +542,8 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: 
 
     violation = _validate(line, noun)
     if violation is not None:
-        return Decision(
-            block=True,
-            reason=f"BLOCKED [{violation.id}]: {violation.reason}\n  {noun} first line: {line!r}{FOOTER}",
+        return Decision.blocked(
+            violation.id, f"{violation.reason}\n  {noun} first line: {line!r}{FOOTER}"
         )
 
     return None

@@ -36,14 +36,13 @@ dispatcher swallows exceptions).
 
 from __future__ import annotations
 
-import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lib.io import Decision
-from lib.rules import project_rules_path, read_toml
+from lib.rules import read_toml, with_project_overlay
 
 if TYPE_CHECKING:
     from lib.config import Config
@@ -111,27 +110,26 @@ def _load_rules(path: Path) -> RuleSet:
     )
 
 
-def _merged_rules(project_dir: str | None) -> RuleSet:
-    """Combine built-in protected names with a project's additive entries.
-
-    Project rules can only add protected files/tables. A malformed project
-    file fails open (warn + ignore) so it never disables the built-ins.
-    """
-    builtin = _load_rules(RULES_FILE)
-    proj_path = project_rules_path(RULES_FILE.name, project_dir=project_dir)
-    if proj_path is None:
-        return builtin
-    try:
-        project = _load_rules(proj_path)
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as exc:
-        print(f"natelandau-toolkit: ignoring project rules {proj_path}: {exc}", file=sys.stderr)  # noqa: T201
-        return builtin
+def _combine_rules(builtin: RuleSet, project: RuleSet) -> RuleSet:
+    """Fold a project's additive protected names onto the built-in set."""
     return RuleSet(
         protected_files=builtin.protected_files | project.protected_files,
         protected_pyproject_tables=(
             *builtin.protected_pyproject_tables,
             *project.protected_pyproject_tables,
         ),
+    )
+
+
+def _merged_rules(project_dir: str | None) -> RuleSet:
+    """Combine built-in protected names with a project's additive entries.
+
+    Project rules can only add protected files/tables. The shared overlay
+    helper fails a malformed project file open (warn + ignore) so it never
+    disables the built-ins, matching every other rule-driven hook.
+    """
+    return with_project_overlay(
+        RULES_FILE, project_dir=project_dir, parse=_load_rules, combine=_combine_rules
     )
 
 
@@ -209,12 +207,10 @@ def _check_whole_file(path: Path) -> Decision | None:
     """Block modification of an existing protected config; allow creation."""
     if not _exists(path):
         return None
-    return Decision(
-        block=True,
-        reason=(
-            f"BLOCKED [config-protection]: Refusing to modify `{path.name}`, a "
-            f"linter/formatter/typechecker config. {_OVERRIDE_HINT}"
-        ),
+    return Decision.blocked(
+        ID,
+        f"Refusing to modify `{path.name}`, a linter/formatter/typechecker "
+        f"config. {_OVERRIDE_HINT}",
     )
 
 
@@ -254,22 +250,20 @@ def _check_pyproject(
     if not changed:
         return None
     tables = ", ".join(f"[{prefix}]" for prefix in changed)
-    return Decision(
-        block=True,
-        reason=(
-            f"BLOCKED [config-protection]: Refusing to change the {tables} table(s) in "
-            f"{PYPROJECT}, which hold linter/typechecker config. Dependency, build, and "
-            f"metadata edits are allowed. {_OVERRIDE_HINT}"
-        ),
+    return Decision.blocked(
+        ID,
+        f"Refusing to change the {tables} table(s) in {PYPROJECT}, which hold "
+        f"linter/typechecker config. Dependency, build, and metadata edits are "
+        f"allowed. {_OVERRIDE_HINT}",
     )
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a config-weakening edit, else None."""
-    tool_name = payload.get("tool_name", "")
+    tool_name = event.get("tool_name", "")
     if tool_name not in ("Edit", "Write"):
         return None
-    tool_input = payload.get("tool_input") or {}
+    tool_input = event.get("tool_input") or {}
     file_path = tool_input.get("file_path", "")
     if not file_path:
         return None

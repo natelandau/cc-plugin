@@ -39,9 +39,6 @@ loaded on every invocation. A project may add triggers via
 
 from __future__ import annotations
 
-import re
-import sys
-import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -95,31 +92,15 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
         return None
     entries = event.get("entries", [])
 
-    # Load triggers at invocation, not import, so a malformed TOML surfaces a
-    # focused error rather than a confusing import-time traceback. The driver
-    # swallows the raise; built-in rules reload next invocation.
-    try:
-        triggers = rules.load_rules(
-            RULES_FILE, "trigger", required=TRIGGER_REQUIRED, optional=TRIGGER_OPTIONAL
-        )
-    except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, re.error) as exc:
-        print(  # noqa: T201
-            f"capture_followups: failed to load {RULES_FILE.name}: {exc}",
-            file=sys.stderr,
-        )
-        raise
-
-    # Additive per-project triggers. Fail open inside load_project_rules so a
-    # project typo never disables the built-in phrases.
-    triggers = (
-        *triggers,
-        *rules.load_project_rules(
-            RULES_FILE.name,
-            "trigger",
-            required=TRIGGER_REQUIRED,
-            optional=TRIGGER_OPTIONAL,
-            project_dir=cfg.project_dir,
-        ),
+    # Built-in triggers raise on malformed TOML (the driver swallows it and
+    # reloads next invocation); project triggers are additive and fail open.
+    triggers = rules.load_all_rules(
+        RULES_FILE,
+        "trigger",
+        required=TRIGGER_REQUIRED,
+        optional=TRIGGER_OPTIONAL,
+        project_dir=cfg.project_dir,
+        label="capture_followups",
     )
 
     # `text` is the primary match text; also expose it as `message` so a rule

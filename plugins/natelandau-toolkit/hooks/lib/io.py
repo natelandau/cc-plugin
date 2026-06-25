@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import dataclass
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Upper bound on stdin we will parse. Sized generously so legitimate large
 # payloads (e.g. a `Write` carrying a sizable file `content`) are still
@@ -31,6 +34,18 @@ class Decision:
     block: bool
     reason: str = ""
     context: str = ""
+
+    @classmethod
+    def blocked(cls, hook_id: str, message: str) -> Decision:
+        """Construct a blocking Decision with the canonical reason prefix.
+
+        Every guard fronts its reason with `BLOCKED [<hook_id>]: ` so the
+        model sees one uniform, greppable block format carrying the slug a
+        user would put in `disabled_hooks`. `message` is the hook-specific
+        remainder. Centralizing the prefix keeps the four guards that block
+        from drifting in wording.
+        """
+        return cls(block=True, reason=f"BLOCKED [{hook_id}]: {message}")
 
 
 def read_payload() -> dict[str, Any]:
@@ -117,3 +132,15 @@ def emit_sessionstart(blocking: Decision | None, contexts: list[str]) -> NoRetur
 def emit_sessionend(blocking: Decision | None, contexts: list[str]) -> NoReturn:  # noqa: ARG001
     """SessionEnd is read-only for side effects; emit nothing and exit 0."""
     sys.exit(0)
+
+
+# Maps a stage name to the emitter that translates its outcome to the wire
+# format. One table the dispatcher driver indexes by stage, so a stage's name
+# and its emit function are related by data rather than a per-script import.
+STAGE_EMITTERS: dict[str, Callable[[Decision | None, list[str]], NoReturn]] = {
+    "pretooluse": emit_pretooluse,
+    "posttooluse": emit_posttooluse,
+    "stop": emit_stop,
+    "sessionstart": emit_sessionstart,
+    "sessionend": emit_sessionend,
+}

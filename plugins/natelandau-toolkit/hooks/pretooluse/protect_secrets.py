@@ -48,11 +48,10 @@ if TYPE_CHECKING:
 ID = "protect-secrets"
 DEFAULT_LEVEL = "high"
 RULES_FILE = Path(__file__).parent / "protect_secrets.rules.toml"
-# Fields every [[rule]] entry must carry besides its matcher (pattern or
-# conditions); the shared loader validates these and rejects unknown keys.
+# Required [[rule]] fields shared with protect_system (see rules.THRESHOLD_RULE_FIELDS).
 # Each rule additionally sets `field` to target a named input (file_path or
 # command), so one list serves every tool.
-SECRET_FIELDS = frozenset({"id", "level", "reason"})
+SECRET_FIELDS = rules.THRESHOLD_RULE_FIELDS
 
 # Maps a tool name to the verb used in the user-facing block message.
 ACTION_VERBS: dict[str, str] = {
@@ -61,12 +60,6 @@ ACTION_VERBS: dict[str, str] = {
     "Write": "write to",
     "Bash": "execute",
 }
-
-
-def _threshold(cfg: Config) -> int:
-    """Return the numeric threshold from config, defaulting to 'high'."""
-    raw = cfg.option("protect-secrets", "level", DEFAULT_LEVEL).lower()
-    return rules.LEVELS.get(raw, rules.LEVELS[DEFAULT_LEVEL])
 
 
 def _is_allowlisted(text: str, allowlist: tuple[re.Pattern[str], ...]) -> bool:
@@ -93,7 +86,7 @@ def _match_fields(tool_name: str, tool_input: Mapping[str, object]) -> dict[str,
     }
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a sensitive-file access, else None.
 
     Builds the tool input into named fields, short-circuits on an
@@ -101,8 +94,8 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     targeting a named field) filtered by the configured threshold. Returns
     a blocking Decision with the BLOCKED reason string, or None when allowed.
     """
-    tool_name = payload.get("tool_name", "")
-    tool_input = payload.get("tool_input") or {}
+    tool_name = event.get("tool_name", "")
+    tool_input = event.get("tool_input") or {}
     if tool_name not in ("Read", "Edit", "Write", "Bash"):
         return None
     # Read once; may raise on malformed TOML (caught by caller / main).
@@ -138,10 +131,11 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     # One rule list serves every tool because each rule targets a named
     # field: a file_path rule can't match a Bash call (empty file_path),
     # and a command rule can't match a file edit.
-    matched = rules.first_match(secret_rules, fields=fields, threshold=_threshold(cfg))
+    matched = rules.first_match(
+        secret_rules,
+        fields=fields,
+        threshold=rules.threshold(cfg, hook_id=ID, default=DEFAULT_LEVEL),
+    )
     if matched:
-        return Decision(
-            block=True,
-            reason=f"BLOCKED [{matched.id}]: Cannot {ACTION_VERBS[tool_name]}: {matched.reason}",
-        )
+        return Decision.blocked(matched.id, f"Cannot {ACTION_VERBS[tool_name]}: {matched.reason}")
     return None
