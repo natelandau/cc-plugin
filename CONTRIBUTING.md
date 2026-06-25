@@ -97,6 +97,7 @@ plugins/natelandau-toolkit/
     sessionend/                               SessionEnd plugins (empty, noop)
       _registry.py
     lib/                                      Shared library code
+      bash.py                                 Bash command-string clause splitting
       config.py                               Config loading and cascade
       dispatch.py                             Generic stage driver
       io.py                                   Payload reading and Decision type
