@@ -47,7 +47,7 @@ plugins/natelandau-toolkit/hooks/<stage>/_registry.py      Ordered (module_name,
 plugins/natelandau-toolkit/hooks/<stage>/<plugin>.py       Plugin module exposing ID + evaluate(event, cfg)
 plugins/natelandau-toolkit/hooks/lib/dispatch.py           Generic stage driver (loads registry, gates, runs, first-block-wins)
 plugins/natelandau-toolkit/hooks/lib/profiles.py           Profile constants: ALL, STANDARD_UP
-plugins/natelandau-toolkit/hooks/lib/                      Shared scaffolding: io.py, config.py, rules.py, transcript.py
+plugins/natelandau-toolkit/hooks/lib/                      Shared scaffolding: io.py, config.py, rules.py, transcript.py, bash.py
 plugins/natelandau-toolkit/skills/<name>/SKILL.md          On-demand guidance loaded by the skill router
 plugins/natelandau-toolkit/skills/<name>/references/       Optional supplementary content for a skill
 plugins/natelandau-toolkit/skills/shared/                  Content shared by 2+ skills (no SKILL.md; linked by relative path)
@@ -507,7 +507,7 @@ Current agents:
 - Python via `#!/usr/bin/env -S uv run --script` shebangs with optional
   inline metadata (`# /// script ... # ///`). Stdlib only; hooks may
   import the sibling `hooks/lib/` package (`io`, `config`, `dispatch`,
-  `profiles`, `rules`, `transcript`). No third-party dependencies.
+  `profiles`, `rules`, `transcript`, `bash`). No third-party dependencies.
 - All scripts must be executable (`chmod +x`). git tracks the mode bit;
   preserve it when copying.
 - Read JSON from stdin via `lib.io.read_payload()` (every event, Stop

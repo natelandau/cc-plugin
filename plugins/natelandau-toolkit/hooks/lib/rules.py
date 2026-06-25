@@ -356,15 +356,24 @@ def load_all_rules(
         project_dir: Project root for the additive per-project file, or None.
         label: Hook name prefixed to the built-in load-failure warning.
     """
-    try:
-        builtin = load_rules(rules_file, section, required=required, optional=optional)
-    except RULES_LOAD_ERRORS as exc:
-        print(f"{label}: failed to load {rules_file.name}: {exc}", file=sys.stderr)  # noqa: T201
-        raise
-    project = load_project_rules(
-        rules_file.name, section, required=required, optional=optional, project_dir=project_dir
+
+    def parse(path: Path) -> tuple[Rule, ...]:
+        return load_rules(path, section, required=required, optional=optional)
+
+    def parse_builtin(path: Path) -> tuple[Rule, ...]:
+        try:
+            return parse(path)
+        except RULES_LOAD_ERRORS as exc:
+            print(f"{label}: failed to load {path.name}: {exc}", file=sys.stderr)  # noqa: T201
+            raise
+
+    return with_project_overlay(
+        rules_file,
+        project_dir=project_dir,
+        parse=parse,
+        parse_builtin=parse_builtin,
+        combine=lambda builtin, project: (*builtin, *project),
     )
-    return (*builtin, *project)
 
 
 def with_project_overlay[T](
@@ -373,26 +382,30 @@ def with_project_overlay[T](
     project_dir: str | None,
     parse: Callable[[Path], T],
     combine: Callable[[T, T], T],
+    parse_builtin: Callable[[Path], T] | None = None,
 ) -> T:
     """Overlay a project's additive rules onto a hook's built-in rules, failing open.
 
-    The shape-agnostic sibling of `load_all_rules`: `load_all_rules` handles
-    hooks whose data is a `[[<section>]]` Rule tuple, while this handles any
-    other rule shape (e.g. `config_protection`'s name lists). Reads the
-    built-in file via `parse(builtin_path)` (its errors propagate to the
-    driver); when a per-project file of the same basename exists, parses it
-    and `combine`s it on top. A malformed *project* file is caught here, with
-    the same one-line stderr warning and caught-exception set as
-    `load_project_rules`, and the built-in result is returned unchanged, so a
-    project typo never disables a built-in.
+    The one fail-open project-overlay engine every rule-driven hook shares,
+    shape-agnostic over the rule type: `load_all_rules` uses it for the
+    `[[<section>]]` Rule tuple, `config_protection` for its name lists. Reads
+    the built-in file via `parse_builtin(builtin_path)` (defaulting to `parse`;
+    its errors propagate to the driver); when a per-project file of the same
+    basename exists, parses it with `parse` and `combine`s it on top. A
+    malformed *project* file is caught here, with the same one-line stderr
+    warning and caught-exception set as `load_project_rules`, and the built-in
+    result is returned unchanged, so a project typo never disables a built-in.
 
     Args:
         builtin_path: Path to the hook's built-in `<hook>.rules.toml`.
         project_dir: Project root for the additive per-project file, or None.
-        parse: Reads a rules file at a path into the hook's rule shape.
+        parse: Reads a project rules file at a path into the hook's rule shape.
         combine: Folds the project rules onto the built-in rules (additive).
+        parse_builtin: Reads the built-in file; defaults to `parse`. Supply a
+            distinct reader when a built-in load failure needs its own handling
+            (e.g. a hook-labeled stderr note) before the error propagates.
     """
-    builtin = parse(builtin_path)
+    builtin = (parse_builtin or parse)(builtin_path)
     proj_path = project_rules_path(builtin_path.name, project_dir=project_dir)
     if proj_path is None:
         return builtin

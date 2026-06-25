@@ -65,6 +65,22 @@ def read_entries(transcript_path: str) -> list[dict[str, Any]]:
     return entries
 
 
+def _assistant_content_blocks(entry: dict[str, Any]) -> list[Any]:
+    """Return the `message.content` block list of an assistant entry, else [].
+
+    The shared guard for every reader that walks an assistant turn's blocks: a
+    non-assistant entry, a non-dict `message`, or a non-list `content` all
+    yield [], so callers iterate without re-checking the entry shape.
+    """
+    if entry.get("type") != "assistant":
+        return []
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    return content if isinstance(content, list) else []
+
+
 def _entry_text(entry: dict[str, Any]) -> str:
     """Concatenate the text of every `text` block in one transcript entry.
 
@@ -72,17 +88,9 @@ def _entry_text(entry: dict[str, Any]) -> str:
     contribute nothing. Returns "" for non-assistant entries or entries
     whose `message.content` is not a block list.
     """
-    if entry.get("type") != "assistant":
-        return ""
-    message = entry.get("message")
-    if not isinstance(message, dict):
-        return ""
-    content = message.get("content")
-    if not isinstance(content, list):
-        return ""
     return "".join(
         block.get("text", "")
-        for block in content
+        for block in _assistant_content_blocks(entry)
         if isinstance(block, dict) and block.get("type") == "text"
     )
 
@@ -154,15 +162,7 @@ def entries_since_last_user(entries: list[dict[str, Any]]) -> list[dict[str, Any
 
 def _iter_tool_uses(entry: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Yield each `tool_use` block in one assistant entry, else nothing."""
-    if entry.get("type") != "assistant":
-        return
-    message = entry.get("message")
-    if not isinstance(message, dict):
-        return
-    content = message.get("content")
-    if not isinstance(content, list):
-        return
-    for block in content:
+    for block in _assistant_content_blocks(entry):
         if isinstance(block, dict) and block.get("type") == "tool_use":
             yield block
 

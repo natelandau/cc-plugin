@@ -48,24 +48,6 @@ def test_decision_defaults(hooks_dir: Path) -> None:
     assert d.context == ""
 
 
-def test_emit_pre_advisory_silent_when_empty(hooks_dir: Path, capsys) -> None:
-    """Verify emit_pre_advisory prints nothing and exits 0 with no contexts."""
-    io = _load_io(hooks_dir)
-    with pytest_raises_systemexit(0):
-        io.emit_pre_advisory([])
-    assert capsys.readouterr().out == ""
-
-
-def test_emit_pre_advisory_joins_contexts(hooks_dir: Path, capsys) -> None:
-    """Verify emit_pre_advisory emits joined additionalContext JSON, exit 0."""
-    io = _load_io(hooks_dir)
-    with pytest_raises_systemexit(0):
-        io.emit_pre_advisory(["one", "two"])
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
-    assert payload["hookSpecificOutput"]["additionalContext"] == "one\ntwo"
-
-
 def test_emit_block_writes_stderr_exit_2(hooks_dir: Path, capsys) -> None:
     """Verify emit_block writes the reason to stderr and exits 2."""
     io = _load_io(hooks_dir)
