@@ -68,8 +68,13 @@ GIT_C_RE = re.compile(r"\bgit\s+-C\b")
 
 
 @dataclass(frozen=True, slots=True)
-class Rule:
+class CommandRule:
     r"""Declarative command-matching rule.
+
+    Named `CommandRule` (not `Rule`) to stay distinct from `lib.rules.Rule`,
+    the TOML-driven engine the other hooks share. This hook keeps its own
+    rule type because its matcher carries `match_full`/`exclude` semantics
+    and the bypass logic lives alongside the data in this module.
 
     `pattern` is a regex tested against each compound sub-part of a command
     by default (split on `&&`, `||`, `;`). Set `match_full=True` to test
@@ -85,7 +90,7 @@ class Rule:
 
     Example::
 
-        Rule(
+        CommandRule(
             pattern=r"^\\s*git\\s+stash\\s+drop\\b",
             reason="git stash drop permanently discards stashed changes",
         )
@@ -99,64 +104,64 @@ class Rule:
 
 # === RULE DEFINITIONS ===
 #
-# To add a rule, append a Rule(...) to the appropriate tuple below.
-# See the Rule docstring above for field semantics and a syntax example.
+# To add a rule, append a CommandRule(...) to the appropriate tuple below.
+# See the CommandRule docstring above for field semantics and a syntax example.
 #
 # DESTRUCTIVE_RULES        -- blocked on every branch; `reason` is shown.
 # PROTECTED_FILE_MOD_RULES -- blocked only on main/master; the user always
 #                             sees PROTECTED_BRANCH_HINT, so `reason` may
 #                             be omitted.
 
-DESTRUCTIVE_RULES: tuple[Rule, ...] = (
-    Rule(
+DESTRUCTIVE_RULES: tuple[CommandRule, ...] = (
+    CommandRule(
         pattern=r"^\s*git\s+push\b.*(?:--force\b|--force-with-lease\b|\s-[a-zA-Z]*f)",
         reason="Force push rewrites remote history and can destroy others' work",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+push\b.*\s\+\S",
         reason="Force push via refspec (+ref) rewrites remote history",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+reset\b.*--hard\b",
         reason="git reset --hard destroys uncommitted changes irrecoverably",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+clean\b.*-[a-zA-Z]*f",
         reason="git clean -f permanently deletes untracked files",
         exclude=r"-[a-zA-Z]*n|--dry-run",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+checkout\s+(--\s+)?\.(\s|$)",
         reason="git checkout . discards all unstaged changes",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+restore\b.*\s\.(\s|$)",
         reason="git restore . discards all working tree changes",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+rebase\b.*--no-verify\b",
         reason="git rebase --no-verify bypasses safety hooks",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+branch\s+-D\s+main(\s|$)",
         reason="Force-deleting the protected branch 'main' is not allowed",
     ),
-    Rule(
+    CommandRule(
         pattern=r"^\s*git\s+branch\s+-D\s+master(\s|$)",
         reason="Force-deleting the protected branch 'master' is not allowed",
     ),
 )
 
-PROTECTED_FILE_MOD_RULES: tuple[Rule, ...] = (
-    Rule(pattern=r"^\s*(rm|rmdir|mv|cp|touch|mkdir|chmod|chown|ln|install)\b"),
-    Rule(pattern=r"\bsed\b.*\s-i"),
-    Rule(pattern=r"\bperl\b.*\s-i"),
-    Rule(pattern=r"\bcurl\b.*\s-[oO]\b"),
-    Rule(pattern=r"^\s*wget\b"),
-    Rule(pattern=r"\btee\b"),
+PROTECTED_FILE_MOD_RULES: tuple[CommandRule, ...] = (
+    CommandRule(pattern=r"^\s*(rm|rmdir|mv|cp|touch|mkdir|chmod|chown|ln|install)\b"),
+    CommandRule(pattern=r"\bsed\b.*\s-i"),
+    CommandRule(pattern=r"\bperl\b.*\s-i"),
+    CommandRule(pattern=r"\bcurl\b.*\s-[oO]\b"),
+    CommandRule(pattern=r"^\s*wget\b"),
+    CommandRule(pattern=r"\btee\b"),
     # Excludes /dev/null targets so noise-suppression idioms like
     # `cmd 2>/dev/null` and `cmd > /dev/null 2>&1` pass through.
-    Rule(pattern=r"(?<![>&])\s*>(?!&)(?!\s*/dev/null\b)", match_full=True),
+    CommandRule(pattern=r"(?<![>&])\s*>(?!&)(?!\s*/dev/null\b)", match_full=True),
 )
 
 
@@ -217,13 +222,13 @@ def _is_git_command(part: str) -> bool:
     return bool(re.match(r"^\s*(git|gh)\b", part))
 
 
-def _is_excluded(rule: Rule, text: str) -> bool:
+def _is_excluded(rule: CommandRule, text: str) -> bool:
     """Return whether the rule's exclude pattern matches, negating the rule (e.g. --dry-run)."""
     return bool(rule.exclude and re.search(rule.exclude, text))
 
 
 def match_rules(
-    command: str, rules: tuple[Rule, ...], *, skip_git_parts: bool = False
+    command: str, rules: tuple[CommandRule, ...], *, skip_git_parts: bool = False
 ) -> str | None:
     """Return the first matching rule's reason, or None.
 
