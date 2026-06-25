@@ -104,11 +104,11 @@ holds the two profile-set constants every registry imports: `ALL`
 
 - `ID` - slug used in `disabled_hooks` entries and block messages.
 - `evaluate(event: dict, cfg: Config) -> Decision | None` - the plugin's
-  logic. (The parameter name is not enforced; existing PreToolUse plugins call
-  it `payload` and Stop plugins call it `event`.) The plugin is responsible for
-  self-filtering on the fields it handles (e.g., checking
-  `event.get("tool_name") == "Bash"`); the dispatcher passes the full event
-  dict to every enabled plugin.
+  logic. Every plugin names the first parameter `event` (the dispatcher
+  passes it positionally, so the name is convention, not contract). The
+  plugin is responsible for self-filtering on the fields it handles (e.g.,
+  checking `event.get("tool_name") == "Bash"`); the dispatcher passes the
+  full event dict to every enabled plugin.
 
 Plugins no longer carry `__main__` blocks. The dispatcher script is the
 single entry point; debug a plugin by piping a JSON payload directly to

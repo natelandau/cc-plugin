@@ -262,16 +262,16 @@ def get_branch_at_path(path: str) -> str:
     return _run_git("branch", "--show-current", cwd=str(dir_path))
 
 
-def get_effective_branch(data: dict[str, Any]) -> str:
+def get_effective_branch(event: dict[str, Any]) -> str:
     """Determine the effective git branch based on tool context.
 
     For file tools (Edit/Write/NotebookEdit), check the branch at the
     file's location so edits inside a worktree are correctly allowed.
     Falls back to the session's cwd, then the hook process's own cwd.
     """
-    tool_name: str = data.get("tool_name", "")
-    tool_input: dict[str, Any] = data.get("tool_input", {})
-    cwd: str = data.get("cwd", "")
+    tool_name: str = event.get("tool_name", "")
+    tool_input: dict[str, Any] = event.get("tool_input") or {}
+    cwd: str = event.get("cwd", "")
 
     if tool_name in ("Edit", "Write", "NotebookEdit"):
         file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
@@ -418,11 +418,11 @@ def _check_protected_bash(command: str, cwd: str, branch: str) -> str | None:
     return None
 
 
-def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
+def check_protected_branch(event: dict[str, Any], branch: str) -> str | None:
     """Return a block reason if the action is forbidden on the protected branch."""
-    tool_name: str = data.get("tool_name", "")
-    tool_input: dict[str, Any] = data.get("tool_input", {})
-    cwd: str = data.get("cwd", "")
+    tool_name: str = event.get("tool_name", "")
+    tool_input: dict[str, Any] = event.get("tool_input") or {}
+    cwd: str = event.get("cwd", "")
 
     if tool_name in ("Edit", "Write", "NotebookEdit"):
         return _check_file_tool(tool_input, branch)
@@ -433,14 +433,14 @@ def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
     return _check_protected_bash(tool_input.get("command", ""), cwd, branch)
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
     """Return a block/advisory Decision for branch protection, else None."""
-    tool_name = payload.get("tool_name", "")
+    tool_name = event.get("tool_name", "")
     # Self-filter: only file-mod tools and Bash can write to a protected branch.
     # Skip others (notably Read) so the branch lookup's git call is not run per read.
     if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
         return None
-    command = payload.get("tool_input", {}).get("command", "") if tool_name == "Bash" else ""
+    command = (event.get("tool_input") or {}).get("command", "") if tool_name == "Bash" else ""
 
     if tool_name == "Bash":
         reason = check_destructive(command)
@@ -450,9 +450,9 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: 
                 reason=f"BLOCKED: {reason}. Run this command outside Claude Code if you must.",
             )
 
-    branch = get_effective_branch(payload)
+    branch = get_effective_branch(event)
     if branch in PROTECTED_BRANCHES:
-        reason = check_protected_branch(payload, branch)
+        reason = check_protected_branch(event, branch)
         if reason:
             return Decision(block=True, reason=f"BLOCKED: {reason}")
 

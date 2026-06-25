@@ -72,7 +72,7 @@ def _threshold(cfg: Config) -> int:
     return rules.LEVELS.get(raw, rules.LEVELS[DEFAULT_LEVEL])
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a destructive system command, else None.
 
     Matches the bash command against the built-in `[[rule]]` list plus any
@@ -81,9 +81,9 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     field so a rule may target it explicitly. Returns a blocking Decision
     with the BLOCKED reason string, or None when the command is allowed.
     """
-    if payload.get("tool_name") != "Bash":
+    if event.get("tool_name") != "Bash":
         return None
-    command: str = (payload.get("tool_input") or {}).get("command", "")
+    command: str = (event.get("tool_input") or {}).get("command", "")
     if not command:
         return None
     # May raise on malformed TOML; caught by caller / main. Project rules are

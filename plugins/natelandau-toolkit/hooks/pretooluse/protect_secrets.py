@@ -93,7 +93,7 @@ def _match_fields(tool_name: str, tool_input: Mapping[str, object]) -> dict[str,
     }
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a sensitive-file access, else None.
 
     Builds the tool input into named fields, short-circuits on an
@@ -101,8 +101,8 @@ def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
     targeting a named field) filtered by the configured threshold. Returns
     a blocking Decision with the BLOCKED reason string, or None when allowed.
     """
-    tool_name = payload.get("tool_name", "")
-    tool_input = payload.get("tool_input") or {}
+    tool_name = event.get("tool_name", "")
+    tool_input = event.get("tool_input") or {}
     if tool_name not in ("Read", "Edit", "Write", "Bash"):
         return None
     # Read once; may raise on malformed TOML (caught by caller / main).

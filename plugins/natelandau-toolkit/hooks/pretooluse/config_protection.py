@@ -264,12 +264,12 @@ def _check_pyproject(
     )
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a block Decision for a config-weakening edit, else None."""
-    tool_name = payload.get("tool_name", "")
+    tool_name = event.get("tool_name", "")
     if tool_name not in ("Edit", "Write"):
         return None
-    tool_input = payload.get("tool_input") or {}
+    tool_input = event.get("tool_input") or {}
     file_path = tool_input.get("file_path", "")
     if not file_path:
         return None

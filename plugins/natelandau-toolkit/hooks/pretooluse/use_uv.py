@@ -75,11 +75,11 @@ def _flagged(command: str) -> tuple[str, str] | None:
     return None
 
 
-def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
     """Return an advisory Decision nudging toward uv, else None."""
-    if payload.get("tool_name") != "Bash":
+    if event.get("tool_name") != "Bash":
         return None
-    command = payload.get("tool_input", {}).get("command", "")
+    command = (event.get("tool_input") or {}).get("command", "")
     flagged = _flagged(command)
     if flagged is None:
         return None
