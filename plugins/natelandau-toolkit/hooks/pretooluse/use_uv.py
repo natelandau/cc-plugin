@@ -23,16 +23,13 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from lib import bash
 from lib.io import Decision
 
 if TYPE_CHECKING:
     from lib.config import Config
 
 ID = "use-uv"
-
-# Bash clause separators. Each clause's leading executable is checked
-# independently so `cd foo && pytest` still flags the bare pytest.
-_CLAUSE_SPLIT = re.compile(r"&&|\|\||[;|&]")
 
 # Maps a bare leading executable to the suggested uv-prefixed form.
 _DIRECT_SUGGESTIONS = {
@@ -61,7 +58,7 @@ def _leading_tokens(clause: str) -> list[str]:
 
 def _flagged(command: str) -> tuple[str, str] | None:
     """Find the first clause whose leading executable is a bare uv-runnable tool."""
-    for clause in _CLAUSE_SPLIT.split(command):
+    for clause in bash.split_clauses(command, include_pipes=True):
         tokens = _leading_tokens(clause)
         if not tokens:
             continue

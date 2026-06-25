@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lib import bash
 from lib.io import Decision
 
 if TYPE_CHECKING:
@@ -28,7 +29,6 @@ if TYPE_CHECKING:
 
 ID = "branch-protection"
 PROTECTED_BRANCHES = {"main", "master"}
-COMPOUND_SPLIT = r"\s*(?:&&|\|\||;)\s*"
 
 # Single hint appended to every protected-branch block message. Both
 # file-modifying tools (Edit/Write/NotebookEdit) and file-modifying bash
@@ -212,11 +212,6 @@ def _is_git_ignored(file_path: str) -> bool:
     return bool(_run_git("check-ignore", str(Path(file_path).resolve()), cwd=str(target_dir)))
 
 
-def _split_compound(command: str) -> list[str]:
-    """Split a compound bash command into its sub-commands so each is rule-checked alone."""
-    return re.split(COMPOUND_SPLIT, command)
-
-
 def _is_git_command(part: str) -> bool:
     """Return whether a command part is a git or gh invocation."""
     return bool(re.match(r"^\s*(git|gh)\b", part))
@@ -240,12 +235,13 @@ def match_rules(
         rules: The rule tuple to match against.
         skip_git_parts: Skip sub-command parts that start with git/gh.
     """
+    parts = bash.split_clauses(command)  # loop-invariant; split once, not per rule
     for rule in rules:
         if rule.match_full:
             if re.search(rule.pattern, command) and not _is_excluded(rule, command):
                 return rule.reason
         else:
-            for part in _split_compound(command):
+            for part in parts:
                 stripped = part.strip()
                 if not stripped:
                     continue
@@ -296,11 +292,12 @@ def _git_dir(cwd: str) -> Path | None:
     raw = _run_git("rev-parse", "--git-dir", cwd=cwd)
     if not raw:
         return None
-    return Path(raw) if Path(raw).is_absolute() else (Path(cwd) / raw)
+    git_path = Path(raw)
+    return git_path if git_path.is_absolute() else (Path(cwd) / git_path)
 
 
 def is_in_linked_worktree(cwd: str, git_dir: Path) -> bool:
-    """Check if cwd is a linked worktree (not the main repo checkout).
+    """Return whether cwd is a linked worktree (not the main repo checkout).
 
     Compare git-dir to git-common-dir: in a linked worktree git-dir
     points to .git/worktrees/<name> while git-common-dir points to .git/.
@@ -308,9 +305,8 @@ def is_in_linked_worktree(cwd: str, git_dir: Path) -> bool:
     common_dir_raw = _run_git("rev-parse", "--git-common-dir", cwd=cwd)
     if not common_dir_raw:
         return False
-    common_dir = (
-        Path(common_dir_raw) if Path(common_dir_raw).is_absolute() else Path(cwd) / common_dir_raw
-    )
+    common_path = Path(common_dir_raw)
+    common_dir = common_path if common_path.is_absolute() else Path(cwd) / common_path
     return git_dir.resolve() != common_dir.resolve()
 
 
@@ -325,7 +321,7 @@ def is_squash_merge_in_progress(command: str, git_dir: Path | None) -> bool:
         return True
 
     squash_seen = False
-    for raw_part in _split_compound(command):
+    for raw_part in bash.split_clauses(command):
         stripped = raw_part.strip()
         if re.match(r"^\s*git\s+merge\s+--squash\b", stripped):
             squash_seen = True
@@ -342,7 +338,7 @@ def creates_merge_commit(command: str) -> bool:
     runs). Only the provably-safe forms in `SAFE_MERGE_RE` are exempt; every
     other merge/pull is treated as a potential merge commit on the branch.
     """
-    for part in _split_compound(command):
+    for part in bash.split_clauses(command):
         stripped = part.strip()
         if MERGE_PULL_RE.match(stripped) and not SAFE_MERGE_RE.search(stripped):
             return True
@@ -358,30 +354,77 @@ def check_destructive(command: str) -> str | None:
 
 
 def _contains_git_commit(command: str) -> bool:
-    """Check if any sub-part is a `git commit`."""
-    return any(re.match(r"^\s*git\s+commit\b", p) for p in _split_compound(command))
+    """Return whether any sub-part is a `git commit`."""
+    return any(re.match(r"^\s*git\s+commit\b", p) for p in bash.split_clauses(command))
 
 
 def _is_pure_git_command(command: str) -> bool:
-    """Check if every sub-part is a git/gh subcommand."""
+    """Return whether every sub-part is a git/gh subcommand."""
     if not _is_git_command(command):
         return False
-    return all(_is_git_command(p) or not p.strip() for p in _split_compound(command))
+    return all(_is_git_command(p) or not p.strip() for p in bash.split_clauses(command))
+
+
+# A redirect operator (`>`, `>>`, `2>`, `&>`, `>|`) and the path it writes to,
+# captured as group 1. The path stops at whitespace or the next operator, so
+# `> /tmp/log` and `2>/tmp/log` both yield `/tmp/log` while an fd dup like
+# `2>&1` yields no path (the target class excludes `&`).
+_REDIRECT_TARGET_RE = re.compile(r"(?:\d*|&)>>?\|?\s*([^\s|;&<>]+)")
+
+# Commands whose non-flag arguments name files they create or modify, so those
+# args are write targets the /tmp carve-out can confine. A command outside this
+# set (e.g. `echo`, `cat`) contributes no positional write target; only its
+# redirects do. This set is deliberately the subset whose write targets are
+# plain positional paths -- in-place/output writers like `sed -i`, `perl -i`,
+# `curl -o`, and `wget` are NOT here because their targets can't be read off
+# positionally; `_targets_only_tmp` declines the carve-out for those (see below)
+# so the PROTECTED_FILE_MOD_RULES still block them.
+_FILE_MOD_CMDS = frozenset(
+    {"rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "ln", "install", "tee"}
+)
 
 
 def _targets_only_tmp(command: str) -> bool:
-    """Check if all file arguments in non-git parts reference /tmp/."""
-    for part in _split_compound(command):
+    """Return whether every file the command writes is confined to /tmp/.
+
+    Protected-branch carve-out: a Bash command that only creates or modifies
+    files in /tmp cannot affect tracked history, so it passes. Earlier this
+    treated every non-flag token as a file path, which wrongly blocked redirect
+    forms like `echo hi > /tmp/log` (the echoed args and the `>` operator are
+    not files).
+
+    A clause whose file-writing this cannot positively confine to /tmp declines
+    the carve-out (returns False) so the normal PROTECTED_FILE_MOD_RULES decide:
+    a non-/tmp redirect target, a `_FILE_MOD_CMDS` write with a non-/tmp arg, or
+    any other shape the block rules still treat as a file modification (e.g.
+    `sed -i`, `perl -i`, `curl -o`, `wget`). A command with no detectable write
+    is not a /tmp-only write. This keeps the carve-out and the block rules
+    answering "does this write a file outside /tmp" the same way, so a /tmp
+    redirect can no longer smuggle an unmodeled file-mod past the guard.
+    """
+    found_tmp_write: bool = False
+    for part in bash.split_clauses(command):
         stripped = part.strip()
         if not stripped or _is_git_command(stripped):
             continue
-        tokens = stripped.split()
-        file_args = [t for t in tokens[1:] if not t.startswith("-")]
-        if not file_args:
+        redirect_targets: list[str] = _REDIRECT_TARGET_RE.findall(stripped)
+        if not all(t.startswith("/tmp/") for t in redirect_targets):  # noqa: S108
             return False
-        if not all(a.startswith("/tmp/") for a in file_args):  # noqa: S108
+        # Inspect the clause with its redirects removed: what remains must be a
+        # non-file-writing command or a `_FILE_MOD_CMDS` write whose args are
+        # all under /tmp. Anything the block rules would still flag is a write
+        # we cannot confine, so decline.
+        remainder: str = _REDIRECT_TARGET_RE.sub(" ", stripped).strip()
+        tokens: list[str] = remainder.split()
+        if tokens and tokens[0] in _FILE_MOD_CMDS:
+            file_args: list[str] = [t for t in tokens[1:] if not t.startswith("-")]
+            if not all(a.startswith("/tmp/") for a in file_args):  # noqa: S108
+                return False
+            found_tmp_write = found_tmp_write or bool(file_args)
+        elif match_rules(remainder, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
             return False
-    return True
+        found_tmp_write = found_tmp_write or bool(redirect_targets)
+    return found_tmp_write
 
 
 def _check_file_tool(tool_input: dict[str, Any], branch: str) -> str | None:
@@ -440,26 +483,25 @@ def check_protected_branch(event: dict[str, Any], branch: str) -> str | None:
 
 def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
     """Return a block/advisory Decision for branch protection, else None."""
-    tool_name = event.get("tool_name", "")
+    tool_name: str = event.get("tool_name", "")
     # Self-filter: only file-mod tools and Bash can write to a protected branch.
     # Skip others (notably Read) so the branch lookup's git call is not run per read.
     if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
         return None
-    command = (event.get("tool_input") or {}).get("command", "") if tool_name == "Bash" else ""
+    command: str = (event.get("tool_input") or {}).get("command", "") if tool_name == "Bash" else ""
 
     if tool_name == "Bash":
         reason = check_destructive(command)
         if reason:
-            return Decision(
-                block=True,
-                reason=f"BLOCKED: {reason}. Run this command outside Claude Code if you must.",
+            return Decision.blocked(
+                ID, f"{reason}. Run this command outside Claude Code if you must."
             )
 
     branch = get_effective_branch(event)
     if branch in PROTECTED_BRANCHES:
         reason = check_protected_branch(event, branch)
         if reason:
-            return Decision(block=True, reason=f"BLOCKED: {reason}")
+            return Decision.blocked(ID, reason)
 
     if tool_name == "Bash" and GIT_C_RE.search(command):
         return Decision(block=False, context=GIT_C_ADVISORY)

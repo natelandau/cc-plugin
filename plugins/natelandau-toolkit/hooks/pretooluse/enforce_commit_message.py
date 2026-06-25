@@ -421,8 +421,8 @@ def _first_line(text: str) -> str:
 
 
 def _is_auto(line: str) -> bool:
-    """True if this line is a git-auto-generated message we should skip."""
-    return any(line.startswith(p) for p in AUTO_PREFIXES)
+    """Return whether this line is a git-auto-generated message to skip."""
+    return line.startswith(AUTO_PREFIXES)
 
 
 def _check_shape(line: str, noun: str) -> Violation | re.Match[str]:
@@ -470,7 +470,7 @@ def _check_content(m: re.Match[str]) -> Violation | None:
     if type_ not in ALLOWED_TYPES:
         return Violation(
             "bad-type",
-            f"type {type_!r} not allowed; use one of: " + ", ".join(ALLOWED_TYPES),
+            f"type {type_!r} not allowed; use one of: {', '.join(ALLOWED_TYPES)}",
         )
     subject = m.group("subject")
     if WIP_MARKER_RE.match(subject):

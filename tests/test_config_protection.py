@@ -245,6 +245,34 @@ def _payload(case: Case, target: Path) -> dict[str, Any]:
     }
 
 
+def test_config_protection_write_null_content_fails_open(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a Write whose content is null fails open instead of crashing."""
+    # Given an existing pyproject.toml with a protected [tool.ruff] table
+    hook = hooks_dir / "pretooluse.py"
+    target = tmp_path / "pyproject.toml"
+    target.write_text(PYPROJECT_BASE, encoding="utf-8")
+    # And a Write payload carrying a literal JSON null for content
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {"file_path": str(target), "content": None},
+    }
+
+    # When the hook processes the null-content Write
+    proc = subprocess.run(
+        [str(hook)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    # Then it allows the call (unparsable content is treated as fail-open, not a crash)
+    assert proc.returncode == 0, f"exit={proc.returncode}\n  stderr={proc.stderr!r}"
+    assert "Traceback" not in proc.stderr
+
+
 @pytest.mark.parametrize("case", CASES, ids=[c.id for c in CASES])
 def test_config_protection(case: Case, hooks_dir: Path, tmp_path: Path) -> None:
     """Verify the hook blocks config-weakening edits and allows the rest."""

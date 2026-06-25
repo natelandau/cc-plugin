@@ -233,6 +233,34 @@ CASES: tuple[Case, ...] = (
         payload=_bash("cat .env.example"),
         expect_exit=0,
     ),
+    # The allowlist exempts the template token only, not the whole command: a
+    # trailing `.env.example` must not mask a separate secret access earlier in
+    # the compound command.
+    Case(
+        id="secret read then trailing template still blocked",
+        payload=_bash("cat ~/.ssh/id_rsa && cat .env.example"),
+        expect_exit=2,
+        stderr_contains=("read-secret",),
+    ),
+    Case(
+        id="template read then real .env still blocked",
+        payload=_bash("cat .env.example .env"),
+        expect_exit=2,
+        stderr_contains=("read-secret",),
+    ),
+    # A secret path glued to an allowlisted template with no spaces (via a
+    # redirect) must not drop the secret read along with the template token.
+    Case(
+        id="secret glued to template via redirect still blocked",
+        payload=_bash("cat ~/.ssh/id_rsa>.env.example"),
+        expect_exit=2,
+        stderr_contains=("read-secret",),
+    ),
+    Case(
+        id="template read piped to grep allowed",
+        payload=_bash("cat .env.example | grep FOO"),
+        expect_exit=0,
+    ),
     Case(
         id="cat id_rsa blocked",
         payload=_bash("cat ~/.ssh/id_rsa"),

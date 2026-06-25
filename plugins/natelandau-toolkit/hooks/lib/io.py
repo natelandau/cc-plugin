@@ -42,7 +42,7 @@ class Decision:
         Every guard fronts its reason with `BLOCKED [<hook_id>]: ` so the
         model sees one uniform, greppable block format carrying the slug a
         user would put in `disabled_hooks`. `message` is the hook-specific
-        remainder. Centralizing the prefix keeps the four guards that block
+        remainder. Centralizing the prefix keeps every guard that blocks
         from drifting in wording.
         """
         return cls(block=True, reason=f"BLOCKED [{hook_id}]: {message}")
@@ -73,16 +73,6 @@ def emit_block(reason: str) -> NoReturn:
     """Write a block reason to stderr and exit 2 (model-facing block)."""
     print(reason, file=sys.stderr)  # noqa: T201
     sys.exit(2)
-
-
-def emit_pre_advisory(contexts: list[str]) -> NoReturn:
-    """Emit joined advisory context as PreToolUse additionalContext, exit 0.
-
-    With no contexts the hook stays silent (no stdout). Advisory text never
-    blocks; it is injected into the model's next turn. Thin alias over
-    `_emit_advisory` for the PreToolUse stage; kept as a standalone entry point.
-    """
-    _emit_advisory(contexts, "PreToolUse")
 
 
 def _emit_advisory(contexts: list[str], event_name: str) -> NoReturn:

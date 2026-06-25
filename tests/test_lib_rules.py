@@ -392,6 +392,13 @@ reason = "project specific block"
 pattern = "topsecret"
 """
 
+_BUILTIN_RULE_TOML = """\
+[[rule]]
+id = "builtin-block"
+reason = "builtin block"
+pattern = "buildsecret"
+"""
+
 
 def _project_file(tmp_path: Path, filename: str, content: str) -> str:
     """Write a project rules file and return the project dir as a string."""
@@ -470,4 +477,63 @@ def test_load_project_rules_fails_open_on_malformed(
     )
     # Then nothing is loaded and a warning is emitted
     assert result == ()
+    assert "ignoring project rules" in capsys.readouterr().err
+
+
+def test_load_all_rules_merges_builtin_then_project(rules: ModuleType, tmp_path: Path) -> None:
+    """Verify load_all_rules returns built-in rules followed by additive project rules."""
+    # Given a built-in rules file and a same-named project rules file
+    builtin = tmp_path / "y.rules.toml"
+    builtin.write_text(_BUILTIN_RULE_TOML, encoding="utf-8")
+    proj = _project_file(tmp_path, "y.rules.toml", _PROJECT_RULE_TOML)
+
+    # When loading all rules
+    result = rules.load_all_rules(
+        builtin, "rule", required=frozenset({"id", "reason"}), project_dir=proj, label="demo"
+    )
+
+    # Then built-in precedes project in declaration order
+    assert [r.id for r in result] == ["builtin-block", "proj-block"]
+
+
+def test_load_all_rules_raises_with_label_on_bad_builtin(
+    rules: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a malformed built-in file raises after a label-prefixed stderr note."""
+    # Given a malformed built-in rules file
+    builtin = tmp_path / "y.rules.toml"
+    builtin.write_text("not = = toml\n", encoding="utf-8")
+
+    # When loading all rules, then it raises and names the hook in the warning
+    with pytest.raises(rules.RULES_LOAD_ERRORS):
+        rules.load_all_rules(
+            builtin,
+            "rule",
+            required=frozenset({"id", "reason"}),
+            project_dir=str(tmp_path),
+            label="demo",
+        )
+    assert "demo: failed to load y.rules.toml" in capsys.readouterr().err
+
+
+def test_load_all_rules_project_fails_open(
+    rules: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a malformed project file is ignored, leaving built-in rules intact."""
+    # Given a valid built-in file and a malformed same-named project file
+    builtin = tmp_path / "y.rules.toml"
+    builtin.write_text(_BUILTIN_RULE_TOML, encoding="utf-8")
+    _project_file(tmp_path, "y.rules.toml", "this is = = not toml\n")
+
+    # When loading all rules
+    result = rules.load_all_rules(
+        builtin,
+        "rule",
+        required=frozenset({"id", "reason"}),
+        project_dir=str(tmp_path),
+        label="demo",
+    )
+
+    # Then only the built-in rule survives and the project file is reported ignored
+    assert [r.id for r in result] == ["builtin-block"]
     assert "ignoring project rules" in capsys.readouterr().err

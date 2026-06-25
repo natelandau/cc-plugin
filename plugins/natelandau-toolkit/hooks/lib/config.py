@@ -1,4 +1,3 @@
-# plugins/natelandau-toolkit/hooks/lib/config.py
 """File-based hook configuration with a global->project cascade.
 
 Resolution (low to high precedence): built-in defaults, then
@@ -115,10 +114,9 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
         proj_path = Path(project_dir) / ".claude" / CONFIG_NAME
         _apply(_read_toml(proj_path), acc)
 
-    resolved_profile = acc.profile if acc.profile in VALID_PROFILES else DEFAULT_PROFILE
-    # DEFAULT_PROFILE is itself a member of VALID_PROFILES, so an out-of-set
-    # value can never equal it; the membership test alone gates the warning.
-    if acc.profile not in VALID_PROFILES:
+    profile_is_valid = acc.profile in VALID_PROFILES
+    resolved_profile = acc.profile if profile_is_valid else DEFAULT_PROFILE
+    if not profile_is_valid:
         print(  # noqa: T201
             f"natelandau-toolkit: unknown profile {acc.profile!r}, using {DEFAULT_PROFILE}",
             file=sys.stderr,
