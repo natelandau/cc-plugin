@@ -296,11 +296,12 @@ def _git_dir(cwd: str) -> Path | None:
     raw = _run_git("rev-parse", "--git-dir", cwd=cwd)
     if not raw:
         return None
-    return Path(raw) if Path(raw).is_absolute() else (Path(cwd) / raw)
+    git_path = Path(raw)
+    return git_path if git_path.is_absolute() else (Path(cwd) / git_path)
 
 
 def is_in_linked_worktree(cwd: str, git_dir: Path) -> bool:
-    """Check if cwd is a linked worktree (not the main repo checkout).
+    """Return whether cwd is a linked worktree (not the main repo checkout).
 
     Compare git-dir to git-common-dir: in a linked worktree git-dir
     points to .git/worktrees/<name> while git-common-dir points to .git/.
@@ -308,9 +309,8 @@ def is_in_linked_worktree(cwd: str, git_dir: Path) -> bool:
     common_dir_raw = _run_git("rev-parse", "--git-common-dir", cwd=cwd)
     if not common_dir_raw:
         return False
-    common_dir = (
-        Path(common_dir_raw) if Path(common_dir_raw).is_absolute() else Path(cwd) / common_dir_raw
-    )
+    common_path = Path(common_dir_raw)
+    common_dir = common_path if common_path.is_absolute() else Path(cwd) / common_path
     return git_dir.resolve() != common_dir.resolve()
 
 
@@ -358,19 +358,19 @@ def check_destructive(command: str) -> str | None:
 
 
 def _contains_git_commit(command: str) -> bool:
-    """Check if any sub-part is a `git commit`."""
+    """Return whether any sub-part is a `git commit`."""
     return any(re.match(r"^\s*git\s+commit\b", p) for p in _split_compound(command))
 
 
 def _is_pure_git_command(command: str) -> bool:
-    """Check if every sub-part is a git/gh subcommand."""
+    """Return whether every sub-part is a git/gh subcommand."""
     if not _is_git_command(command):
         return False
     return all(_is_git_command(p) or not p.strip() for p in _split_compound(command))
 
 
 def _targets_only_tmp(command: str) -> bool:
-    """Check if all file arguments in non-git parts reference /tmp/."""
+    """Return whether all file arguments in non-git parts reference /tmp/."""
     for part in _split_compound(command):
         stripped = part.strip()
         if not stripped or _is_git_command(stripped):
@@ -440,12 +440,12 @@ def check_protected_branch(event: dict[str, Any], branch: str) -> str | None:
 
 def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
     """Return a block/advisory Decision for branch protection, else None."""
-    tool_name = event.get("tool_name", "")
+    tool_name: str = event.get("tool_name", "")
     # Self-filter: only file-mod tools and Bash can write to a protected branch.
     # Skip others (notably Read) so the branch lookup's git call is not run per read.
     if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
         return None
-    command = (event.get("tool_input") or {}).get("command", "") if tool_name == "Bash" else ""
+    command: str = (event.get("tool_input") or {}).get("command", "") if tool_name == "Bash" else ""
 
     if tool_name == "Bash":
         reason = check_destructive(command)

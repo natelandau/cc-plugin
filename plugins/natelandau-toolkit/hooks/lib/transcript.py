@@ -1,4 +1,3 @@
-# plugins/natelandau-toolkit/hooks/lib/transcript.py
 """Shared transcript-reading helpers for Stop-event hooks.
 
 Stop hook input does NOT carry the assistant text directly; it provides a

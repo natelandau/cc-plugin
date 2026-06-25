@@ -1,4 +1,3 @@
-# plugins/natelandau-toolkit/hooks/lib/rules.py
 """Shared rule loading and matching for pattern-driven hooks.
 
 Consolidates the per-hook TOML loaders that `protect_system`,
