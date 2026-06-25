@@ -147,6 +147,11 @@ def _stage_plugin_params() -> list[tuple[Path, str]]:
     return [(d, m.name) for d in _stage_dirs() for m in _stage_plugin_modules(d)]
 
 
+def _registered_name_params() -> list[tuple[Path, str]]:
+    """Flatten (stage_dir, registered_module_name) pairs across every stage."""
+    return [(d, name) for d in _stage_dirs() for name in sorted(_registered_plugin_names(d))]
+
+
 def _agent_files() -> list[Path]:
     return sorted((PLUGIN_ROOT / "agents").glob("*.md"))
 
@@ -237,6 +242,27 @@ def test_stage_plugin_is_registered(stage_dir: Path, module_name: str) -> None:
     assert stem in registered, (
         f"{stage_dir.name}/{module_name} is not listed in {stage_dir.name}/_registry.py "
         f"PLUGINS, so the dispatcher would never load it"
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage_dir", "module_name"),
+    _registered_name_params(),
+    ids=lambda v: v if isinstance(v, str) else "",
+)
+def test_registered_plugin_has_module(stage_dir: Path, module_name: str) -> None:
+    """Verify every name in a stage's _registry.py PLUGINS has a module file.
+
+    The reverse of test_stage_plugin_is_registered: a registry entry with no
+    matching `<name>.py` would make the dispatcher raise ImportError, which the
+    driver swallows, so the plugin silently never runs. Catch the typo here.
+    """
+    # Given a module name the stage's registry declares
+    # Then a matching module file exists on disk for the dispatcher to import
+    assert (stage_dir / f"{module_name}.py").is_file(), (
+        f"{stage_dir.name}/_registry.py lists {module_name!r} in PLUGINS but "
+        f"{stage_dir.name}/{module_name}.py does not exist, so the dispatcher "
+        f"would swallow the ImportError and silently never run it"
     )
 
 

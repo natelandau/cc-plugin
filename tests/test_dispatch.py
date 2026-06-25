@@ -34,11 +34,13 @@ def _stage(tmp_path: Path, plugins: dict[str, str], registry: str) -> Path:
 
 
 def test_empty_registry_is_noop(tmp_path):
+    """Verify an empty PLUGINS registry yields no decision and no contexts."""
     d = _stage(tmp_path, {}, "PLUGINS = []")
     assert dispatch.collect(d, {}, _Cfg()) == (None, [])
 
 
 def test_first_block_wins(tmp_path):
+    """Verify the first blocking plugin in registry order wins and short-circuits."""
     d = _stage(
         tmp_path,
         {
@@ -52,6 +54,7 @@ def test_first_block_wins(tmp_path):
 
 
 def test_profile_gating_skips_plugin(tmp_path):
+    """Verify a plugin is skipped when the active profile is outside its tier set."""
     d = _stage(
         tmp_path,
         {
@@ -63,6 +66,7 @@ def test_profile_gating_skips_plugin(tmp_path):
 
 
 def test_disabled_hooks_skips_by_id(tmp_path):
+    """Verify a plugin whose ID is in disabled_hooks is skipped."""
     d = _stage(
         tmp_path,
         {
@@ -74,6 +78,7 @@ def test_disabled_hooks_skips_by_id(tmp_path):
 
 
 def test_plugin_exception_is_swallowed(tmp_path):
+    """Verify a raising plugin is skipped and later plugins still contribute."""
     d = _stage(
         tmp_path,
         {

@@ -436,6 +436,10 @@ def check_protected_branch(data: dict[str, Any], branch: str) -> str | None:
 def evaluate(payload: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
     """Return a block/advisory Decision for branch protection, else None."""
     tool_name = payload.get("tool_name", "")
+    # Self-filter: only file-mod tools and Bash can write to a protected branch.
+    # Skip others (notably Read) so the branch lookup's git call is not run per read.
+    if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
+        return None
     command = payload.get("tool_input", {}).get("command", "") if tool_name == "Bash" else ""
 
     if tool_name == "Bash":

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping
 
 
 # Strip GIT_* vars so subprocess git commands don't inherit state from a parent
@@ -70,13 +70,3 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
 def hooks_dir() -> Path:
     """Resolve the plugin's hooks directory."""
     return Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit" / "hooks"
-
-
-@pytest.fixture(scope="session")
-def stage_dir(hooks_dir: Path) -> Callable[[str], Path]:
-    """Build a resolver for a stage's plugin directory under the hooks dir."""
-
-    def _resolve(name: str) -> Path:
-        return hooks_dir / name
-
-    return _resolve

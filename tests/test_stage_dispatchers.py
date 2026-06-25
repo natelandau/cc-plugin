@@ -16,6 +16,7 @@ STAGES = ["pretooluse", "posttooluse", "stop", "sessionstart", "sessionend"]
 
 @pytest.mark.parametrize("stage", STAGES)
 def test_empty_stage_is_noop(stage):
+    """Verify each stage dispatcher with no registered plugins exits 0 silently."""
     proc = subprocess.run(
         [sys.executable, str(HOOKS / f"{stage}.py")],
         input=json.dumps(
