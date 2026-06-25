@@ -86,9 +86,9 @@ not fired until they have at least one plugin.
 1. Imports `_registry.py` from the stage dir and reads `PLUGINS`, which
    is an ordered `list[tuple[str, frozenset[str]]]` of
    `(module_name, profiles)` pairs. Declaration order is run order.
-2. Gates each plugin: skip if `cfg.profile not in profiles`; skip if
-   `plugin.ID in cfg.disabled_hooks`.
-3. Imports each surviving plugin module and calls `evaluate(event, cfg)`.
+2. Skips each plugin whose profile does not match `cfg.profile`.
+3. Imports each surviving plugin module. After import, skips if
+   `plugin.ID in cfg.disabled_hooks`. Calls `evaluate(event, cfg)` on the rest.
 4. Returns on the first `Decision` where `decision.block` is true
    (first-block-wins). Advisory `Decision` values (non-blocking) accumulate
    and are returned together.
@@ -103,9 +103,11 @@ holds the two profile-set constants every registry imports: `ALL`
 
 - `ID` - slug used in `disabled_hooks` entries and block messages.
 - `evaluate(event: dict, cfg: Config) -> Decision | None` - the plugin's
-  logic. The plugin is responsible for self-filtering on the fields it
-  handles (e.g., checking `event.get("tool_name") == "Bash"`); the
-  dispatcher passes the full event dict to every enabled plugin.
+  logic. (The parameter name is not enforced; existing PreToolUse plugins call
+  it `payload` and Stop plugins call it `event`.) The plugin is responsible for
+  self-filtering on the fields it handles (e.g., checking
+  `event.get("tool_name") == "Bash"`); the dispatcher passes the full event
+  dict to every enabled plugin.
 
 Plugins no longer carry `__main__` blocks. The dispatcher script is the
 single entry point; debug a plugin by piping a JSON payload directly to
@@ -120,8 +122,8 @@ without re-reading the JSONL. The Stop dispatcher also bails early when
 `stop_hook_active` is true to prevent re-fire loops.
 
 **Stage dirs are Python packages.** Each `hooks/<stage>/` dir contains
-`__init__.py` so that relative imports within the stage resolve cleanly
-and ruff is satisfied with the bare `import _registry` the driver uses.
+`__init__.py` so ruff treats it as a package; the driver loads its registry via
+`importlib.import_module("_registry")` after putting the stage dir on `sys.path`.
 
 ### Hook configuration
 
@@ -343,8 +345,8 @@ Non-obvious scope decisions in current rules:
   `--recursive` / `--quiet` / `--yes` flag; interactive variants pass.
 
 Secret-handling and git destructive ops are intentionally not
-duplicated; those live in `protect_secrets.py` and
-`enforce_branch_protection.py`.
+duplicated; those live in `pretooluse/protect_secrets.py` and
+`pretooluse/enforce_branch_protection.py`.
 
 ### `hooks/pretooluse/enforce_commit_message.py` (PreToolUse)
 
