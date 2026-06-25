@@ -34,18 +34,26 @@ The repo is a marketplace catalog at the root and a single plugin under
 points Claude Code at the plugin directory.
 
 ```
-.claude-plugin/marketplace.json                       Marketplace catalog (lists this plugin)
-plugins/natelandau-toolkit/.claude-plugin/plugin.json Plugin manifest (name, description, author, version)
-plugins/natelandau-toolkit/hooks/hooks.json           Event registration; references scripts via ${CLAUDE_PLUGIN_ROOT}
-plugins/natelandau-toolkit/hooks/pre_tool_dispatcher.py  Unified PreToolUse entry point; routes to per-hook evaluate()
-plugins/natelandau-toolkit/hooks/*.py                 Hook modules exposing evaluate(payload, cfg) + standalone __main__
-plugins/natelandau-toolkit/hooks/lib/                 Shared scaffolding: io.py, config.py, registry.py, rules.py
-plugins/natelandau-toolkit/skills/<name>/SKILL.md     On-demand guidance loaded by the skill router
-plugins/natelandau-toolkit/skills/<name>/references/  Optional supplementary content for a skill
-plugins/natelandau-toolkit/skills/shared/            Content shared by 2+ skills (no SKILL.md; linked by relative path)
-plugins/natelandau-toolkit/commands/<name>.md         Slash commands invoked by the user
-plugins/natelandau-toolkit/agents/<name>.md           Subagent definitions
-tests/test_*.py                                       Hook characterization test harnesses (no pytest dep)
+.claude-plugin/marketplace.json                            Marketplace catalog (lists this plugin)
+plugins/natelandau-toolkit/.claude-plugin/plugin.json      Plugin manifest (name, description, author, version)
+plugins/natelandau-toolkit/hooks/hooks.json                Event registration; references dispatcher scripts via ${CLAUDE_PLUGIN_ROOT}
+plugins/natelandau-toolkit/hooks/pretooluse.py             PreToolUse dispatcher (wired in hooks.json)
+plugins/natelandau-toolkit/hooks/stop.py                   Stop dispatcher (wired in hooks.json)
+plugins/natelandau-toolkit/hooks/posttooluse.py            PostToolUse dispatcher (not yet wired; stage is a noop)
+plugins/natelandau-toolkit/hooks/sessionstart.py           SessionStart dispatcher (not yet wired; stage is a noop)
+plugins/natelandau-toolkit/hooks/sessionend.py             SessionEnd dispatcher (not yet wired; stage is a noop)
+plugins/natelandau-toolkit/hooks/<stage>/                  Per-stage plugin dir (Python package: __init__.py + _registry.py)
+plugins/natelandau-toolkit/hooks/<stage>/_registry.py      Ordered (module_name, profiles) list; empty list = noop stage
+plugins/natelandau-toolkit/hooks/<stage>/<plugin>.py       Plugin module exposing ID + evaluate(event, cfg)
+plugins/natelandau-toolkit/hooks/lib/dispatch.py           Generic stage driver (loads registry, gates, runs, first-block-wins)
+plugins/natelandau-toolkit/hooks/lib/profiles.py           Profile constants: ALL, STANDARD_UP
+plugins/natelandau-toolkit/hooks/lib/                      Shared scaffolding: io.py, config.py, rules.py, transcript.py
+plugins/natelandau-toolkit/skills/<name>/SKILL.md          On-demand guidance loaded by the skill router
+plugins/natelandau-toolkit/skills/<name>/references/       Optional supplementary content for a skill
+plugins/natelandau-toolkit/skills/shared/                  Content shared by 2+ skills (no SKILL.md; linked by relative path)
+plugins/natelandau-toolkit/commands/<name>.md              Slash commands invoked by the user
+plugins/natelandau-toolkit/agents/<name>.md                Subagent definitions
+tests/test_*.py                                            Hook characterization test harnesses
 ```
 
 On install, Claude Code clones the repo under `~/.claude/plugins/...` and
@@ -56,31 +64,64 @@ install location.
 
 ## Hooks
 
-PreToolUse hooks run through a unified dispatcher; `stop_phrase_guard`
-is a separate Stop entry. Read the hook module docstrings and sibling
+There is one dispatcher script per Claude Code stage. Each dispatcher
+reads the stage's `_registry.py`, gates plugins by profile and
+`disabled_hooks`, and runs survivors in declaration order with
+first-block-wins. Read the plugin module docstrings and sibling
 `.rules.toml` files for behavior; the notes below cover only
 non-obvious gotchas, cross-component decisions, and design rationale.
 
 ### Hook architecture
 
-`pre_tool_dispatcher.py` is the single PreToolUse entry point. It
-loads `Config` once per invocation, then calls
-`registry.applicable_checks(tool_name, cfg)` to get the ordered check
-list for the incoming tool. Checks run in safety-first order;
-first-block-wins. Per-check exceptions are swallowed (exit 0) so a
-broken hook never wedges a tool call.
+**One dispatcher per stage.** Five dispatcher scripts live at the hooks
+root: `pretooluse.py`, `posttooluse.py`, `stop.py`, `sessionstart.py`,
+`sessionend.py`. Each one is the sole entry point for its Claude Code
+event. Only `pretooluse.py` and `stop.py` are currently wired in
+`hooks.json`; the others exist so their stage dirs are ready but are
+not fired until they have at least one plugin.
 
-Each hook module exposes two things:
+**`lib/dispatch.py` is the generic driver.** All dispatchers call
+`run_stage(stage_dir, event, cfg, emit)`. The driver:
 
-- `evaluate(payload: dict, cfg: Config) -> Decision | None` - the
-  logic, callable by the dispatcher and directly from tests.
-- A `__main__` block that reads stdin and exits with the right code,
-  so the module can also be invoked standalone for debugging.
+1. Imports `_registry.py` from the stage dir and reads `PLUGINS`, which
+   is an ordered `list[tuple[str, frozenset[str]]]` of
+   `(module_name, profiles)` pairs. Declaration order is run order.
+2. Gates each plugin: skip if `cfg.profile not in profiles`; skip if
+   `plugin.ID in cfg.disabled_hooks`.
+3. Imports each surviving plugin module and calls `evaluate(event, cfg)`.
+4. Returns on the first `Decision` where `decision.block` is true
+   (first-block-wins). Advisory `Decision` values (non-blocking) accumulate
+   and are returned together.
+5. Swallows per-plugin import and evaluate exceptions so one broken
+   plugin never wedges a tool call or a turn.
 
-`stop_phrase_guard.py` and `capture_followups.py` are separate Stop
-event entries and are not dispatched through `pre_tool_dispatcher.py`.
-Both recover the assistant turn from `transcript_path` via the shared
-`lib/transcript.py` reader.
+A missing or empty `PLUGINS` list makes the stage a noop. `lib/profiles.py`
+holds the two profile-set constants every registry imports: `ALL`
+(minimal, standard, strict) and `STANDARD_UP` (standard, strict).
+
+**Plugin contract.** Each plugin module under `hooks/<stage>/` exposes:
+
+- `ID` - slug used in `disabled_hooks` entries and block messages.
+- `evaluate(event: dict, cfg: Config) -> Decision | None` - the plugin's
+  logic. The plugin is responsible for self-filtering on the fields it
+  handles (e.g., checking `event.get("tool_name") == "Bash"`); the
+  dispatcher passes the full event dict to every enabled plugin.
+
+Plugins no longer carry `__main__` blocks. The dispatcher script is the
+single entry point; debug a plugin by piping a JSON payload directly to
+the dispatcher: `echo '<payload>' | hooks/pretooluse.py`.
+
+**Per-stage event and emit.** Each dispatcher parses its raw payload
+into the stage's `event` dict and selects the matching `emit_*` function
+from `lib/io.py`. The Stop dispatcher's `parse_stop` reads the transcript
+once before dispatch, adding `entries` and `assistant_message` to the
+event dict so every Stop plugin can inspect the closing assistant turn
+without re-reading the JSONL. The Stop dispatcher also bails early when
+`stop_hook_active` is true to prevent re-fire loops.
+
+**Stage dirs are Python packages.** Each `hooks/<stage>/` dir contains
+`__init__.py` so that relative imports within the stage resolve cleanly
+and ruff is satisfied with the bare `import _registry` the driver uses.
 
 ### Hook configuration
 
@@ -117,6 +158,27 @@ Per-hook options go under `[hooks.<hook-id>]`. Currently supported:
 `CLAUDE_PROTECT_SECRETS_LEVEL` environment variables are retired. Set
 levels in the TOML config instead.
 
+### Noop stages
+
+Every Claude Code stage has a directory (`hooks/<stage>/`) and a dispatcher
+script (`hooks/<stage>.py`), even when no plugin exists for it yet. A stage
+with an empty `PLUGINS` list in its `_registry.py` is a noop: the driver
+returns immediately without checking or blocking anything.
+
+A dispatcher script is wired into `hooks.json` **only once** its stage has at
+least one plugin. This is why `posttooluse`, `sessionstart`, and `sessionend`
+exist as dirs and scripts but have no entry in `hooks.json` today: their
+`_registry.py` files declare an empty `PLUGINS` list.
+
+Turning a stage on requires two steps:
+
+1. Add the plugin module to that stage's `_registry.py` `PLUGINS` list.
+2. Add the stage's dispatcher block to `hooks.json`.
+
+`tests/test_manifest.py`'s `STAGE_DISPATCHERS` set lists the not-yet-wired
+scripts so the orphan guard does not flag them as dead. Move a script out of
+that set when you wire it.
+
 ### Per-project additive rules
 
 The five rule-driven hooks (`protect-secrets`, `protect-system`,
@@ -151,13 +213,13 @@ The loader lives in `lib/rules.py` (`project_rules_path`,
 `load_project_rules`); `config_protection` merges via its own `_merged_rules`
 because its rule data is name lists rather than `[[rule]]` tables.
 
-### `hooks/enforce_branch_protection.py` (PreToolUse)
+### `hooks/pretooluse/enforce_branch_protection.py` (PreToolUse)
 
 Blocks destructive git ops on any branch and file modifications on
 `main`/`master`. A direct `git commit` is not the only way to write to a
 protected branch: a `git merge`/`git pull` that creates a **merge commit**
 lands on the trunk without ever running `git commit` (the merge writes the
-commit itself). `creates_merge_commit` closes that gap — on a protected
+commit itself). `creates_merge_commit` closes that gap: on a protected
 branch it blocks any `git merge`/`git pull` except the forms that provably
 can't write a merge commit there: `--ff-only` (fast-forward or error),
 `--squash` (stages only; its follow-up `git commit` is caught by the commit
@@ -182,20 +244,22 @@ Rule data is two in-script tuples (`DESTRUCTIVE_RULES`,
 the bypass logic (worktree/squash/`/tmp` detection) lives alongside
 the rules.
 
-### `hooks/stop_phrase_guard.py` (Stop)
+### `hooks/stop/stop_phrase_guard.py` (Stop)
 
 Blocks Stop turns whose assistant text matches a pattern in
 `stop_phrase_guard.rules.toml`.
 
-**Critical gotcha:** Stop hook input does NOT provide a
-`last_assistant_message` field. The hook reads `transcript_path`
-instead (see "Stop hook transcript shape" below). Any code reaching
-for `last_assistant_message` is broken and exits 0 silently.
+**Critical gotcha:** The raw Stop payload does NOT contain the assistant
+text. The `stop.py` dispatcher calls `parse_stop`, which reads the
+transcript once and adds `assistant_message` and `entries` to the event
+dict before passing it to plugins. Plugins read `event["assistant_message"]`.
+Any plugin code that reaches for `last_assistant_message` on the raw
+payload (before `parse_stop`) is broken and returns None silently.
 
 Be cautious about broad patterns (`getting long`, `next session`);
 they false-positive in legitimate contexts.
 
-### `hooks/capture_followups.py` (Stop)
+### `hooks/stop/capture_followups.py` (Stop)
 
 Blocks a Stop turn whose closing assistant message names work it is not doing
 (out-of-scope items, follow-up PRs, TODOs, a refactor put off "for now"),
@@ -230,9 +294,10 @@ Non-obvious mechanics:
   is already captured and the turn passes. This is what lets the model record
   inline and stop without a block, and what makes the post-block continuation
   terminate.
-- **`stop_hook_active` bail.** Like the phrase guard, the hook exits 0 when
-  re-fired so a model that ignores the block is not wedged forever; it gets one
-  forced chance, no more.
+- **`stop_hook_active` bail.** The `stop.py` dispatcher exits 0 immediately
+  when `stop_hook_active` is true, so neither this plugin nor the phrase
+  guard can re-fire on the model's continuation turn. A model that ignores
+  the block gets one forced chance, no more.
 - **Scoped patterns over bare keywords.** A Stop block is intrusive, so each
   pattern requires deferral framing (`out of scope`, `follow-up PR`,
   `left a TODO`, a deferral verb before `for now`) rather than a bare keyword.
@@ -240,13 +305,13 @@ Non-obvious mechanics:
   deliberately do not fire. The standalone `defer*` family is the one accepted
   broad matcher (it also catches the technical "deferred rendering" sense).
 
-### `hooks/protect_secrets.py` (PreToolUse)
+### `hooks/pretooluse/protect_secrets.py` (PreToolUse)
 
 Blocks reads/edits/writes/exfiltration of sensitive files. Rules in
 `protect_secrets.rules.toml`; threshold controlled by
 `[hooks.protect-secrets].level` in the config file (default `high`).
 
-### `hooks/protect_system.py` (PreToolUse)
+### `hooks/pretooluse/protect_system.py` (PreToolUse)
 
 Blocks system-destructive Bash. Rules in `protect_system.rules.toml`;
 threshold controlled by `[hooks.protect-system].level` in the config
@@ -281,7 +346,7 @@ Secret-handling and git destructive ops are intentionally not
 duplicated; those live in `protect_secrets.py` and
 `enforce_branch_protection.py`.
 
-### `hooks/enforce_commit_message.py` (PreToolUse)
+### `hooks/pretooluse/enforce_commit_message.py` (PreToolUse)
 
 Validates conventional-commit format before `git commit` and on
 `gh pr create|edit|merge` titles (the PR title/merge-subject is held to
@@ -310,7 +375,7 @@ Pass-through cases (deliberately not validated):
 - A chained `git commit ... && gh pr ...` validates only the commit;
   the PR title is not inspected (the original `git commit` path wins).
 
-### `hooks/config_protection.py` (PreToolUse)
+### `hooks/pretooluse/config_protection.py` (PreToolUse)
 
 Blocks `Edit`/`Write` that weaken a linter/formatter/typechecker
 config, steering the agent to fix the code rather than loosen the rule
@@ -338,7 +403,7 @@ Non-obvious carve-outs:
 
 No per-hook options; toggle it via the profile or `disabled_hooks`.
 
-### `hooks/use_uv.py` (PreToolUse)
+### `hooks/pretooluse/use_uv.py` (PreToolUse)
 
 Nudges `python`/`pip install`/`pytest`/`ruff` toward `uv run`.
 Non-blocking; emits via `hookSpecificOutput.additionalContext` on
@@ -396,13 +461,13 @@ are invoked as `/<name>`. Frontmatter: `name`, `description`, optional
 Subagent definitions go at `agents/<name>.md` with frontmatter per the
 Claude Code plugins reference.
 
-**When to reach for one — factor by isolation boundary, not by reuse.** A
+**When to reach for one - factor by isolation boundary, not by reuse.** A
 subagent earns its keep only for verbose, self-contained, summarizable work
 where keeping the output out of the orchestrator's context is the point (e.g.
 running the full lint/test suite and returning just the failures, or a
 read-only review that returns recommendations). Deduplicate shared *procedure*
 with a `skills/shared/*.md` file (the `finishing-prep.md` pattern) or by one
-skill invoking another — never by spinning up a subagent purely to avoid
+skill invoking another, never by spinning up a subagent purely to avoid
 copy-paste, and never by copy-pasting the procedure itself. Keep short,
 stateful, tree-mutating steps (commit work, sync trunk) inline in the invoking
 skill; they need the main conversation's context.
@@ -429,8 +494,8 @@ Current agents:
 
 - Python via `#!/usr/bin/env -S uv run --script` shebangs with optional
   inline metadata (`# /// script ... # ///`). Stdlib only; hooks may
-  import the sibling `hooks/lib/` package (`io`, `config`, `registry`,
-  `rules`). No third-party dependencies.
+  import the sibling `hooks/lib/` package (`io`, `config`, `dispatch`,
+  `profiles`, `rules`, `transcript`). No third-party dependencies.
 - All scripts must be executable (`chmod +x`). git tracks the mode bit;
   preserve it when copying.
 - Read JSON from stdin via `lib.io.read_payload()` (every event, Stop
@@ -497,11 +562,11 @@ invocation; load failure exits 1 non-blocking with stderr.
 
 Every rule shares one canonical schema:
 
-- `id` — slug shown in block messages (optional for hooks that don't use
+- `id` - slug shown in block messages (optional for hooks that don't use
   it, e.g. `stop_phrase_guard`, where it defaults to "").
-- `reason` — human-facing explanation (the Stop hook used to call this
+- `reason` - human-facing explanation (the Stop hook used to call this
   `correction`; it is now `reason` like the others).
-- `level` — optional threshold tier (`critical` < `high` < `strict`);
+- `level` - optional threshold tier (`critical` < `high` < `strict`);
   omit it for hooks without a threshold. `rules.LEVELS` is the one source
   of truth for the ordering.
 - exactly one matcher: a single `pattern` **or** a `conditions` array.
@@ -619,25 +684,23 @@ Concrete rules:
 
 ## Adding components
 
-**New PreToolUse hook (dispatcher-routed, most common):**
+**New plugin for any stage (all stages follow the same steps):**
 
-1. Write `hooks/<your_hook>.py` exposing `evaluate(payload, cfg) ->
-Decision | None` and a `__main__` block. Make it executable. If the hook is
-rule-driven, load project rules via `rules.load_project_rules(RULES_FILE.name, ...)` and concatenate them with the built-in rules.
-2. Add it to `HOOK_PROFILES` (which profiles it runs in) and
-   `PRE_TOOL_CHECKS` (which tool names it matches) in `hooks/lib/registry.py`.
-3. Add `tests/test_<your_hook>.py` with:
-    - Per-check cases that call `evaluate()` directly or via subprocess.
-    - At least one dispatcher-level case that exercises the full
-      `pre_tool_dispatcher.py` path.
-4. Add the hook id to `DISPATCHER_INVOKED` in `tests/test_manifest.py`
-   so the orphan-guard passes.
-5. Run `uv run pytest`, then `uv run ruff check && uv run ruff format`.
-
-**New hook for a different event (Stop, PostToolUse, etc.):**
-
-1. Drop `hooks/<your_hook>.py` in place, make it executable.
-2. Register it in `hooks/hooks.json` under the matching event:
+1. Create `hooks/<stage>/<your_plugin>.py` exposing:
+   - `ID = "<slug>"` - the string used in `disabled_hooks` and block messages.
+   - `evaluate(event: dict, cfg: Config) -> Decision | None` - the logic,
+     including any self-filtering on `event.get("tool_name")` or similar.
+   Make the file executable (`chmod +x`). If the plugin is rule-driven,
+   add a sibling `<your_plugin>.rules.toml` and load project rules via
+   `rules.load_project_rules(RULES_FILE.name, ...)`.
+2. Add `("<your_plugin>", <profiles>)` to `PLUGINS` in that stage's
+   `hooks/<stage>/_registry.py`. Declaration order is run order; safety-first.
+3. Add `tests/test_<your_plugin>.py` with:
+   - Per-plugin cases that call `evaluate()` directly (fast, no subprocess).
+   - At least one dispatcher-level case that pipes a JSON payload to
+     `hooks/<stage_dispatcher>.py` and checks the exit code / output.
+4. If the stage was previously a noop (empty `PLUGINS` list), add its
+   dispatcher block to `hooks/hooks.json`:
     ```json
     "<EventName>": [
       {
@@ -645,17 +708,20 @@ rule-driven, load project rules via `rules.load_project_rules(RULES_FILE.name, .
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/<your_hook>.py",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/<stage>.py",
             "timeout": <seconds>
           }
         ]
       }
     ]
     ```
-3. Add `tests/test_<your_hook>.py` mirroring existing modules
-   (parametrized `CASES` tuple, dataclass case shape, subprocess
-   invocation).
-4. Run `uv run pytest`, then `uv run ruff check && uv run ruff format`.
+   Also remove the dispatcher filename from `STAGE_DISPATCHERS` in
+   `tests/test_manifest.py`.
+5. Run `uv run pytest`, then `uv run ruff check && uv run ruff format`.
+
+The `test_manifest.py` orphan guard (`test_stage_plugin_is_registered`)
+automatically catches any plugin file that is not listed in its stage's
+`_registry.py`, so no manual entry is needed there.
 
 **New skill:** Invoke the `skill-creator` skill to draft frontmatter and
 the "Use when ..." description, then save as
@@ -679,13 +745,14 @@ Stop transcript: `transcript_path` points at a JSONL file. Assistant
 turns have `type: "assistant"` at top level; the message text is the
 concatenation of `text` fields across `{"type":"text", ...}` blocks in
 `message.content` (other block types like `tool_use` are interleaved
-and should be skipped). Also bail early if `stop_hook_active` is true
-to avoid re-fire loops.
+and should be skipped).
 
-This parsing is centralized in `hooks/lib/transcript.py`
+Transcript parsing is centralized in `hooks/lib/transcript.py`
 (`read_entries`, `last_assistant_message_text`, plus
 `file_written_since_last_user` for "did a tool touch file X this turn"
-turn-scoped to the entries after the last human message). `stop_phrase_guard`
-and `capture_followups` both consume it rather than re-reading the JSONL;
-`tests/test_lib_transcript.py` covers the reader and each hook's own tests
-cover the wiring.
+turn-scoped to the entries after the last human message). The `stop.py`
+dispatcher calls `parse_stop` once before running any plugins, which reads
+the JSONL and adds `entries` and `assistant_message` to the event dict.
+Stop plugins receive that pre-parsed event; they do not read the transcript
+themselves. `tests/test_lib_transcript.py` covers the reader and each Stop
+plugin's own tests cover the wiring.
