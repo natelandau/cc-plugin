@@ -37,6 +37,19 @@ DISPATCHER_INVOKED = frozenset(
     }
 )
 
+# These per-stage dispatcher scripts exist but are not yet wired into hooks.json.
+# They will replace the old dispatchers in a future task (Tasks 5-6). Listing
+# them here exempts them from the orphan guard until that cutover lands.
+STAGE_DISPATCHERS = frozenset(
+    {
+        "pretooluse.py",
+        "posttooluse.py",
+        "stop.py",
+        "sessionstart.py",
+        "sessionend.py",
+    }
+)
+
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
@@ -158,12 +171,16 @@ def test_hook_script_is_registered(script_path: Path) -> None:
     # Given the set of scripts referenced from hooks.json
     registered = _registered_hook_paths()
 
-    # Then this script is either registered directly in hooks.json or is an
-    # intentional dispatcher-invoked module (listed in DISPATCHER_INVOKED).
-    # A script that is neither is a real orphan and must fail.
-    assert script_path in registered or script_path.name in DISPATCHER_INVOKED, (
-        f"{script_path.name} exists in hooks/ but is not registered in hooks.json "
-        f"and is not listed in DISPATCHER_INVOKED"
+    # Then this script is either registered directly in hooks.json, invoked by the
+    # old dispatcher, or is a stage dispatcher awaiting hooks.json cutover (Task 5).
+    # A script that is none of these is a real orphan and must fail.
+    assert (
+        script_path in registered
+        or script_path.name in DISPATCHER_INVOKED
+        or script_path.name in STAGE_DISPATCHERS
+    ), (
+        f"{script_path.name} exists in hooks/ but is not registered in hooks.json, "
+        f"not listed in DISPATCHER_INVOKED, and not listed in STAGE_DISPATCHERS"
     )
 
 
