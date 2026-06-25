@@ -81,7 +81,8 @@ event. Only `pretooluse.py` and `stop.py` are currently wired in
 not fired until they have at least one plugin.
 
 **`lib/dispatch.py` is the generic driver.** All dispatchers call
-`run_stage(stage_dir, event, cfg, emit)`. The driver:
+`run_stage(stage_dir=..., event=..., cfg=..., emit=...)` (the parameters are
+keyword-only). The driver:
 
 1. Imports `_registry.py` from the stage dir and reads `PLUGINS`, which
    is an ordered `list[tuple[str, frozenset[str]]]` of
@@ -668,7 +669,7 @@ Concrete rules:
 
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf ~"}}' \
-      | plugins/natelandau-toolkit/hooks/protect_system.py
+      | plugins/natelandau-toolkit/hooks/pretooluse.py
     echo "exit: $?"
     ```
 
