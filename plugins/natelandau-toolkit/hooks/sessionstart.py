@@ -16,22 +16,7 @@ HOOKS_ROOT = Path(__file__).resolve().parent
 if str(HOOKS_ROOT) not in sys.path:
     sys.path.insert(0, str(HOOKS_ROOT))
 
-from lib.config import load_config  # noqa: E402
-from lib.dispatch import run_stage  # noqa: E402
-from lib.io import emit_sessionstart, read_payload  # noqa: E402
-
-
-def main() -> None:
-    """Entry point for the consolidated SessionStart hook."""
-    payload = read_payload()
-    cfg = load_config()
-    run_stage(
-        stage_dir=HOOKS_ROOT / "sessionstart",
-        event=payload,
-        cfg=cfg,
-        emit=emit_sessionstart,
-    )
-
+from lib.dispatch import run_dispatcher  # noqa: E402
 
 if __name__ == "__main__":
-    main()
+    run_dispatcher("sessionstart")

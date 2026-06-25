@@ -1,37 +1,75 @@
 """Generic per-stage hook driver.
 
-`run_stage` loads a stage directory's `_registry.py`, gates each plugin by the
-active profile and `disabled_hooks`, runs the survivors in declared order with
-first-block-wins, and hands the result to the stage's `emit`. A missing or empty
-registry makes the stage a noop. Every per-plugin failure (import or evaluate)
-is swallowed so one broken plugin never wedges a tool call or a turn.
+`run_dispatcher` is the full entry sequence every stage script shares (read
+payload, load config, optionally transform/short-circuit, run the stage,
+emit). `run_stage` loads a stage directory's `_registry.py`, gates each plugin
+by the active profile and `disabled_hooks`, runs the survivors in declared
+order with first-block-wins, and hands the result to the stage's `emit`. A
+missing or empty registry makes the stage a noop. Every per-plugin failure
+(import or evaluate) is swallowed so one broken plugin never wedges a tool call
+or a turn.
+
+Registry and plugin modules are loaded by explicit file path (not by bare
+name), so two stages may hold same-named files without colliding and the
+driver never mutates `sys.path` or `sys.modules` to disambiguate them.
 """
 
 from __future__ import annotations
 
-import importlib
+import importlib.util
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
+
+from lib.config import load_config
+from lib.io import STAGE_EMITTERS, read_payload
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
+    from types import ModuleType
 
     from lib.config import Config
     from lib.io import Decision
+
+# Repo `hooks/` dir (this file is hooks/lib/dispatch.py), the parent of every
+# stage dir; `run_dispatcher` resolves a stage's dir under it by name.
+_HOOKS_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _warn(message: str) -> None:
     print(f"natelandau-toolkit: {message}", file=sys.stderr)  # noqa: T201
 
 
+def _load_module(unique_name: str, path: Path) -> ModuleType:
+    """Execute a module from an explicit file path, bypassing sys.path lookup.
+
+    Loading by path rather than by bare import name means two stages can hold
+    same-named files without colliding, and the driver needs neither a
+    `sys.path` insert nor a `sys.modules` pop to keep them apart: `unique_name`
+    is stage-qualified, so each stage's modules occupy their own cache slots.
+    The module's own `from lib...` imports still resolve via `sys.path`, where
+    the dispatcher script has already placed the hooks root.
+
+    The module is registered in `sys.modules` under `unique_name` *before*
+    execution because a slotted dataclass (`@dataclass(slots=True)`) recreates
+    its class and looks itself up via `sys.modules[cls.__module__]` mid-exec;
+    an unregistered module makes that lookup fail. Each call re-creates and
+    re-executes the module, overwriting any prior entry under the same name.
+    """
+    spec = importlib.util.spec_from_file_location(unique_name, path)
+    if spec is None or spec.loader is None:
+        msg = f"cannot load module from {path}"
+        raise ImportError(msg)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[unique_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_plugins(stage_dir: Path) -> list[tuple[str, frozenset[str]]]:
     """Return the stage's ordered (module_name, profiles) list, or [] if absent."""
-    if str(stage_dir) not in sys.path:
-        sys.path.insert(0, str(stage_dir))
-    sys.modules.pop("_registry", None)  # never reuse another stage's registry
     try:
-        registry = importlib.import_module("_registry")
+        registry = _load_module(f"_registry_{stage_dir.name}", stage_dir / "_registry.py")
     except Exception as exc:  # noqa: BLE001 - missing/broken registry => noop
         _warn(f"no usable registry in {stage_dir.name}: {exc}")
         return []
@@ -50,9 +88,10 @@ def collect(
     for module_name, profiles in _load_plugins(stage_dir):
         if cfg.profile not in profiles:
             continue
-        sys.modules.pop(module_name, None)  # re-import fresh per process/run
         try:
-            module = importlib.import_module(module_name)
+            module = _load_module(
+                f"{stage_dir.name}_{module_name}", stage_dir / f"{module_name}.py"
+            )
         except Exception as exc:  # noqa: BLE001 - resilience: never wedge
             _warn(f"plugin {module_name} failed to import: {exc}")
             continue
@@ -83,3 +122,38 @@ def run_stage(
     """Collect this stage's outcome and emit it in the stage's wire format."""
     blocking, contexts = collect(stage_dir, event, cfg)
     emit(blocking, contexts)
+
+
+def run_dispatcher(
+    stage_name: str,
+    *,
+    prepare: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    skip_if: Callable[[dict[str, Any]], bool] | None = None,
+) -> NoReturn:
+    """Run a stage end to end; the body every dispatcher script reduces to.
+
+    Reads the payload, optionally short-circuits via `skip_if` (the Stop
+    re-fire guard), loads config, optionally transforms the payload via
+    `prepare` (the Stop transcript parse), then runs the stage and emits in its
+    wire format via the stage's entry in `STAGE_EMITTERS`. The five dispatcher
+    scripts differ only in these three values, so each is one call to this.
+
+    Args:
+        stage_name: The stage's dir name under the hooks root, also its
+            `STAGE_EMITTERS` key (e.g. "pretooluse", "stop").
+        prepare: Transforms the raw payload into the event dict each plugin
+            sees. Defaults to passing the payload through unchanged.
+        skip_if: When it returns True for the raw payload, exit 0 before any
+            plugin runs (e.g. the Stop `stop_hook_active` re-fire guard).
+    """
+    payload = read_payload()
+    if skip_if is not None and skip_if(payload):
+        sys.exit(0)
+    cfg = load_config()
+    event = prepare(payload) if prepare is not None else payload
+    run_stage(
+        stage_dir=_HOOKS_ROOT / stage_name,
+        event=event,
+        cfg=cfg,
+        emit=STAGE_EMITTERS[stage_name],
+    )

@@ -23,6 +23,23 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
+def parse_stop(payload: dict[str, Any]) -> dict[str, Any]:
+    """Read and parse the transcript once, exposing it to every Stop plugin.
+
+    Stop input carries no assistant text directly, only a `transcript_path`.
+    Reading and reconstructing the closing message here means each Stop plugin
+    sees `assistant_message` and `entries` on its event without re-reading the
+    JSONL. The Stop dispatcher passes this as its `prepare` step.
+    """
+    transcript_path = payload.get("transcript_path")
+    entries = read_entries(transcript_path) if transcript_path else []
+    return {
+        **payload,
+        "entries": entries,
+        "assistant_message": last_assistant_message_text(entries),
+    }
+
+
 def read_entries(transcript_path: str) -> list[dict[str, Any]]:
     """Parse a JSONL transcript into its object entries, skipping junk lines.
 
