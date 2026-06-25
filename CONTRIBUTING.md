@@ -121,7 +121,7 @@ Each Claude Code hook event (PreToolUse, Stop, PostToolUse, etc.) has its own di
 
 1. Loads the stage's `hooks/<stage>/_registry.py` and reads its `PLUGINS` list.
 2. Filters each plugin by the active profile and `disabled_hooks`.
-3. Imports the surviving plugins in declared order and calls `evaluate(event, cfg)` on each.
+3. Imports the surviving plugins in declared order and calls `evaluate(payload, cfg)` on each.
 4. Returns on the first block decision (first-block-wins). Advisory contexts from non-blocking plugins accumulate.
 
 An exception in any plugin is swallowed. One broken plugin never wedges a tool call.
@@ -131,9 +131,9 @@ An exception in any plugin is swallowed. One broken plugin never wedges a tool c
 A plugin is a Python module in `hooks/<stage>/` that exposes two module-level names:
 
 - `ID` - a string slug used in block messages and `disabled_hooks` config.
-- `evaluate(event: dict, cfg: Config) -> Decision | None` - the logic. Return `None` to pass through, or a `Decision` to block or emit advisory context.
+- `evaluate(payload, cfg) -> Decision | None` - the logic. The parameter name is not enforced (the dispatcher passes the event positionally), but all PreToolUse plugins use `payload` while Stop plugins conventionally use `event`. Return `None` to pass through, or a `Decision` to block or emit advisory context.
 
-The plugin does its own self-filtering. For example, a plugin that only handles `Bash` tool calls checks `event.get("tool_name") != "Bash"` and returns `None` immediately for anything else. The dispatcher does not pre-filter by tool name at the plugin level.
+The plugin does its own self-filtering. For example, a plugin that only handles `Bash` tool calls checks `payload.get("tool_name") != "Bash"` and returns `None` immediately for anything else. The dispatcher does not pre-filter by tool name at the plugin level.
 
 A minimal plugin looks like this:
 
@@ -199,10 +199,10 @@ These steps add a plugin to a stage that is already wired in `hooks.json` (today
 
    The first element is the module stem (filename without `.py`). Order matters: first-block-wins.
 
-3. Write tests in `tests/test_<your_plugin>.py`. Include:
+3. Write tests in `tests/test_<your_plugin>.py`. Follow the project convention:
 
-   - Per-plugin cases that call `evaluate()` directly or via subprocess with a JSON payload on stdin.
-   - At least one dispatcher-level case that exercises the full `<stage>.py` path.
+   - Per-plugin unit cases call `evaluate()` directly with a constructed event dict.
+   - The dispatcher-level case exercises the full `<stage>.py` path via subprocess with a JSON payload on stdin.
 
 4. Run the full suite and linters:
 
@@ -237,9 +237,9 @@ These steps wire a stage that currently has an empty `_registry.py` and no entry
    ]
    ```
 
-   Use `"matcher"` to restrict which tools trigger the dispatcher. See `hooks.json` for the PreToolUse example.
+   The snippet omits `"matcher"`. Omitting it means the dispatcher fires for every event of that type (fine for Stop and SessionStart/SessionEnd; for PreToolUse and PostToolUse you normally restrict it, e.g. `"matcher": "Read|Edit|Write|NotebookEdit|Bash"`). See `hooks.json` for the PreToolUse example.
 
-3. Run the full suite to confirm `test_manifest.py` passes, then remove the dispatcher filename from `STAGE_DISPATCHERS` in `tests/test_manifest.py` (that set exempts dispatchers that exist on disk but are not yet wired).
+3. Wire the stage in `hooks.json` (step 2 above). The orphan guard in `test_manifest.py` checks this registration. Once wired, remove the dispatcher filename from `STAGE_DISPATCHERS` in `tests/test_manifest.py` so the exemption does not go stale (that set exempts dispatchers that exist on disk but are not yet wired; leaving it in is harmless but is housekeeping to keep the exemption current). Run the full suite to confirm all tests pass.
 
 ---
 
