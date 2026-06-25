@@ -170,6 +170,7 @@ def test_emit_pretooluse_advisory_exits_0(hooks_dir: Path, capsys) -> None:
     # Then the context is in hookSpecificOutput
     payload = json.loads(capsys.readouterr().out)
     assert payload["hookSpecificOutput"]["additionalContext"] == "hint"
+    assert payload["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
 
 
 def test_emit_stop_block_is_decision_json(hooks_dir: Path, capsys) -> None:
@@ -205,6 +206,7 @@ def test_emit_posttooluse_block_json(hooks_dir: Path, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["hookSpecificOutput"]["decision"] == "block"
     assert payload["reason"] == "bad"
+    assert payload["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
 
 
 def test_emit_sessionstart_advisory(hooks_dir: Path, capsys) -> None:
@@ -217,6 +219,7 @@ def test_emit_sessionstart_advisory(hooks_dir: Path, capsys) -> None:
     # Then the context is in hookSpecificOutput
     payload = json.loads(capsys.readouterr().out)
     assert payload["hookSpecificOutput"]["additionalContext"] == "ctx"
+    assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
 
 
 def test_emit_sessionend_silent(hooks_dir: Path, capsys) -> None:
