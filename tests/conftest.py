@@ -57,6 +57,16 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
             capture_output=True,
             env=_CLEAN_GIT_ENV,
         )
+        # Neutralize the runner's global/XDG excludesfile so `git check-ignore`
+        # (used by the gitignored-path bypass) sees only this repo's .gitignore.
+        # Without this, a developer's global ignore of e.g. *.log would leak in
+        # and make the gitignore-driven cases pass or fail per machine.
+        subprocess.run(
+            ["git", "-C", str(path), "config", "core.excludesFile", "/dev/null"],
+            check=True,
+            capture_output=True,
+            env=_CLEAN_GIT_ENV,
+        )
     # A .gitignore in the master repo lets branch-protection tests exercise
     # the gitignored-file bypass. check-ignore reads the working-tree file,
     # so it need not be committed. Patterns chosen to not collide with the

@@ -76,7 +76,7 @@ scripts so the orphan guard ignores them; move a script out of that set when you
 
 - `pretooluse/enforce_branch_protection` — blocks destructive git ops + file mods on
   main/master (incl. merge-commit-creating `merge`/`pull`). Rules are in-script tuples
-  (bypass logic for worktrees/squash/`/tmp` lives alongside).
+  (bypass logic for worktrees/squash/`/tmp`/gitignored targets lives alongside).
 - `pretooluse/protect_secrets` — blocks read/edit/write/exfil of sensitive files.
 - `pretooluse/protect_system` — blocks system-destructive Bash.
 - `pretooluse/enforce_commit_message` — conventional-commit format on `git commit` and `gh pr` titles.

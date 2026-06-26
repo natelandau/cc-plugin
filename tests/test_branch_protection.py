@@ -7,8 +7,10 @@ stdout/stderr substrings.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,6 +19,7 @@ import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+    from types import ModuleType
 
 
 def _bash(cmd: str, *, cwd: str) -> dict[str, Any]:
@@ -355,6 +358,72 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
+    # Protected branch: gitignored write targets allowed on Bash, mirroring the
+    # Edit/Write exemption -- a gitignored path is never tracked, so writing it
+    # on a protected branch cannot dirty trunk history.
+    Case(
+        id="touch gitignored dir file on master allowed",
+        make_payload=lambda r: _bash("touch ignored_dir/x", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="mkdir under gitignored dir on master allowed",
+        make_payload=lambda r: _bash("mkdir ignored_dir/sub", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="rm gitignored file on master allowed",
+        make_payload=lambda r: _bash("rm notes.ignored", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="redirect to gitignored file on master allowed",
+        make_payload=lambda r: _bash("echo hi > ignored_dir/log", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="append redirect to gitignored file on master allowed",
+        make_payload=lambda r: _bash("echo x >> notes.ignored", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="chain of gitignored writes on master allowed",
+        make_payload=lambda r: _bash(
+            "echo hi > ignored_dir/a && rm notes.ignored", cwd=r["master"]
+        ),
+        expect_exit=0,
+    ),
+    # Unified carve-out: a command whose writes are all exempt passes even when
+    # some go to /tmp and others to a gitignored path.
+    Case(
+        id="mixed tmp and gitignored writes on master allowed",
+        make_payload=lambda r: _bash("touch /tmp/a ignored_dir/b", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # Safety: a single non-exempt target among exempt ones still blocks -- the
+    # carve-out requires EVERY write to be confined.
+    Case(
+        id="mixed gitignored and tracked write on master blocked",
+        make_payload=lambda r: _bash("touch ignored_dir/a tracked.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # Safety: sed -i stays declined even on a gitignored file -- its write target
+    # can't be confined positionally, same reason the /tmp carve-out excludes it.
+    Case(
+        id="sed -i on gitignored file on master blocked",
+        make_payload=lambda r: _bash("sed -i 's/a/b/' notes.ignored", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # Safety: a `..` segment must not let a non-/tmp write masquerade as exempt
+    # by prefixing /tmp -- the traversal target is judged by the block rules.
+    Case(
+        id="tmp traversal redirect to tracked file on master blocked",
+        make_payload=lambda r: _bash("echo x > /tmp/../tracked.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
     # Protected branch: pure git read commands allowed
     Case(
         id="git status on master allowed",
@@ -512,3 +581,46 @@ def test_enforce_branch_protection(
         assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
     for s in case.output_contains:
         assert s in proc.stdout or s in proc.stderr, f"missing {s!r} in output{diag}"
+
+
+def _load_hook(hooks_dir: Path) -> ModuleType:
+    """Import pretooluse/enforce_branch_protection.py in-process for unit tests."""
+    sys.path.insert(0, str(hooks_dir))
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_branch_protection_under_test",
+            hooks_dir / "pretooluse" / "enforce_branch_protection.py",
+        )
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.pop(0)
+
+
+def test_is_target_exempt(repos: Mapping[str, str], hooks_dir: Path) -> None:
+    """Verify _is_target_exempt confines writes to /tmp or gitignored paths only.
+
+    Calls the predicate directly because the empty-cwd and traversal branches
+    can't be reached through the dispatcher: an empty event cwd also defeats
+    branch detection, so the protected-branch check never runs.
+    """
+    # Given the module and the master repo's gitignore (*.ignored, ignored_dir/)
+    m = _load_hook(hooks_dir)
+    master = repos["master"]
+
+    # Then /tmp paths are exempt, but a `..` traversal out of /tmp is not
+    assert m._is_target_exempt("/tmp/x", "") is True  # noqa: S108
+    assert m._is_target_exempt("/tmp/../tracked.txt", "") is False  # noqa: S108
+
+    # Then an absolute gitignored target is exempt with no cwd, while an
+    # absolute tracked one is not (cwd is only needed to resolve relative paths)
+    assert m._is_target_exempt(f"{master}/ignored_dir/x", "") is True
+    assert m._is_target_exempt(f"{master}/foo.py", "") is False
+
+    # Then a relative target needs a cwd to resolve: exempt with it, declined without
+    assert m._is_target_exempt("ignored_dir/x", master) is True
+    assert m._is_target_exempt("ignored_dir/x", "") is False

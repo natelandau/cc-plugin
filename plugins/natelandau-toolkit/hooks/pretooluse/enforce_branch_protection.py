@@ -365,59 +365,87 @@ def _is_pure_git_command(command: str) -> bool:
 _REDIRECT_TARGET_RE = re.compile(r"(?:\d*|&)>>?\|?\s*([^\s|;&<>]+)")
 
 # Commands whose non-flag arguments name files they create or modify, so those
-# args are write targets the /tmp carve-out can confine. A command outside this
-# set (e.g. `echo`, `cat`) contributes no positional write target; only its
-# redirects do. This set is deliberately the subset whose write targets are
-# plain positional paths -- in-place/output writers like `sed -i`, `perl -i`,
+# args are write targets the exempt-path carve-out can confine. A command
+# outside this set (e.g. `echo`, `cat`) contributes no positional write target;
+# only its redirects do. This set is deliberately the subset whose write targets
+# are plain positional paths -- in-place/output writers like `sed -i`, `perl -i`,
 # `curl -o`, and `wget` are NOT here because their targets can't be read off
-# positionally; `_targets_only_tmp` declines the carve-out for those (see below)
-# so the PROTECTED_FILE_MOD_RULES still block them.
+# positionally; `_write_targets` returns None for those (see below) so the
+# PROTECTED_FILE_MOD_RULES still block them.
 _FILE_MOD_CMDS = frozenset(
     {"rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "ln", "install", "tee"}
 )
 
 
-def _targets_only_tmp(command: str) -> bool:
-    """Return whether every file the command writes is confined to /tmp/.
+def _write_targets(command: str) -> list[str] | None:
+    """Return the file paths a Bash command writes, or None if it can't be confined.
 
-    Protected-branch carve-out: a Bash command that only creates or modifies
-    files in /tmp cannot affect tracked history, so it passes. Earlier this
-    treated every non-flag token as a file path, which wrongly blocked redirect
-    forms like `echo hi > /tmp/log` (the echoed args and the `>` operator are
-    not files).
-
-    A clause whose file-writing this cannot positively confine to /tmp declines
-    the carve-out (returns False) so the normal PROTECTED_FILE_MOD_RULES decide:
-    a non-/tmp redirect target, a `_FILE_MOD_CMDS` write with a non-/tmp arg, or
-    any other shape the block rules still treat as a file modification (e.g.
-    `sed -i`, `perl -i`, `curl -o`, `wget`). A command with no detectable write
-    is not a /tmp-only write. This keeps the carve-out and the block rules
-    answering "does this write a file outside /tmp" the same way, so a /tmp
-    redirect can no longer smuggle an unmodeled file-mod past the guard.
+    Walks each compound clause and collects the paths it would create or
+    modify: redirect targets (`> path`) and the positional args of a
+    `_FILE_MOD_CMDS` write (`rm a b`, `touch x`). Returns None to mean "this
+    clause performs a write whose target this cannot positively identify" -- a
+    `sed -i`, `perl -i`, `curl -o`, `wget`, or any other shape the
+    PROTECTED_FILE_MOD_RULES still flag. Callers treat None as "do not
+    carve out", so an unmodeled file-mod can never slip past the guard by
+    pointing one of its targets at an exempt path. An empty list means the
+    command writes nothing this function can see (pure reads, git-only parts).
     """
-    found_tmp_write: bool = False
+    targets: list[str] = []
     for part in bash.split_clauses(command):
         stripped = part.strip()
         if not stripped or _is_git_command(stripped):
             continue
-        redirect_targets: list[str] = _REDIRECT_TARGET_RE.findall(stripped)
-        if not all(t.startswith("/tmp/") for t in redirect_targets):  # noqa: S108
-            return False
+        targets.extend(_REDIRECT_TARGET_RE.findall(stripped))
         # Inspect the clause with its redirects removed: what remains must be a
-        # non-file-writing command or a `_FILE_MOD_CMDS` write whose args are
-        # all under /tmp. Anything the block rules would still flag is a write
-        # we cannot confine, so decline.
+        # non-file-writing command or a `_FILE_MOD_CMDS` write whose targets are
+        # its positional args. Anything the block rules would still flag is a
+        # write we cannot confine, so decline the carve-out.
         remainder: str = _REDIRECT_TARGET_RE.sub(" ", stripped).strip()
         tokens: list[str] = remainder.split()
         if tokens and tokens[0] in _FILE_MOD_CMDS:
-            file_args: list[str] = [t for t in tokens[1:] if not t.startswith("-")]
-            if not all(a.startswith("/tmp/") for a in file_args):  # noqa: S108
-                return False
-            found_tmp_write = found_tmp_write or bool(file_args)
+            targets.extend(t for t in tokens[1:] if not t.startswith("-"))
         elif match_rules(remainder, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
-            return False
-        found_tmp_write = found_tmp_write or bool(redirect_targets)
-    return found_tmp_write
+            return None
+    return targets
+
+
+def _is_target_exempt(target: str, cwd: str) -> bool:
+    """Return whether writing `target` on a protected branch is harmless.
+
+    A target is exempt when it lives under /tmp (cannot affect tracked
+    history) or is gitignored (never committed, so the same reasoning as the
+    Edit/Write exemption applies). An absolute target is judged on its own; a
+    relative one resolves against the command's `cwd`, and without a cwd it
+    can't be resolved to a repo, so it is not treated as exempt.
+    """
+    # A `..` segment can smuggle a write out of an exempt prefix, e.g.
+    # `/tmp/../tracked.txt` starts with "/tmp/" yet lands outside it, so never
+    # exempt a traversal path -- let the block rules judge the real target.
+    if ".." in Path(target).parts:
+        return False
+    if target.startswith("/tmp/"):  # noqa: S108
+        return True
+    if Path(target).is_absolute():
+        return _is_git_ignored(target)
+    if not cwd:
+        return False
+    abs_target: str = str(Path(cwd) / target)
+    return _is_git_ignored(abs_target)
+
+
+def _targets_all_exempt(command: str, cwd: str) -> bool:
+    """Return whether every file a Bash command writes is exempt on a protected branch.
+
+    Protected-branch carve-out: a command whose writes all land in /tmp or on
+    gitignored paths cannot dirty tracked history, so it passes. A command that
+    writes nothing this can confine (`_write_targets` returns None), or writes
+    nothing at all (empty list), is not a carve-out and falls through to the
+    normal block rules.
+    """
+    targets: list[str] | None = _write_targets(command)
+    if not targets:  # None (unconfinable write) or [] (no detectable write)
+        return False
+    return all(_is_target_exempt(t, cwd) for t in targets)
 
 
 def _check_file_tool(tool_input: dict[str, Any], branch: str) -> str | None:
@@ -438,7 +466,8 @@ def _check_protected_bash(command: str, cwd: str, branch: str) -> str | None:
     Three ways a Bash command can modify protected history: a direct
     `git commit` (carved out for worktrees and in-progress squash merges), a
     `git merge`/`git pull` that writes a merge commit, or a non-git file
-    mutation. Pure git reads and `/tmp`-only writes pass through.
+    mutation. Pure git reads and writes confined to exempt paths (/tmp or
+    gitignored) pass through.
     """
     if _contains_git_commit(command):
         git_dir = _git_dir(cwd) if cwd else None
@@ -450,7 +479,7 @@ def _check_protected_bash(command: str, cwd: str, branch: str) -> str | None:
     if creates_merge_commit(command):
         return f"Cannot merge into the '{branch}' branch. {MERGE_COMMIT_HINT}"
 
-    if _is_pure_git_command(command) or _targets_only_tmp(command):
+    if _is_pure_git_command(command) or _targets_all_exempt(command, cwd):
         return None
 
     if match_rules(command, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
