@@ -62,6 +62,17 @@ def read_payload() -> dict[str, Any]:
         return {}
     if len(raw) > MAX_STDIN_BYTES:
         return {}
+    return parse_json_object(raw)
+
+
+def parse_json_object(raw: str) -> dict[str, Any]:
+    """Parse a JSON string into a dict, or return {} on any error.
+
+    The shared "parse untrusted JSON, fail open to an empty object" tail used
+    by both stdin payload parsing and the file-backed state bridge, so the
+    contract lives in one place. A non-object JSON value (array, scalar, null)
+    yields {}.
+    """
     try:
         data = json.loads(raw)
     except json.JSONDecodeError, ValueError:

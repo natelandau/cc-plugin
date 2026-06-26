@@ -47,7 +47,7 @@ plugins/natelandau-toolkit/hooks/<stage>/_registry.py      Ordered (module_name,
 plugins/natelandau-toolkit/hooks/<stage>/<plugin>.py       Plugin module exposing ID + evaluate(event, cfg)
 plugins/natelandau-toolkit/hooks/lib/dispatch.py           Generic stage driver (loads registry, gates, runs, first-block-wins)
 plugins/natelandau-toolkit/hooks/lib/profiles.py           Profile constants: ALL, STANDARD_UP
-plugins/natelandau-toolkit/hooks/lib/                      Shared scaffolding: io.py, config.py, rules.py, transcript.py, bash.py
+plugins/natelandau-toolkit/hooks/lib/                      Shared scaffolding: io.py, config.py, rules.py, transcript.py, bash.py, paths.py, state.py
 plugins/natelandau-toolkit/skills/<name>/SKILL.md          On-demand guidance loaded by the skill router
 plugins/natelandau-toolkit/skills/<name>/references/       Optional supplementary content for a skill
 plugins/natelandau-toolkit/skills/shared/                  Content shared by 2+ skills (no SKILL.md; linked by relative path)
@@ -420,7 +420,10 @@ No per-hook options; toggle it via the profile or `disabled_hooks`.
 Nudges `python`/`pip install`/`pytest`/`ruff` toward `uv run`.
 Non-blocking; emits via `hookSpecificOutput.additionalContext` on
 stdout (exit 0). Exit-1 + stderr would only reach the human terminal,
-not the model.
+not the model. Each tool's nudge fires at most once per session via
+`lib/state.should_emit_once` (signature `use-uv:<tool>`), so a developer
+who keeps running bare `pytest` is not re-nudged every turn; a payload
+without a `session_id` has nothing to key on and always nudges.
 
 ## Skills
 
@@ -507,7 +510,8 @@ Current agents:
 - Python via `#!/usr/bin/env -S uv run --script` shebangs with optional
   inline metadata (`# /// script ... # ///`). Stdlib only; hooks may
   import the sibling `hooks/lib/` package (`io`, `config`, `dispatch`,
-  `profiles`, `rules`, `transcript`, `bash`). No third-party dependencies.
+  `profiles`, `rules`, `transcript`, `bash`, `paths`, `state`). No
+  third-party dependencies.
 - All scripts must be executable (`chmod +x`). git tracks the mode bit;
   preserve it when copying.
 - Read JSON from stdin via `lib.io.read_payload()` (every event, Stop
@@ -551,12 +555,29 @@ Adopt these when authoring or extending a hook:
   (`-m"msg"`) forms, and carry an explicit regression case for each. Both
   hooks were audited against these forms and already cover them; extend the
   cases, not just the regex, when adding a Bash matcher.
-- **Debouncing advisory output across invocations is deferred.** Re-emit
-  suppression keyed on the message signature (so an ignored nudge does not
-  re-fire every turn) needs per-session state, which we have deliberately
-  not built (no metrics-bridge / state-file substrate yet). Until that
-  lands, keep advisory hooks idempotent and cheap; do not fake debouncing
-  with a per-process counter.
+- **Debouncing advisory output uses the session-keyed state bridge.**
+  Re-emit suppression keyed on the message signature (so an ignored nudge
+  does not re-fire every turn) lives in `lib/state.py`: a per-session JSON
+  bridge file under the system temp dir, keyed by the payload's
+  `session_id`. `state.should_emit_once(session_id, signature)` returns True
+  the first time a signature is seen in a session and False after, and
+  fails open (returns True, never suppresses) when there is no `session_id`
+  or on any state error, so it can only ever quiet a duplicate, never
+  silence a first occurrence. `use_uv` is the first consumer (one nudge per
+  tool per session). The bridge filename derives from the untrusted
+  `session_id`, so it is both sanitized and confined to the state root via
+  `lib/paths.assert_within_root` (see below). Keep advisory hooks otherwise
+  idempotent and cheap; do not fake debouncing with a per-process counter.
+
+- **Confine writes under a derived root with `lib/paths.py`.** Any hook
+  that writes to a path computed from untrusted input must resolve the
+  target through `realpath_nearest_existing` (which canonicalizes the
+  nearest existing ancestor and re-appends a not-yet-created tail, defeating
+  symlink-escape through an intermediate dir) and pass it through the
+  fail-closed `assert_within_root(target, root)`. `lib/state.py` does this
+  for its bridge file. `config_protection`'s "did this exist before I
+  touched it" gate keeps its simpler `lstat` check, which answers that
+  narrower question adequately.
 
 ### Rule data
 

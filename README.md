@@ -30,7 +30,7 @@ tune or disable them.
   typechecker config (including the `[tool.*]` tables in `pyproject.toml`),
   while still allowing dependency and metadata changes and first-time setup.
 - The uv nudge suggests `uv run` when it sees a bare `python`, `pip`, `pytest`,
-  or `ruff` call.
+  or `ruff` call, showing each suggestion at most once per session.
 - The stop-phrase guard stops Claude from ending a turn with certain filler
   phrases.
 - The follow-up capture hook stops Claude from ending a turn that names

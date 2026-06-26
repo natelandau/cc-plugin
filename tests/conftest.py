@@ -92,6 +92,10 @@ def run_pretooluse(
     def _run(payload: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
         env.pop("CLAUDE_PROJECT_DIR", None)
+        # Point the session-keyed state bridge at a per-test tmp dir so hooks
+        # that debounce via lib.state never read/write the shared system temp
+        # bridge, keeping the subprocess suite isolated and rerunnable.
+        env["NATELANDAU_TOOLKIT_STATE_DIR"] = str(tmp_path / "state")
         return subprocess.run(
             [str(hook)],
             input=json.dumps(payload),

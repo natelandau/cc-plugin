@@ -16,6 +16,12 @@ spec exit-1 stderr only reaches the human terminal, not the model, so the
 nudge had no effect on Claude's behavior. Substring matching previously
 flagged correct usage like `uv run pytest`; clause-aware tokenization
 avoids that.
+
+The same nudge is shown at most once per session per suggested tool: the
+session-keyed `lib.state` bridge records which suggestions have already
+fired so a developer who keeps running bare `pytest` is not re-nudged every
+turn. Debouncing is keyed on `session_id`; when the payload carries none (so
+there is nothing to key on) the nudge always fires.
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from lib import bash
+from lib import bash, state
 from lib.io import Decision
 
 if TYPE_CHECKING:
@@ -81,6 +87,10 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: AR
     if flagged is None:
         return None
     old, new = flagged
+    # Show each tool's nudge once per session; an absent session_id keys to
+    # nothing, so should_emit_once returns True and the nudge always fires.
+    if not state.should_emit_once(event.get("session_id", ""), f"{ID}:{old}"):
+        return None
     return Decision(
         block=False,
         context=f"Detected '{old}' in command. In uv projects, use '{new}' instead.",

@@ -101,8 +101,10 @@ plugins/natelandau-toolkit/
       config.py                               Config loading and cascade
       dispatch.py                             Generic stage driver
       io.py                                   Payload reading and Decision type
+      paths.py                                Symlink-hardened path containment
       profiles.py                             Profile tier constants (ALL, STANDARD_UP)
       rules.py                                TOML rule loading and matching
+      state.py                                Session-keyed JSON state bridge
       transcript.py                           Stop event transcript reader
   skills/<name>/SKILL.md                      Skill entry files
   commands/<name>.md                          Slash commands
