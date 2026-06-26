@@ -1,10 +1,3 @@
-#!/usr/bin/env -S uv run --script
-
-# /// script
-# requires-python = ">=3.14"
-# dependencies = []
-# ///
-
 """PreToolUse hook: blocks reads, edits, and exfiltration of sensitive files.
 
 For Read/Edit/Write the file_path is matched against a list of sensitive

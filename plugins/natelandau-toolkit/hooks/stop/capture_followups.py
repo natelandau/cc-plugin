@@ -1,10 +1,3 @@
-#!/usr/bin/env -S uv run --script
-
-# /// script
-# requires-python = ">=3.14"
-# dependencies = []
-# ///
-
 """Stop hook: don't let deferred or recommended work vanish at end of turn.
 
 Skills, slash commands, reviews, and the assistant's own analysis routinely

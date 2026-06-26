@@ -1,10 +1,3 @@
-#!/usr/bin/env -S uv run --script
-
-# /// script
-# requires-python = ">=3.14"
-# dependencies = []
-# ///
-
 """PreToolUse hook: blocks edits that weaken linter/formatter/typechecker config.
 
 When a quality check fails, the right fix is almost always to change the

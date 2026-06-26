@@ -1,10 +1,3 @@
-#!/usr/bin/env -S uv run --script
-
-# /// script
-# requires-python = ">=3.14"
-# dependencies = []
-# ///
-
 """PreToolUse hook: validate conventional commit format on commits and PR titles.
 
 Inspects bash commands for `git commit` invocations carrying `-m` /

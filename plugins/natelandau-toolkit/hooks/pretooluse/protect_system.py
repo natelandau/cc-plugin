@@ -1,10 +1,3 @@
-#!/usr/bin/env -S uv run --script
-
-# /// script
-# requires-python = ">=3.14"
-# dependencies = []
-# ///
-
 """PreToolUse hook: block system-destructive bash commands.
 
 Block catastrophic and high-risk shell operations that are largely

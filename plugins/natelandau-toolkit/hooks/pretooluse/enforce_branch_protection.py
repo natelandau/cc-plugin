@@ -1,10 +1,3 @@
-#!/usr/bin/env -S uv run --script
-
-# /// script
-# requires-python = ">=3.14"
-# dependencies = []
-# ///
-
 """PreToolUse hook: blocks destructive git commands and file modifications.
 
 Blocks destructive git operations (force push, hard reset, clean -f, etc.)

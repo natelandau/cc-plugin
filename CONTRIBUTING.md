@@ -161,7 +161,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     return Decision.blocked(ID, "forbidden-command is not allowed")
 ```
 
-No `__main__` block is needed. Plugins are not standalone scripts.
+No `__main__` block is needed. Plugins are imported by the dispatcher, not standalone scripts, so they carry no shebang, no `# /// script` metadata, and no exec bit (stay `100644`). Only the five `hooks/<stage>.py` dispatcher entry scripts are executable.
 
 ### Profile tiers
 

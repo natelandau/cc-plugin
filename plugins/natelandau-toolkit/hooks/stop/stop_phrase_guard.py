@@ -1,10 +1,3 @@
-#!/usr/bin/env -S uv run --script
-
-# /// script
-# requires-python = ">=3.14"
-# dependencies = []
-# ///
-
 """Stop hook: catch ownership-dodging and permission-seeking phrases.
 
 Reads the assistant's most recent message from the JSONL `transcript_path`
