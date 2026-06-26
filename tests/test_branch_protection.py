@@ -601,16 +601,28 @@ def _load_hook(hooks_dir: Path) -> ModuleType:
         sys.path.pop(0)
 
 
-def test_is_target_exempt(repos: Mapping[str, str], hooks_dir: Path) -> None:
+def test_is_target_exempt(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _is_target_exempt confines writes to /tmp or gitignored paths only.
 
     Calls the predicate directly because the empty-cwd and traversal branches
     can't be reached through the dispatcher: an empty event cwd also defeats
     branch detection, so the protected-branch check never runs.
     """
-    # Given the module and the master repo's gitignore (*.ignored, ignored_dir/)
+    # Given the module with check-ignore stubbed to the master repo's patterns
+    # (*.ignored, ignored_dir/). Stubbing keeps the absolute-path assertions off
+    # the real filesystem: pytest's tmp root is under /tmp on Linux, so a real
+    # repo path would hit the /tmp carve-out before the gitignore branch ever
+    # runs. End-to-end check-ignore behavior is covered by the dispatcher cases.
     m = _load_hook(hooks_dir)
-    master = repos["master"]
+
+    def fake_is_git_ignored(path: str) -> bool:
+        parts = Path(path)
+        return parts.suffix == ".ignored" or "ignored_dir" in parts.parts
+
+    monkeypatch.setattr(m, "_is_git_ignored", fake_is_git_ignored)
+    # A synthetic absolute base outside /tmp; git lookups are stubbed, so it
+    # needs no real directory and must not trip the /tmp carve-out.
+    base = "/repo"
 
     # Then /tmp paths are exempt, but a `..` traversal out of /tmp is not
     assert m._is_target_exempt("/tmp/x", "") is True  # noqa: S108
@@ -618,9 +630,9 @@ def test_is_target_exempt(repos: Mapping[str, str], hooks_dir: Path) -> None:
 
     # Then an absolute gitignored target is exempt with no cwd, while an
     # absolute tracked one is not (cwd is only needed to resolve relative paths)
-    assert m._is_target_exempt(f"{master}/ignored_dir/x", "") is True
-    assert m._is_target_exempt(f"{master}/foo.py", "") is False
+    assert m._is_target_exempt(f"{base}/ignored_dir/x", "") is True
+    assert m._is_target_exempt(f"{base}/foo.py", "") is False
 
     # Then a relative target needs a cwd to resolve: exempt with it, declined without
-    assert m._is_target_exempt("ignored_dir/x", master) is True
+    assert m._is_target_exempt("ignored_dir/x", base) is True
     assert m._is_target_exempt("ignored_dir/x", "") is False
