@@ -30,6 +30,8 @@ HANDOFF_NAME = "HANDOFF.md"
 LOCK_NAME = "sweep.lock"
 TRANSCRIPT_POINTER_NAME = "transcript-path"
 LOG_NAME = "sweep.log"
+PROCESSED_NAME = "processed-sessions"
+BOOTSTRAP_DIRNAME = "bootstrap"
 
 _GIT_TIMEOUT = 5
 
@@ -140,6 +142,39 @@ class Store:
     def log_path(self) -> Path:
         """The append-only sweep activity log."""
         return self.state_dir / LOG_NAME
+
+    @property
+    def processed_path(self) -> Path:
+        """The ledger of session IDs already mined (by the live sweep or bootstrap)."""
+        return self.state_dir / PROCESSED_NAME
+
+    @property
+    def bootstrap_dir(self) -> Path:
+        """Scratch dir holding parsed past transcripts staged for the bootstrap."""
+        return self.state_dir / BOOTSTRAP_DIRNAME
+
+    def read_processed(self) -> set[str]:
+        """Return the set of already-processed session IDs; empty when none/unreadable."""
+        try:
+            text = self.processed_path.read_text(encoding="utf-8")
+        except OSError:
+            return set()
+        return {line.strip() for line in text.splitlines() if line.strip()}
+
+    def add_processed(self, session_id: str) -> None:
+        """Append a session ID to the ledger if absent; best-effort, never raises.
+
+        Idempotent: a re-add of an existing ID is a no-op, so the live sweep can
+        safely record the same session on each run without growing duplicates.
+        """
+        if not session_id or session_id in self.read_processed():
+            return
+        try:
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            with self.processed_path.open("a", encoding="utf-8") as fh:
+                fh.write(f"{session_id}\n")
+        except OSError:
+            pass
 
     def save_transcript_pointer(self, transcript_path: str) -> None:
         """Best-effort persist the transcript path for the sweep; never raises."""
