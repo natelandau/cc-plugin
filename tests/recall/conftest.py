@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -50,3 +51,35 @@ def load_recall_module(recall_hooks_dir: Path) -> Callable[..., ModuleType]:
         return mod
 
     return _load
+
+
+@pytest.fixture
+def import_recall_module(recall_hooks_dir: Path) -> Callable[[str], ModuleType]:
+    """Import a recall hooks module by dotted name with recall's lib isolated on sys.path.
+
+    The recall hooks dir is inserted at sys.path[0] so the module's own
+    `from lib import ...` siblings resolve to the RECALL lib, not the toolkit
+    lib of the same name. Snapshots sys.path and every `lib`/`lib.*`
+    sys.modules entry, evicts them, imports, then restores in a finally.
+    The returned module keeps working after restore because its sibling
+    references are already bound to the recall module objects.
+    """
+
+    def _import(dotted: str) -> ModuleType:
+        hooks = str(recall_hooks_dir)
+        saved_path = list(sys.path)
+        saved_lib = {k: v for k, v in sys.modules.items() if k == "lib" or k.startswith("lib.")}
+        for k in list(sys.modules):
+            if k == "lib" or k.startswith("lib."):
+                del sys.modules[k]
+        sys.path.insert(0, hooks)
+        try:
+            return importlib.import_module(dotted)
+        finally:
+            sys.path[:] = saved_path
+            for k in list(sys.modules):
+                if k == "lib" or k.startswith("lib."):
+                    del sys.modules[k]
+            sys.modules.update(saved_lib)
+
+    return _import
