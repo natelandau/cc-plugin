@@ -369,3 +369,20 @@ def test_run_job_releases_lock_on_runner_failure(tmp_path: Path) -> None:
     # Then it returns no notes and the lock is still released
     assert notes == []
     assert not store.lock_path.exists()
+
+
+def test_render_inlines_capture_criteria() -> None:
+    # Given the sweep template and its criteria fragment
+    from recall import sweep as sweep_mod  # ty: ignore[unresolved-import]
+
+    # When the prompt is rendered
+    rendered = sweep_mod._render_template(
+        sweep_mod.PROMPT_PATH,
+        transcript="[]",
+        existing_memory="",
+        git_context="",
+        capture_criteria=sweep_mod.CRITERIA_PATH.read_text(encoding="utf-8"),
+    )
+    # Then the criteria text is present and no placeholder remains
+    assert "The two-gate test" in rendered
+    assert "{{capture_criteria}}" not in rendered

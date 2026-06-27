@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 STALE_AFTER = 300.0
 PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "sweep.md"
+CRITERIA_PATH = Path(__file__).resolve().parent.parent / "prompts" / "_capture-criteria.md"
 
 
 @dataclass(slots=True)
@@ -186,6 +187,7 @@ class Sweep:
                 transcript=_transcript_text(job.window),
                 existing_memory=self._existing_memory(),
                 git_context=_git_context(job.cwd),
+                capture_criteria=CRITERIA_PATH.read_text(encoding="utf-8"),
             )
             result = self.runner.run(prompt, cwd=str(self.store.data_dir))
             notes = self._validate_writes(result.changed_files)
