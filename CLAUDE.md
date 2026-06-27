@@ -83,7 +83,6 @@ scripts so the orphan guard ignores them; move a script out of that set when you
 - `pretooluse/config_protection` — blocks edits that weaken a linter/formatter/typechecker config.
 - `pretooluse/use_uv` — non-blocking nudge toward `uv run`.
 - `stop/stop_phrase_guard` — blocks Stop turns whose assistant text dodges or pauses/asks.
-- `stop/capture_followups` — blocks a Stop turn that names deferred work unless the backlog was written this turn.
 
 ### Configuration
 
@@ -96,9 +95,8 @@ tables deep-merge; scalars/lists are replaced).
 
 `profile` (`minimal` | `standard` (default) | `strict`) selects the tier; `disabled_hooks`
 force-disables by ID. Tiers: `minimal` = branch-protection, protect-secrets, protect-system,
-stop-phrase-guard; `standard` adds commit-message, config-protection, use-uv, capture-followups;
-`strict` = standard (reserved). Per-hook options go under `[hooks.<id>]` (currently only
-`[hooks.capture-followups].backlog`, default `.agent/BACKLOG.md`).
+stop-phrase-guard; `standard` adds commit-message, config-protection, use-uv;
+`strict` = standard (reserved). Per-hook options go under `[hooks.<id>]`.
 
 **Per-project additive rules.** Rule-driven hooks also read
 `$CLAUDE_PROJECT_DIR/.claude/natelandau-toolkit/<hook>.rules.toml`, same schema as the
