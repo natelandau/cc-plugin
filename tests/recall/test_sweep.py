@@ -1,4 +1,4 @@
-"""Verify the sweep gate: lock acquisition, stale-lock stealing, and exchange threshold."""
+"""Verify the sweep gate: lock acquisition, stale-lock stealing, exchange threshold, and run_job."""
 
 from __future__ import annotations
 
@@ -437,3 +437,165 @@ def test_validate_writes_missing_file_inside_data_dir_produces_no_note(
 
     # Then no note is produced and no exception is raised
     assert notes == []
+
+
+# ---------------------------------------------------------------------------
+# run_job tests (fake runner — never spawns real claude)
+# ---------------------------------------------------------------------------
+
+
+def _make_stream_json(file_path: str) -> str:
+    """Build canned stream-json output reporting a single Write tool call."""
+    assistant_line = json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Write",
+                        "input": {"file_path": file_path, "content": "clean memory content"},
+                    }
+                ]
+            },
+        }
+    )
+    result_line = json.dumps({"type": "result", "result": "done"})
+    return assistant_line + "\n" + result_line + "\n"
+
+
+def _fake_runner_for(file_path: str) -> Callable[..., dict[str, object]]:
+    """Return a fake runner that reports a Write to file_path and ignores all args."""
+
+    def _runner(
+        prompt: str,
+        *,
+        args: list[str],
+        env: dict[str, str],
+        cwd: str,
+        timeout: int = 180,
+    ) -> dict[str, object]:
+        return {
+            "success": True,
+            "exit_code": 0,
+            "stdout": _make_stream_json(file_path),
+            "stderr": "",
+        }
+
+    return _runner
+
+
+@dataclass(frozen=True)
+class _SweepJob:
+    """Minimal SweepJob stand-in for run_job tests."""
+
+    data_dir: Path
+    state_dir: Path
+    transcript_path: str
+    window: list[dict] = field(default_factory=list)
+
+
+def test_run_job_clean_write_releases_lock_and_logs(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify run_job parses written files, skips clean ones, writes sweep.log, and releases lock."""
+    # Given a SweepJob with a pre-created file inside data_dir and a pre-created lock
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    state_dir = tmp_path / "state"
+    data_dir.mkdir(parents=True)
+    state_dir.mkdir(parents=True)
+
+    target = data_dir / "memory.md"
+    target.write_text("clean memory content", encoding="utf-8")
+    lock = state_dir / "sweep.lock"
+    lock.write_text("12345.0", encoding="utf-8")
+
+    job = sweep.SweepJob(
+        data_dir=data_dir,
+        state_dir=state_dir,
+        transcript_path="",
+        window=[],
+    )
+    cfg = _Cfg()
+    fake = _fake_runner_for(str(target))
+
+    # When run_job is called with the fake runner
+    notes = sweep.run_job(job, cfg, runner=fake)
+
+    # Then validate_writes ran (clean file → no notes), sweep.log exists, and lock is gone
+    assert notes == []
+    assert (state_dir / "sweep.log").exists()
+    assert not lock.exists()
+
+
+def test_run_job_escaped_write_removes_file_and_returns_note(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify run_job removes a file written outside data_dir and returns an escaped note."""
+    # Given a file pre-created OUTSIDE data_dir and a fake runner reporting it as written
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    state_dir = tmp_path / "state"
+    data_dir.mkdir(parents=True)
+    state_dir.mkdir(parents=True)
+
+    outside = tmp_path / "outside.md"
+    outside.write_text("should not be here", encoding="utf-8")
+    lock = state_dir / "sweep.lock"
+    lock.write_text("12345.0", encoding="utf-8")
+
+    job = sweep.SweepJob(
+        data_dir=data_dir,
+        state_dir=state_dir,
+        transcript_path="",
+        window=[],
+    )
+    cfg = _Cfg()
+    fake = _fake_runner_for(str(outside))
+
+    # When run_job is called with the fake runner
+    notes = sweep.run_job(job, cfg, runner=fake)
+
+    # Then the escaped file is gone, the note is recorded, and the lock is released
+    assert not outside.exists()
+    assert len(notes) == 1
+    assert notes[0].startswith("escaped:")
+    assert not lock.exists()
+
+
+def test_run_job_always_releases_lock_on_runner_failure(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify run_job releases the lock even when the runner raises an exception."""
+    # Given a fake runner that always raises
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    state_dir = tmp_path / "state"
+    data_dir.mkdir(parents=True)
+    state_dir.mkdir(parents=True)
+
+    lock = state_dir / "sweep.lock"
+    lock.write_text("12345.0", encoding="utf-8")
+
+    job = sweep.SweepJob(
+        data_dir=data_dir,
+        state_dir=state_dir,
+        transcript_path="",
+        window=[],
+    )
+    cfg = _Cfg()
+
+    def _exploding_runner(**_: object) -> dict[str, object]:
+        msg = "simulated runner failure"
+        raise RuntimeError(msg)
+
+    # When run_job is called with the exploding runner
+    notes = sweep.run_job(job, cfg, runner=_exploding_runner)
+
+    # Then it returns empty notes and the lock is still released
+    assert notes == []
+    assert not lock.exists()

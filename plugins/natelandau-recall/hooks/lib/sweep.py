@@ -10,13 +10,17 @@ to be worth a sweep. The heavy agent run is added in a later task.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import re
+import subprocess
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lib import store, transcript
+from lib import claude_runner, store, transcript
 from lib.paths import is_within_root
 
 if TYPE_CHECKING:
@@ -165,6 +169,144 @@ def _scrub(text: str) -> tuple[str, bool]:
         if n:
             changed = True
     return text, changed
+
+
+PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "sweep.md"
+DEFAULT_MODEL = "claude-sonnet-4-6"
+RUN_TIMEOUT = 180
+
+
+def _transcript_text(window: list[dict[str, Any]]) -> str:
+    """Serialize the user/assistant entries of the window for the prompt."""
+    relevant = [e for e in window if e.get("type") in {"user", "assistant"}]
+    return json.dumps(relevant, ensure_ascii=False)
+
+
+def _existing_memory(data_dir: Path, *, max_chars: int = 50_000) -> str:
+    """Concatenate the current store files so the sweep agent can dedup/refine."""
+    parts: list[str] = []
+    for name in (store.ARCHITECTURE_NAME, store.BACKLOG_NAME):
+        with contextlib.suppress(OSError):
+            parts.append(f"# {name}\n{(data_dir / name).read_text(encoding='utf-8')}")
+    learnings = data_dir / store.LEARNINGS_DIRNAME
+    if learnings.is_dir():
+        for f in sorted(learnings.glob("*.md")):
+            with contextlib.suppress(OSError):
+                parts.append(f"# learnings/{f.name}\n{f.read_text(encoding='utf-8')}")
+    return "\n\n".join(parts)[:max_chars]
+
+
+def _git_context(cwd: str, *, timeout: int = 10) -> str:
+    """Return recent commit subjects as ground truth, or '' on any failure."""
+    try:
+        proc = subprocess.run(
+            ["git", "log", "--format=%h %s (%cr)", "-20"],  # noqa: S607
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except OSError, subprocess.SubprocessError:
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _log_run(state_dir: Path, *, changed: list[str], notes: list[str]) -> None:
+    """Append one line recording what the sweep changed; best-effort."""
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).isoformat()
+        with (state_dir / "sweep.log").open("a", encoding="utf-8") as fh:
+            fh.write(f"{stamp} changed={changed} notes={notes}\n")
+    except OSError:
+        pass
+
+
+def run_job(job: SweepJob, cfg: Config, *, runner: Any = claude_runner.run) -> list[str]:
+    """Run the headless sweep for a gated job, validate its writes, free the lock.
+
+    Builds the prompt from the template, invokes `runner` (real `claude -p` by
+    default; tests inject a fake), enforces path-containment + secret scrub on the
+    files the agent wrote, logs the outcome, and ALWAYS releases the lock. Returns
+    the remediation notes. Never raises (it runs in a detached worker with no one
+    to catch it).
+    """
+    lock = job.state_dir / LOCK_NAME
+    try:
+        job.data_dir.mkdir(parents=True, exist_ok=True)
+        prompt = claude_runner.load_template(
+            PROMPT_PATH,
+            transcript=_transcript_text(job.window),
+            existing_memory=_existing_memory(job.data_dir),
+            git_context=_git_context(str(job.data_dir)),
+        )
+        args = claude_runner.build_args(model=cfg.option("sweep", "model", DEFAULT_MODEL))
+        env = claude_runner.build_env(base=os.environ)
+        result = runner(prompt, args=args, env=env, cwd=str(job.data_dir), timeout=RUN_TIMEOUT)
+        tools, _ = claude_runner.parse_stream_json(str(result.get("stdout", "")))
+        changed = [t["file"] for t in tools if "file" in t]
+        notes = validate_writes(changed, data_dir=job.data_dir)
+        _log_run(job.state_dir, changed=changed, notes=notes)
+    except Exception:  # noqa: BLE001 - the detached worker must never raise
+        return []
+    else:
+        return notes
+    finally:
+        release_lock(lock)
+
+
+def _redirect_stdio(state_dir: Path) -> None:
+    """Point the daemon's stdio at sweep.out so it never touches the hook's stdout."""
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        out = os.open(str(state_dir / "sweep.out"), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        null = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(null, 0)
+        os.dup2(out, 1)
+        os.dup2(out, 2)
+    except OSError:
+        pass
+
+
+def _spawn_detached(job: SweepJob, cfg: Config) -> None:
+    """Daemonize the sweep so it outlives session teardown (validated by spike).
+
+    Double-fork + setsid detaches the worker into its own session; the parent
+    (the hook) reaps the intermediate child and returns immediately. The worker
+    redirects stdio away from the hook's stdout, runs the job, and exits. This is
+    the one untested seam (it forks real processes); run_job carries the logic and
+    is tested via an injected fake runner.
+    """
+    try:
+        pid = os.fork()
+    except OSError:
+        return  # cannot fork; skip the sweep rather than block the hook
+    if pid > 0:
+        with contextlib.suppress(OSError):
+            os.waitpid(pid, 0)  # reap the intermediate child (grandchild reparents to init)
+        return
+    # intermediate child
+    try:
+        os.setsid()
+        pid2 = os.fork()
+    except OSError:
+        os._exit(0)
+    if pid2 > 0:
+        os._exit(0)
+    # grandchild = the daemon
+    _redirect_stdio(job.state_dir)
+    with contextlib.suppress(BaseException):
+        run_job(job, cfg)
+    os._exit(0)
+
+
+def trigger(event: dict[str, Any], cfg: Config) -> None:
+    """Gate the sweep and, if worthwhile, spawn the detached worker. Never raises."""
+    with contextlib.suppress(Exception):
+        job = gate(event, cfg, now=time.time())
+        if job is not None:
+            _spawn_detached(job, cfg)
 
 
 def validate_writes(changed_files: list[str], *, data_dir: Path) -> list[str]:

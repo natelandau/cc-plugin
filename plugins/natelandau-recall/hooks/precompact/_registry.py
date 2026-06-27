@@ -2,4 +2,8 @@
 
 from __future__ import annotations
 
-PLUGINS: list[tuple[str, frozenset[str]]] = []
+from lib.profiles import ALL
+
+PLUGINS: list[tuple[str, frozenset[str]]] = [
+    ("run_sweep", ALL),
+]
