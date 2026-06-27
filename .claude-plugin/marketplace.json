@@ -9,6 +9,11 @@
       "name": "natelandau-toolkit",
       "source": "./plugins/natelandau-toolkit",
       "description": "Personal Claude Code toolkit: hooks, skills, and slash commands for my setup."
+    },
+    {
+      "name": "natelandau-recall",
+      "source": "./plugins/natelandau-recall",
+      "description": "Project memory: learnings, deferred backlog, and architecture, captured at session boundaries."
     }
   ]
 }

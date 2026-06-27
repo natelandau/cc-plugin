@@ -1,0 +1,8 @@
+{
+  "name": "natelandau-recall",
+  "version": "0.1.0",
+  "description": "Project memory: proactively captures learnings, a deferred backlog, and architecture, and surfaces them each session.",
+  "author": {
+    "name": "Nathaniel Landau"
+  }
+}
