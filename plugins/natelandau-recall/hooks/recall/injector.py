@@ -1,11 +1,10 @@
 """Render the SessionStart memory injection from a project's store.
 
-Read side only: assembles the architecture block (capped, never silently
-truncated), the learnings index (one line per file, bodies omitted), and the
-backlog summary (counts per type plus inline `[S]` quick-wins), wraps them under
-a fixed preamble in `<recall-memory>…</recall-memory>`, and returns "" when the
-store is empty. Every file read fails open so one unreadable artifact never
-wedges the whole injection.
+Read side only: assembles the learnings index (one line per file, bodies
+omitted) and the backlog summary (counts per type plus inline `[S]` quick-wins),
+wraps them under a fixed preamble in `<recall-memory>…</recall-memory>`, and
+returns "" when the store is empty. Every file read fails open so one unreadable
+artifact never wedges the whole injection.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ if TYPE_CHECKING:
     from recall.store import Store
 
 PREAMBLE = (
-    "This project has persisted memory (learnings, deferred backlog, architecture). "
+    "This project has persisted memory (learnings and a deferred backlog). "
     "Consult it before assuming; read a learning file when its 'read when' hint matches "
     "your task. New memory is recorded automatically at session end — do not capture inline."
 )
@@ -34,38 +33,17 @@ class Injector:
 
     def build(self) -> str:
         """Assemble the full wrapped injection, or "" when the store has nothing to show."""
-        arch = self._architecture_block()
         index = self._learnings_index()
         backlog = self._backlog_summary()
-        if not any([arch, index, backlog]):
+        if not any([index, backlog]):
             return ""
 
         parts: list[str] = [PREAMBLE]
-        if arch:
-            parts.append(f"## Architecture\n{arch}")
         if index:
             parts.append(f"## Learnings Index\n{index}")
         if backlog:
             parts.append(f"## Backlog\n{backlog}")
         return f"<recall-memory>\n{'\n\n'.join(parts)}\n</recall-memory>"
-
-    def _architecture_block(self) -> str:
-        """Return architecture.md, capped with an explicit (non-silent) truncation note."""
-        arch = self.store.architecture_path
-        if not arch.exists():
-            return ""
-        try:
-            raw = arch.read_bytes()
-        except OSError:
-            return ""  # fail open: skip just this block
-        max_bytes = self.config.architecture_max_bytes
-        if len(raw) <= max_bytes:
-            return raw.decode("utf-8", errors="replace")
-        truncated = raw[:max_bytes].decode("utf-8", errors="replace")
-        return (
-            truncated
-            + f"\n\n[architecture.md truncated at {max_bytes} bytes — run /recall-review to trim]"
-        )
 
     def _learnings_index(self) -> str:
         """Return one index line per learning: relative path, summary, read-when hint."""

@@ -4,7 +4,6 @@
 
 [inject]
 enabled = true                # set false to stop SessionStart memory injection
-architecture_max_bytes = 4096 # cap on architecture.md injected verbatim
 
 [sweep]
 enabled = true                # set false to stop the end-of-session sweep

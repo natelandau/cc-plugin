@@ -21,7 +21,6 @@ def test_load_defaults_when_no_files(tmp_path: Path) -> None:
 
     # Then every field falls back to its default
     assert cfg.inject_enabled is True
-    assert cfg.architecture_max_bytes == 4096
     assert cfg.sweep_enabled is True
     assert cfg.sweep_model == "claude-sonnet-4-6"
     assert cfg.min_exchanges == 10

@@ -17,7 +17,6 @@ from pathlib import Path
 
 CONFIG_NAME = "natelandau-recall.toml"
 
-DEFAULT_ARCHITECTURE_MAX_BYTES = 4096
 DEFAULT_SWEEP_MODEL = "claude-sonnet-4-6"
 # Counts individual meaningful messages (user + assistant), not paired turns,
 # so this is ~5 back-and-forth turns — a floor that keeps trivial sessions
@@ -30,7 +29,6 @@ class RecallConfig:
     """Resolved recall settings (flat; one toggle per hook)."""
 
     inject_enabled: bool = True
-    architecture_max_bytes: int = DEFAULT_ARCHITECTURE_MAX_BYTES
     sweep_enabled: bool = True
     sweep_model: str = DEFAULT_SWEEP_MODEL
     min_exchanges: int = DEFAULT_MIN_EXCHANGES
@@ -55,9 +53,6 @@ class RecallConfig:
         sweep = merged.get("sweep", {})
         return cls(
             inject_enabled=_as_bool(inject.get("enabled"), default=True),
-            architecture_max_bytes=_as_int(
-                inject.get("architecture_max_bytes"), default=DEFAULT_ARCHITECTURE_MAX_BYTES
-            ),
             sweep_enabled=_as_bool(sweep.get("enabled"), default=True),
             sweep_model=_as_str(sweep.get("model"), default=DEFAULT_SWEEP_MODEL),
             min_exchanges=_as_int(sweep.get("min_exchanges"), default=DEFAULT_MIN_EXCHANGES),

@@ -85,8 +85,8 @@ Turn the Phase 1 verdicts into edits to `backlog.md`:
 Regardless of mode, confirm any `CLOSE`/`AMEND` the reviewer marked low confidence
 rather than applying it blind.
 
-Edit `backlog.md` in place. Do not add new items, and do not touch
-`architecture.md` or `learnings/` - this skill curates the backlog only.
+Edit `backlog.md` in place. Do not add new items, and do not touch `learnings/` -
+this skill curates the backlog only.
 
 ## Report
 

@@ -13,7 +13,7 @@
     {
       "name": "natelandau-recall",
       "source": "./plugins/natelandau-recall",
-      "description": "Project memory: learnings, deferred backlog, and architecture, captured at session boundaries."
+      "description": "Project memory: learnings and a deferred backlog, captured at session boundaries."
     }
   ]
 }

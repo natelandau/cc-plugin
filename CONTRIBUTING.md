@@ -290,7 +290,7 @@ Recall is standalone. It does not use the toolkit's dispatcher, registry, or pro
 The engine lives in `hooks/recall/`. The main pieces are:
 
 - `Store`: resolves the XDG data and state roots and the per-project key, and owns small fail-open IO helpers.
-- `Injector`: assembles the SessionStart block (architecture, learnings index, backlog summary).
+- `Injector`: assembles the SessionStart block (learnings index, backlog summary).
 - `Sweep`, with `Lock` and `ClaudeRunner`: gates, detaches, runs, and validates the headless `claude -p` pass.
 - `RecallConfig`: the flat config object.
 - Pure helpers: `transcript`, `frontmatter`, `paths`, `io`, `headless`.

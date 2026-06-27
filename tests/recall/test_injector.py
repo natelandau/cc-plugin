@@ -1,4 +1,4 @@
-"""Verify the SessionStart injector: architecture cap, learnings index, backlog summary."""
+"""Verify the SessionStart injector: learnings index and backlog summary."""
 
 from __future__ import annotations
 
@@ -17,12 +17,11 @@ def _store(tmp_path: Path) -> Store:
 
 
 def _seed(store: Store) -> None:
-    """Seed a store with one learning, an architecture file, and a mixed backlog."""
+    """Seed a store with one learning and a mixed backlog."""
     store.learnings_dir.mkdir(parents=True)
     (store.learnings_dir / "x.md").write_text(
         '---\nsummary: The X gotcha\nread_when: ["touching X"]\n---\nbody\n', encoding="utf-8"
     )
-    store.architecture_path.write_text("# Goals\nKeep it small.\n", encoding="utf-8")
     store.backlog_path.write_text(
         "## fix\n- [ ] [S] tiny thing — 2026-06-26\n- [ ] [L] big thing — 2026-06-26\n"
         "## feat\n- [ ] [M] feature — 2026-06-26\n",
@@ -45,34 +44,11 @@ def test_build_wraps_seeded_memory(tmp_path: Path) -> None:
     _seed(store)
     # When building the injection
     out = Injector(store, RecallConfig()).build()
-    # Then the block is wrapped and carries architecture, learnings, and backlog
+    # Then the block is wrapped and carries learnings and backlog
     assert out.startswith("<recall-memory>")
     assert out.endswith("</recall-memory>")
-    assert "Keep it small." in out
     assert "The X gotcha" in out
     assert "tiny thing" in out
-
-
-def test_architecture_under_cap_is_whole(tmp_path: Path) -> None:
-    """Verify architecture.md within the cap is injected verbatim with no marker."""
-    # Given a small architecture file and a generous cap
-    store = _store(tmp_path)
-    _seed(store)
-    out = Injector(store, RecallConfig(architecture_max_bytes=10_000)).build()
-    # Then the whole content appears, no truncation marker
-    assert "Keep it small." in out
-    assert "truncated" not in out
-
-
-def test_architecture_over_cap_truncates_with_note(tmp_path: Path) -> None:
-    """Verify an oversized architecture.md is capped with an explicit (non-silent) note."""
-    # Given an architecture file larger than the cap
-    store = _store(tmp_path)
-    _seed(store)
-    store.architecture_path.write_text("A" * 5000, encoding="utf-8")
-    out = Injector(store, RecallConfig(architecture_max_bytes=100)).build()
-    # Then the output carries a visible truncation marker
-    assert "truncated" in out.lower()
 
 
 def test_learnings_index_omits_body(tmp_path: Path) -> None:

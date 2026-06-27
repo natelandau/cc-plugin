@@ -46,27 +46,21 @@ judgment. Read each artifact and check:
   lacking it is silently dropped from the SessionStart injection. If a file uses
   `name:`/`description:` instead, rename them to `summary:` (keep `read_when:`).
   Fill in or sharpen a `summary`/`read_when` that is absent or vague.
-- **`architecture.md` size:** if it exists, check its byte size and warn if it
-  exceeds 4096 bytes (the default injection cap). Note the exact size and which
-  sections to trim. Do not truncate it automatically; flag it for the user.
 - **Malformed backlog lines:** note any item that does not match
   `- [ ] [S|M|L] <text> - <YYYY-MM-DD> [#area]` so it can be corrected.
 
 ## Dispatch the reviewers
 
-Identify the entries to review (list `learnings/*.md`, split `architecture.md` into
-sections, collect the open `[ ]` backlog items), then dispatch these read-only
-subagents **in parallel** via the `Agent` tool. **Pass each one the absolute store
-directory path** so it reads the entry itself, and name which entry to judge by
-filename, section heading, or item line. Each runs in its own context and returns a
-structured verdict.
+Identify the entries to review (list `learnings/*.md`, collect the open `[ ]`
+backlog items), then dispatch these read-only subagents **in parallel** via the
+`Agent` tool. **Pass each one the absolute store directory path** so it reads the
+entry itself, and name which entry to judge by filename or item line. Each runs in
+its own context and returns a structured verdict.
 
-- **`memory-entry-reviewer`** - one per entry: one per `learnings/*.md` file and one
-  per `architecture.md` section. Pass the store path, which entry to judge (a
-  learning filename, or an architecture section heading), and whether it is a
-  `learning` or an `architecture` section. It returns a verdict
-  (`KEEP`/`UPDATE`/`DELETE`/`DEMOTE`/`PROMOTE`) with gate findings, a cited reason,
-  any `proposed_change`, and a `confidence`.
+- **`memory-entry-reviewer`** - one per `learnings/*.md` file. Pass the store path
+  and the learning filename to judge. It returns a verdict
+  (`KEEP`/`UPDATE`/`DELETE`) with gate findings, a cited reason, any
+  `proposed_change`, and a `confidence`.
 - **`backlog-validity-reviewer`** - one per **open** (`[ ]`) backlog item. Pass the
   store path and the item line verbatim. It returns `CLOSE`/`REMOVE`/`AMEND`/`KEEP`
   with cited evidence, any `proposed_change`, and a `confidence`.
@@ -74,10 +68,9 @@ structured verdict.
   every `learnings/*.md` itself. It returns clusters of overlapping entries to merge,
   each naming a `merge_target`; an empty list means none.
 
-The subagents read the store by path and the repo for grounding. Sub-file units (an
-`architecture.md` section, a single backlog line) are not addressable by path, so
-name them explicitly when you dispatch - the agent still has the store path for
-surrounding context.
+The subagents read the store by path and the repo for grounding. A single backlog
+line is not addressable by path, so name it explicitly when you dispatch - the agent
+still has the store path for surrounding context.
 
 This skill curates; it does not surface new work. The `backlog-opportunity-reviewer`
 agent that ships with this plugin is for other workflows - do not dispatch it here.
@@ -88,9 +81,8 @@ Collect the verdicts into a concrete change set:
 
 - **Merges** (from `redundancy-reviewer`): fold each cluster into its `merge_target`
   and delete the others.
-- **Learnings/architecture** (from `memory-entry-reviewer`): `UPDATE` rewrites the
-  text in place; `DELETE` removes the file or section; `DEMOTE`/`PROMOTE` moves the
-  content between `architecture.md` and a `learnings/` file; `KEEP` does nothing.
+- **Learnings** (from `memory-entry-reviewer`): `UPDATE` rewrites the text in place;
+  `DELETE` removes the file; `KEEP` does nothing.
 - **Backlog** (from `backlog-validity-reviewer`): `CLOSE` checks the item off as
   `[x]`, `REMOVE` deletes the line, `AMEND` replaces it with the corrected line,
   `KEEP` does nothing. Do not add new items.
@@ -99,9 +91,8 @@ A change is **destructive** if it discards content with no undo: a `DELETE`, a
 `REMOVE`, or the deletion of the non-target files in a merge. The store is not under
 version control, so a wrong destructive change cannot be rolled back - which is why
 confidence and mode gate how freely you apply them. Everything else (`UPDATE`,
-`AMEND`, `CLOSE`, `DEMOTE`/`PROMOTE`, and the mechanical health-lint fixes like a
-`name:`→`summary:` rename) rewrites or moves content and applies directly in either
-mode.
+`AMEND`, `CLOSE`, and the mechanical health-lint fixes like a `name:`→`summary:`
+rename) rewrites content and applies directly in either mode.
 
 How the destructive changes are applied depends on the mode:
 
@@ -119,7 +110,6 @@ in `fix` mode, anything still awaiting the user's confirmation):
 
 - Number of learning files reviewed, merged, and deleted.
 - Whether `backlog.md` was updated (how many items closed, removed, or amended).
-- Whether `architecture.md` was flagged for size or had sections demoted.
 - Any frontmatter corrections made.
 
 Keep the report to one short paragraph or a brief bulleted list.

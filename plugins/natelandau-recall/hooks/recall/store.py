@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 PLUGIN_NS = "natelandau-recall"
 LEARNINGS_DIRNAME = "learnings"
 BACKLOG_NAME = "backlog.md"
-ARCHITECTURE_NAME = "architecture.md"
 LOCK_NAME = "sweep.lock"
 TRANSCRIPT_POINTER_NAME = "transcript-path"
 LOG_NAME = "sweep.log"
@@ -122,11 +121,6 @@ class Store:
         return self.data_dir / BACKLOG_NAME
 
     @property
-    def architecture_path(self) -> Path:
-        """The durable architecture/goals file."""
-        return self.data_dir / ARCHITECTURE_NAME
-
-    @property
     def lock_path(self) -> Path:
         """The single-writer sweep lock."""
         return self.state_dir / LOCK_NAME
@@ -159,8 +153,8 @@ class Store:
             return ""
 
     def is_empty(self) -> bool:
-        """Return whether the store holds no architecture, backlog, or learnings."""
-        if self.architecture_path.exists() or self.backlog_path.exists():
+        """Return whether the store holds no backlog or learnings."""
+        if self.backlog_path.exists():
             return False
         learnings = self.learnings_dir
         with contextlib.suppress(OSError):

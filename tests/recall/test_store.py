@@ -152,7 +152,6 @@ def test_path_accessors(tmp_path: Path) -> None:
     # Then each accessor composes the right path
     assert store.learnings_dir == tmp_path / "data" / "learnings"
     assert store.backlog_path == tmp_path / "data" / "backlog.md"
-    assert store.architecture_path == tmp_path / "data" / "architecture.md"
     assert store.lock_path == tmp_path / "state" / "sweep.lock"
     assert store.transcript_pointer_path == tmp_path / "state" / "transcript-path"
     assert store.log_path == tmp_path / "state" / "sweep.log"

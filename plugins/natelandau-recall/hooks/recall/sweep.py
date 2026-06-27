@@ -259,9 +259,9 @@ class Sweep:
     def _existing_memory(self, *, max_chars: int = 50_000) -> str:
         """Concatenate the current store files so the sweep agent can dedup/refine."""
         parts: list[str] = []
-        for path in (self.store.architecture_path, self.store.backlog_path):
-            with contextlib.suppress(OSError):
-                parts.append(f"# {path.name}\n{path.read_text(encoding='utf-8')}")
+        with contextlib.suppress(OSError):
+            backlog = self.store.backlog_path
+            parts.append(f"# {backlog.name}\n{backlog.read_text(encoding='utf-8')}")
         learnings = self.store.learnings_dir
         if learnings.is_dir():
             for f in sorted(learnings.glob("*.md")):

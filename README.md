@@ -12,7 +12,7 @@ Adding the marketplace gives you access to two plugins you can install independe
 | Plugin | What it does |
 | --- | --- |
 | `natelandau-toolkit` | PreToolUse and Stop hooks that block risky actions, on-demand skills, slash commands, and review subagents. |
-| `natelandau-recall` | Captures durable project learnings, a deferred backlog, and architecture notes at session boundaries, then surfaces them when a new session starts. |
+| `natelandau-recall` | Captures durable project learnings and a deferred backlog at session boundaries, then surfaces them when a new session starts. |
 
 ## Requirements
 
@@ -107,10 +107,10 @@ This plugin gives every project a small, persistent memory. It learns from your 
 
 It works through three automatic hooks:
 
-- When a session starts, it injects a compact summary of the project's memory: architecture notes, an index of learnings, and a backlog overview.
+- When a session starts, it injects a compact summary of the project's memory: an index of learnings and a backlog overview.
 - When a session ends, or just before the context is compacted, it spawns a background agent that reads the transcript and updates the memory store.
 
-The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items, routing each by altitude (project-wide notes to `architecture.md`, self-contained items to `learnings/`). It applies a strict bar: a fact earns a place only if it would help work on a *different* part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
+The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items as self-contained files in `learnings/`. It applies a strict bar: a fact earns a place only if it would help work on a *different* part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
 
 ### Where memory lives
 
@@ -118,7 +118,6 @@ Memory is stored per project, outside the repository, so it never ends up in you
 
 ```
 ~/.local/share/natelandau-recall/<project-key>/
-  architecture.md     durable goals and guidelines
   backlog.md          deferred items grouped by commit type
   learnings/          one file per item, with a summary and "read when" hints
 ```
@@ -131,7 +130,7 @@ The automated sweep only adds and refines. It never deletes. Two skills let you 
 
 | Command | What it does |
 | --- | --- |
-| `/recall-review [--fix]` | Reviews the whole store. Re-judges each learning and `architecture.md` section by altitude and value, demoting or deleting sections that describe a single subsystem rather than a project-wide invariant. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
+| `/recall-review [--fix]` | Reviews the whole store. Re-judges each learning by altitude and value, deleting entries that describe a single subsystem rather than a cross-cutting concern. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
 | `/recall-backlog [--fix]` | Triages the backlog. Validates each open item against the current repo, closes finished work, removes obsolete items, and corrects drifted ones, then ranks what remains by impact and effort to recommend what to work on next. |
 
 Both skills delegate the judging to read-only reviewer subagents, so the per-entry analysis stays out of your main conversation. By default they apply the safe corrections directly and propose each deletion for your approval first. Pass `--fix` to apply the high-confidence deletions automatically too. Because the store isn't under version control, `--fix` still confirms any low-confidence deletion before removing it, since a wrong delete can't be undone.
@@ -173,7 +172,6 @@ The recall config controls what gets injected at session start and how the end-o
 # ~/.claude/natelandau-recall.toml
 [inject]
 enabled = true                # set false to stop SessionStart memory injection
-architecture_max_bytes = 4096 # cap on architecture.md injected verbatim
 
 [sweep]
 enabled = true                # set false to stop the end-of-session sweep

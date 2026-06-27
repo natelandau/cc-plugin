@@ -35,19 +35,14 @@ Durable knowledge a future agent needs and can't recover from the repo, such as:
 - **Design intent** — why the project is shaped the way it is, when it isn't
   obvious from the code.
 
-## Where each kind goes (by altitude)
+## Where each kind goes
 
-- `architecture.md` — project-wide invariants, conventions, coding standards,
-  stated preferences, and design intent that constrain work ACROSS tasks.
-  Litmus: it would still be true and worth knowing even if the code you touched
-  today were deleted. NOT a tour of the subsystem this session happened to
-  touch. Keep it small; prefer editing an existing line to adding one.
 - `learnings/` — a self-contained, cross-cutting item: a trap, constraint, or
-  durable preference/standard that a future agent would otherwise get wrong.
-  One file per item. Frontmatter MUST be exactly `summary:` (one sentence) and
-  `read_when:` (a list of when-to-read hints) — do NOT use `name:`/`description:`;
-  a learning without a `summary:` is silently dropped from the memory index.
-  Refine an existing file in place; NEVER delete one.
+  durable preference/standard/design-intent that a future agent would otherwise
+  get wrong. One file per item. Frontmatter MUST be exactly `summary:` (one
+  sentence) and `read_when:` (a list of when-to-read hints) — do NOT use
+  `name:`/`description:`; a learning without a `summary:` is silently dropped
+  from the memory index. Refine an existing file in place; NEVER delete one.
 - `backlog.md` — concrete deferred work. Sections are conventional-commit types
   (build/ci/docs/feat/fix/perf/refactor/style/test). Each item:
   `- [ ] [S|M|L] <imperative> — <YYYY-MM-DD> [#area]`. Add newly-deferred items;
