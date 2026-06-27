@@ -1,3 +1,22 @@
+## v0.13.0 (2026-06-27)
+
+### Feat
+
+- **recall**: add the natelandau-recall project-memory plugin (#12)
+- **hooks**: exempt gitignored Bash writes on protected branches
+- **hooks**: show each uv nudge once per session
+
+### Fix
+
+- **hooks**: close secret, branch-protection, and config bypasses (#10)
+
+### Refactor
+
+- **hooks**: make only stage dispatchers executable scripts
+- **hooks**: simplify secret and system protection rule config
+- **hooks**: consolidate shared logic into lib helpers (#9)
+- **hooks**: one dispatcher per stage with per-stage plugin dirs (#8)
+
 ## v0.12.0 (2026-06-23)
 
 ### Feat
