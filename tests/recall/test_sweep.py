@@ -278,3 +278,162 @@ def test_gate_falls_back_to_transcript_pointer(
     assert result is not None
     assert result.transcript_path == str(t_file)
     assert len(result.window) == len(entries)
+
+
+# ---------------------------------------------------------------------------
+# validate_writes tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_writes_outside_data_dir_is_removed(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify a changed file outside data_dir is deleted and noted as escaped."""
+    # Given a file that lives outside data_dir
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("should not be here", encoding="utf-8")
+
+    # When validate_writes is called with that path
+    notes = sweep.validate_writes([str(outside)], data_dir=data_dir)
+
+    # Then the file is gone and a note is recorded
+    assert not outside.exists()
+    assert len(notes) == 1
+    assert notes[0].startswith("escaped:")
+
+
+def test_validate_writes_aws_key_redacted(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify an AWS access key ID inside data_dir is redacted in place."""
+    # Given a file inside data_dir containing an AKIA token
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    target = data_dir / "memory.md"
+    secret = "AKIAIOSFODNN7EXAMPLE"  # noqa: S105 - intentional fake credential for pattern testing
+    target.write_text(f"key: {secret}", encoding="utf-8")
+
+    # When validate_writes processes it
+    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
+
+    # Then the secret is gone, the redaction marker is present, and the note is correct
+    content = target.read_text(encoding="utf-8")
+    assert secret not in content
+    assert "«redacted-secret»" in content
+    assert notes == [f"secret-redacted: {target}"]
+
+
+def test_validate_writes_github_token_redacted(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify a GitHub personal access token inside data_dir is redacted in place."""
+    # Given a file inside data_dir containing a ghp_ token (30+ chars after prefix)
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    target = data_dir / "notes.md"
+    secret = "ghp_" + "A" * 30
+    target.write_text(f"token={secret}", encoding="utf-8")
+
+    # When validate_writes processes it
+    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
+
+    # Then the secret is gone and the marker is present
+    content = target.read_text(encoding="utf-8")
+    assert secret not in content
+    assert "«redacted-secret»" in content
+    assert notes == [f"secret-redacted: {target}"]
+
+
+def test_validate_writes_pem_private_key_redacted(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify a PEM private key header inside data_dir is redacted in place."""
+    # Given a file inside data_dir containing a PEM private-key header
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    target = data_dir / "keys.md"
+    # Constructed at runtime to avoid triggering the detect-private-key pre-commit hook
+    secret = "-----BEGIN RSA " + "PRIVATE KEY-----"
+    target.write_text(f"cert: {secret}", encoding="utf-8")
+
+    # When validate_writes processes it
+    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
+
+    # Then the header is gone and the marker is present
+    content = target.read_text(encoding="utf-8")
+    assert secret not in content
+    assert "«redacted-secret»" in content
+    assert notes == [f"secret-redacted: {target}"]
+
+
+def test_validate_writes_api_key_value_redacted_label_preserved(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify the api_key label is kept and only the value is redacted."""
+    # Given a file inside data_dir with an api_key = <value> line
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    target = data_dir / "config.md"
+    value = "supersecretvalue12345"  # 21 chars, matches [A-Za-z0-9/+_-]{20,}
+    target.write_text(f"api_key = {value}", encoding="utf-8")
+
+    # When validate_writes processes it
+    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
+
+    # Then the value is redacted but the label remains
+    content = target.read_text(encoding="utf-8")
+    assert value not in content
+    assert "api_key" in content
+    assert "«redacted-secret»" in content
+    assert notes == [f"secret-redacted: {target}"]
+
+
+def test_validate_writes_clean_file_untouched(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify a clean file inside data_dir is left byte-identical and produces no note."""
+    # Given a clean file inside data_dir with no secret content
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    target = data_dir / "clean.md"
+    original = "This is a normal memory file with nothing sensitive."
+    target.write_text(original, encoding="utf-8")
+
+    # When validate_writes processes it
+    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
+
+    # Then the file is untouched and no notes are produced
+    assert target.read_text(encoding="utf-8") == original
+    assert notes == []
+
+
+def test_validate_writes_missing_file_inside_data_dir_produces_no_note(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify a path inside data_dir that doesn't exist on disk produces no note and doesn't raise."""
+    # Given a path inside data_dir that was never written to disk
+    sweep = import_recall_module("lib.sweep")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    ghost = data_dir / "ghost.md"
+
+    # When validate_writes processes it
+    notes = sweep.validate_writes([str(ghost)], data_dir=data_dir)
+
+    # Then no note is produced and no exception is raised
+    assert notes == []

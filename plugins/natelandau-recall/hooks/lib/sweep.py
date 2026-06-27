@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lib import store, transcript
+from lib.paths import is_within_root
 
 if TYPE_CHECKING:
     from lib.config import Config
@@ -132,3 +134,75 @@ def gate(event: dict[str, Any], cfg: Config, *, now: float) -> SweepJob | None:
     except Exception:  # noqa: BLE001 - gate must never raise or leak the lock
         release_lock(lock)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Post-sweep validation: path containment + secret scrub
+# ---------------------------------------------------------------------------
+
+_REDACTED = "«redacted-secret»"
+
+# (pattern, replacement). Token-shaped secrets replace the whole match; the
+# key:value form preserves the label and redacts only the value.
+SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"AKIA[0-9A-Z]{16}"), _REDACTED),
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}"), _REDACTED),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), _REDACTED),
+    (
+        re.compile(
+            r"(?i)((?:api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?)([A-Za-z0-9/+_\-]{20,})"
+        ),
+        r"\1" + _REDACTED,
+    ),
+)
+
+
+def _scrub(text: str) -> tuple[str, bool]:
+    """Redact any secret-shaped content; return (scrubbed_text, changed)."""
+    changed = False
+    for pattern, repl in SECRET_PATTERNS:
+        text, n = pattern.subn(repl, text)
+        if n:
+            changed = True
+    return text, changed
+
+
+def validate_writes(changed_files: list[str], *, data_dir: Path) -> list[str]:
+    """Enforce path containment + secret scrub on files the sweep agent wrote.
+
+    For each changed path: if it is outside `data_dir` (the signature of a
+    prompt-injection steering the skip-permissions agent), revert it and record
+    `escaped`. Otherwise scan its content and, on a secret hit, redact in place
+    and record `secret-redacted`. Never raises; IO errors are recorded, not raised.
+
+    Args:
+        changed_files: File paths reported as written by the sweep agent.
+        data_dir: The trusted directory all sweep writes must stay within.
+
+    Returns:
+        List of remediation notes, one per file that required intervention.
+    """
+    notes: list[str] = []
+    for raw in changed_files:
+        path = Path(raw)
+        if not is_within_root(path, data_dir):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                notes.append(f"escaped-unremovable: {raw} ({exc})")
+            else:
+                notes.append(f"escaped: {raw}")
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue  # absent/unreadable: nothing to scan
+        scrubbed, changed = _scrub(content)
+        if changed:
+            try:
+                path.write_text(scrubbed, encoding="utf-8")
+            except OSError as exc:
+                notes.append(f"secret-found-unredactable: {raw} ({exc})")
+            else:
+                notes.append(f"secret-redacted: {raw}")
+    return notes
