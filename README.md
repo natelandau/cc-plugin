@@ -127,7 +127,14 @@ The project key is derived from the repository root, so all worktrees and branch
 
 ### Curating memory
 
-The automated sweep only adds and refines. It never deletes. To prune the store, run `/recall-review`. This skill re-judges each entry's altitude and value (demoting or deleting `architecture.md` sections that describe a single subsystem rather than a project-wide invariant), deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. It's the only place deletion happens.
+The automated sweep only adds and refines. It never deletes. Two skills let you curate the store by hand, and they are where deletion happens.
+
+| Command | What it does |
+| --- | --- |
+| `/recall-review [--fix]` | Reviews the whole store. Re-judges each learning and `architecture.md` section by altitude and value, demoting or deleting sections that describe a single subsystem rather than a project-wide invariant. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
+| `/recall-backlog [--fix]` | Triages the backlog. Validates each open item against the current repo, closes finished work, removes obsolete items, and corrects drifted ones, then ranks what remains by impact and effort to recommend what to work on next. |
+
+Both skills delegate the judging to read-only reviewer subagents, so the per-entry analysis stays out of your main conversation. By default they apply the safe corrections directly and propose each deletion for your approval first. Pass `--fix` to apply the high-confidence deletions automatically too. Because the store isn't under version control, `--fix` still confirms any low-confidence deletion before removing it, since a wrong delete can't be undone.
 
 ## Configuration
 

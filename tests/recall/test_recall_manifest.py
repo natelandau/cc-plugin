@@ -45,6 +45,10 @@ def _skill_files() -> list[Path]:
     return sorted((ROOT / "skills").glob("*/SKILL.md"))
 
 
+def _agent_files() -> list[Path]:
+    return sorted((ROOT / "agents").glob("*.md"))
+
+
 def _hooks_commands() -> list[tuple[str, str]]:
     data = json.loads((ROOT / "hooks" / "hooks.json").read_text())
     return [
@@ -103,4 +107,29 @@ def test_skill_name_matches_directory(skill_path: Path) -> None:
     assert fields.get("name") == skill_path.parent.name, (
         f"{skill_path}: frontmatter name {fields.get('name')!r} "
         f"!= directory {skill_path.parent.name!r}"
+    )
+
+
+@pytest.mark.parametrize("agent_path", _agent_files(), ids=lambda p: p.stem)
+def test_agent_has_required_frontmatter(agent_path: Path) -> None:
+    """Verify every agents/*.md declares name and description in frontmatter."""
+    # Given a subagent definition
+    fields = _parse_frontmatter(agent_path.read_text())
+
+    # Then frontmatter parses with both required fields
+    assert fields is not None, f"{agent_path}: missing YAML frontmatter"
+    assert "name" in fields, f"{agent_path}: frontmatter missing 'name'"
+    assert "description" in fields, f"{agent_path}: frontmatter missing 'description'"
+
+
+@pytest.mark.parametrize("agent_path", _agent_files(), ids=lambda p: p.stem)
+def test_agent_name_matches_filename(agent_path: Path) -> None:
+    """Verify agents/*.md frontmatter 'name' equals the file stem used to dispatch it."""
+    # Given a subagent definition
+    fields = _parse_frontmatter(agent_path.read_text())
+    assert fields is not None  # covered by the frontmatter test
+
+    # Then frontmatter name aligns with the on-disk slug
+    assert fields.get("name") == agent_path.stem, (
+        f"{agent_path}: frontmatter name {fields.get('name')!r} != file stem {agent_path.stem!r}"
     )

@@ -1,14 +1,31 @@
 ---
 name: recall-review
-description: Review and curate this project's persisted memory store - deduplicate learnings, prune stale entries, correct frontmatter, and close resolved backlog items.
+description: Review and curate this project's persisted memory store - deduplicate learnings, prune stale entries, correct frontmatter, and close resolved backlog items. Pass --fix to apply the changes automatically instead of proposing them.
 disable-model-invocation: true
+argument-hint: "[--fix]"
 ---
 
 # Recall Review
 
-Manually curate this project's persisted memory store. This is the only place
-deletion happens: the automated sweep only adds and refines, so periodic curation
-keeps the store at the right altitude and free of stale or redundant entries.
+Manually curate this project's persisted memory store. Deletion happens only in
+deliberate, user-invoked curation like this - the automated sweep that writes the
+store only adds and refines - so periodic curation keeps it at the right altitude
+and free of stale or redundant entries.
+
+You orchestrate read-only reviewer subagents (they ship with this plugin), collect
+their verdicts, then turn them into edits. The subagents never touch files; **you**
+are the only writer.
+
+## Mode
+
+Parse `$ARGUMENTS` for the token `--fix`:
+
+- **FIX** - `true` if `--fix` appears anywhere, otherwise `false`.
+
+Echo the mode back in one line before proceeding: `propose` when `FIX` is false,
+`fix` when true, so the user knows up front whether changes will be applied for
+them. The mode only changes the apply step at the end; the review itself is the
+same either way.
 
 ## Locate the memory store
 
@@ -20,59 +37,89 @@ Compute the project key:
 
 If the directory does not exist, report "No memory store found for this project." and stop.
 
-## Re-judge altitude and value (the curation pass)
+## Health lint (deterministic, do this yourself)
 
-The automated sweep captures conservatively at a high bar. You run on a stronger
-model, see the whole store at once, can read the current code, and — uniquely —
-are allowed to DELETE. Your job is to prune what slipped through to the wrong
-altitude. For every learning and every `architecture.md` section, apply the same
-two-gate test the sweep uses:
+Before dispatching any subagent, fix or flag the mechanical problems that need no
+judgment. Read each artifact and check:
 
-1. **Generality** — does this help work on parts of the app OTHER than the one
-   that produced it? Open the referenced code: if the entry just narrates one
-   subsystem's current implementation, it fails.
-2. **Non-recoverability** — read the cited files. If the code, tests, types, or
-   config already make this obvious, the entry is redundant. (Durable user/project
-   preferences and coding standards pass this gate even when simple — they aren't
-   recoverable from the code. Keep them.)
+- **Learnings frontmatter:** the engine indexes on `summary`, and a learning
+  lacking it is silently dropped from the SessionStart injection. If a file uses
+  `name:`/`description:` instead, rename them to `summary:` (keep `read_when:`).
+  Fill in or sharpen a `summary`/`read_when` that is absent or vague.
+- **`architecture.md` size:** if it exists, check its byte size and warn if it
+  exceeds 4096 bytes (the default injection cap). Note the exact size and which
+  sections to trim. Do not truncate it automatically; flag it for the user.
+- **Malformed backlog lines:** note any item that does not match
+  `- [ ] [S|M|L] <text> - <YYYY-MM-DD> [#area]` so it can be corrected.
 
-- **architecture.md altitude audit:** beyond the size check below, flag any
-  section that describes a single subsystem touched in one session rather than a
-  project-wide invariant, convention, preference, or design intent. Either demote
-  it to a `learnings/` file (if it's a genuine trap or standard worth keeping) or
-  delete it. A section survives only if it would still matter with the code it
-  describes deleted.
-- **Learnings that are one change described twice:** merge into a single entry,
-  or delete if the fix is already encoded in a test or migration.
+## Dispatch the reviewers
 
-## Review each memory artifact
+Identify the entries to review (list `learnings/*.md`, split `architecture.md` into
+sections, collect the open `[ ]` backlog items), then dispatch these read-only
+subagents **in parallel** via the `Agent` tool. **Pass each one the absolute store
+directory path** so it reads the entry itself, and name which entry to judge by
+filename, section heading, or item line. Each runs in its own context and returns a
+structured verdict.
 
-### `learnings/` - atomic learning files
+- **`memory-entry-reviewer`** - one per entry: one per `learnings/*.md` file and one
+  per `architecture.md` section. Pass the store path, which entry to judge (a
+  learning filename, or an architecture section heading), and whether it is a
+  `learning` or an `architecture` section. It returns a verdict
+  (`KEEP`/`UPDATE`/`DELETE`/`DEMOTE`/`PROMOTE`) with gate findings, a cited reason,
+  any `proposed_change`, and a `confidence`.
+- **`backlog-validity-reviewer`** - one per **open** (`[ ]`) backlog item. Pass the
+  store path and the item line verbatim. It returns `CLOSE`/`REMOVE`/`AMEND`/`KEEP`
+  with cited evidence, any `proposed_change`, and a `confidence`.
+- **`redundancy-reviewer`** - once, over all learnings. Pass the store path; it reads
+  every `learnings/*.md` itself. It returns clusters of overlapping entries to merge,
+  each naming a `merge_target`; an empty list means none.
 
-List all files under `learnings/`. Each file is a short YAML frontmatter block followed by prose. Expected frontmatter keys: `summary` (one sentence) and `read_when` (a list of when-to-read trigger hints).
+The subagents read the store by path and the repo for grounding. Sub-file units (an
+`architecture.md` section, a single backlog line) are not addressable by path, so
+name them explicitly when you dispatch - the agent still has the store path for
+surrounding context.
 
-For each file:
-- **Wrong frontmatter keys:** The engine indexes on `summary` and a learning lacking it is silently dropped from the SessionStart injection. If a file uses `name:`/`description:` instead, rename them to `summary:` (keep `read_when:`).
-- **Missing or weak frontmatter:** Fill in or sharpen `summary` and `read_when` if absent or vague.
-- **Duplicates / near-duplicates:** Identify learnings that cover the same topic. Merge them into the most complete file and delete the redundant ones. This skill is the only place deletion is permitted - the automated sweep never removes files.
-- **Stale or incorrect entries:** Delete learnings that describe behavior that has since changed, tools that are no longer used, or facts that are demonstrably wrong.
-- **Trivial entries:** Delete learnings that contain nothing an agent couldn't infer from the project's own files.
+This skill curates; it does not surface new work. The `backlog-opportunity-reviewer`
+agent that ships with this plugin is for other workflows - do not dispatch it here.
 
-### `backlog.md`
+## Apply changes
 
-Open and review every item. Close items with `[x]` that are clearly done based on the current project state. Remove items that are no longer relevant. Do not add new items.
+Collect the verdicts into a concrete change set:
 
-### `architecture.md`
+- **Merges** (from `redundancy-reviewer`): fold each cluster into its `merge_target`
+  and delete the others.
+- **Learnings/architecture** (from `memory-entry-reviewer`): `UPDATE` rewrites the
+  text in place; `DELETE` removes the file or section; `DEMOTE`/`PROMOTE` moves the
+  content between `architecture.md` and a `learnings/` file; `KEEP` does nothing.
+- **Backlog** (from `backlog-validity-reviewer`): `CLOSE` checks the item off as
+  `[x]`, `REMOVE` deletes the line, `AMEND` replaces it with the corrected line,
+  `KEEP` does nothing. Do not add new items.
 
-If this file exists, read it and check its byte size. Warn if it exceeds 4096 bytes (the default injection cap) - note the exact size and suggest which sections to trim to bring it under the cap. Do not truncate it automatically; flag it for the user to decide.
+A change is **destructive** if it discards content with no undo: a `DELETE`, a
+`REMOVE`, or the deletion of the non-target files in a merge. The store is not under
+version control, so a wrong destructive change cannot be rolled back - which is why
+confidence and mode gate how freely you apply them. Everything else (`UPDATE`,
+`AMEND`, `CLOSE`, `DEMOTE`/`PROMOTE`, and the mechanical health-lint fixes like a
+`name:`→`summary:` rename) rewrites or moves content and applies directly in either
+mode.
+
+How the destructive changes are applied depends on the mode:
+
+- **`propose` (default):** present the full destructive change set to the user,
+  ordered by `confidence` so the clear cases stand out, and apply only the ones they
+  approve.
+- **`fix`:** apply **high-confidence** destructive changes without asking. Still
+  pause and confirm each **low-confidence** destructive change before applying it -
+  those are the ones most likely to be wrong, and they cannot be undone.
 
 ## Report
 
-After completing the review, print a concise summary:
+After applying the changes, print a concise summary of what actually changed (and,
+in `fix` mode, anything still awaiting the user's confirmation):
 
 - Number of learning files reviewed, merged, and deleted.
-- Whether `backlog.md` was updated (how many items closed or removed).
-- Whether `architecture.md` was flagged for size.
+- Whether `backlog.md` was updated (how many items closed, removed, or amended).
+- Whether `architecture.md` was flagged for size or had sections demoted.
 - Any frontmatter corrections made.
 
 Keep the report to one short paragraph or a brief bulleted list.
