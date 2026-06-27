@@ -44,6 +44,7 @@ class SweepJob:
 
     window: list[dict[str, Any]]
     cwd: str
+    session_id: str
 
 
 class Lock:
@@ -168,7 +169,12 @@ class Sweep:
             if len(meaningful) < self.config.min_exchanges:
                 lock.release()
                 return None
-            return SweepJob(window=window, cwd=str(event.get("cwd") or Path.cwd()))
+            session_id = Path(transcript_path).stem if transcript_path else ""
+            return SweepJob(
+                window=window,
+                cwd=str(event.get("cwd") or Path.cwd()),
+                session_id=session_id,
+            )
         except Exception:  # noqa: BLE001 - gate must never raise or leak the lock
             lock.release()
             return None
@@ -195,6 +201,8 @@ class Sweep:
         except Exception:  # noqa: BLE001 - the detached worker must never raise
             return []
         else:
+            if result.success:
+                self.store.add_processed(job.session_id)
             return notes
         finally:
             lock.release()
