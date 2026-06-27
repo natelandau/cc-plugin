@@ -100,7 +100,11 @@ wire a flat engine package `hooks/recall/`:
   never re-derive the encoding in prose. A skill references it via
   `${CLAUDE_SKILL_DIR}/../../hooks/recall-path.py` (`${CLAUDE_PLUGIN_ROOT}` is a hook
   var, not a skill var). The script is executable (`100755`); the engine modules it
-  imports stay `100644`.
+  imports stay `100644`. The companion **`hooks/recall-bootstrap.py`** facade (also
+  `100755`) is the skill-facing entry for transcript discovery, staging, and backfill
+  plan application; its engine is `hooks/recall/bootstrap.py` (`100644`).
+- The **`recall-bootstrap` skill** (user-invoked) backfills the memory store from past
+  session transcripts via parallel extractor subagents and a single user-approved merge.
 - **Config is flat** `[inject]`/`[sweep]` TOML (`hooks/natelandau-recall.toml.example`),
   no profiles or `disabled_hooks`.
 - The sweep runs **detached** (double-fork) so it outlives session teardown, with an

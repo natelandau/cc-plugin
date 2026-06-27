@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from recall.config import RecallConfig  # ty: ignore[unresolved-import]
@@ -67,8 +68,6 @@ def test_list_transcripts_oldest_first(tmp_path: Path) -> None:
     new = tmp_path / "new.jsonl"
     old.write_text("{}\n", encoding="utf-8")
     new.write_text("{}\n", encoding="utf-8")
-    import os
-
     os.utime(old, (1000, 1000))
     os.utime(new, (2000, 2000))
     # Then they come back oldest-first
@@ -100,8 +99,6 @@ def test_discover_stages_eligible_transcripts(tmp_path: Path) -> None:
     _write_transcript(tdir / "old.jsonl", exchanges=4)
     _write_transcript(tdir / "mid.jsonl", exchanges=4)
     _write_transcript(tdir / "live.jsonl", exchanges=4)
-    import os
-
     os.utime(tdir / "old.jsonl", (1000, 1000))
     os.utime(tdir / "mid.jsonl", (2000, 2000))
     os.utime(tdir / "live.jsonl", (3000, 3000))  # newest == live, auto-excluded
@@ -125,8 +122,6 @@ def test_discover_skips_short_sweep_and_processed(tmp_path: Path) -> None:
     _write_transcript(tdir / "done.jsonl", exchanges=4)
     _write_transcript(tdir / "keep.jsonl", exchanges=4)
     _write_transcript(tdir / "live.jsonl", exchanges=4)
-    import os
-
     for i, name in enumerate(["tiny", "sweep", "done", "keep", "live"]):
         os.utime(tdir / f"{name}.jsonl", (1000 + i, 1000 + i))
 
@@ -145,8 +140,6 @@ def test_discover_limit_keeps_most_recent(tmp_path: Path) -> None:
     tdir = _tdir(tmp_path, cwd)
     for i, name in enumerate(["a", "b", "c", "live"]):
         _write_transcript(tdir / f"{name}.jsonl", exchanges=4)
-        import os
-
         os.utime(tdir / f"{name}.jsonl", (1000 + i, 1000 + i))
 
     # When limited to the 2 most recent (live excluded first)
