@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,7 +20,17 @@ def _load(hooks_dir: Path, *parts: str) -> ModuleType:
     assert spec
     assert spec.loader
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    # Register under a qualified key before exec: a slotted frozen dataclass
+    # (Config) resolves its own class via sys.modules[cls.__module__] mid-exec.
+    # Qualified so it can't shadow a real module; popped on failure to avoid
+    # leaking a half-built module into a later test.
+    key = f"recall_test_{path.stem}"
+    sys.modules[key] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except BaseException:
+        sys.modules.pop(key, None)
+        raise
     return mod
 
 
