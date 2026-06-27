@@ -1,0 +1,18 @@
+# Copy to ~/.claude/natelandau-recall.toml (global) or
+# <project>/.claude/natelandau-recall.toml (per-project; project wins).
+# All keys are optional; omitting the file uses the defaults shown here.
+
+# Which tier runs: minimal | standard | strict
+profile = "standard"
+
+# Hook ids to force-off regardless of profile: inject-memory, run-sweep.
+disabled_hooks = []
+
+# The end-of-session memory sweep.
+[hooks.sweep]
+model         = "claude-sonnet-4-6"  # model for the headless sweep
+min_exchanges = 5                     # skip the sweep below this many real exchanges
+
+# The SessionStart injector.
+[hooks.inject-memory]
+architecture_max_bytes = 4096         # cap on architecture.md injected verbatim
