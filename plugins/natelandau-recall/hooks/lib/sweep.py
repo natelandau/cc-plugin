@@ -38,6 +38,7 @@ class SweepJob:
     data_dir: Path
     state_dir: Path
     transcript_path: str
+    cwd: str
     window: list[dict[str, Any]]
 
 
@@ -133,7 +134,11 @@ def gate(event: dict[str, Any], cfg: Config, *, now: float) -> SweepJob | None:
             release_lock(lock)
             return None
         return SweepJob(
-            data_dir=data_dir, state_dir=state_dir, transcript_path=transcript_path, window=window
+            data_dir=data_dir,
+            state_dir=state_dir,
+            transcript_path=transcript_path,
+            cwd=str(cwd),
+            window=window,
         )
     except Exception:  # noqa: BLE001 - gate must never raise or leak the lock
         release_lock(lock)
@@ -173,7 +178,7 @@ def _scrub(text: str) -> tuple[str, bool]:
 
 PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "sweep.md"
 DEFAULT_MODEL = "claude-sonnet-4-6"
-RUN_TIMEOUT = 180
+RUN_TIMEOUT = claude_runner.DEFAULT_TIMEOUT
 
 
 def _transcript_text(window: list[dict[str, Any]]) -> str:
@@ -239,7 +244,7 @@ def run_job(job: SweepJob, cfg: Config, *, runner: Any = claude_runner.run) -> l
             PROMPT_PATH,
             transcript=_transcript_text(job.window),
             existing_memory=_existing_memory(job.data_dir),
-            git_context=_git_context(str(job.data_dir)),
+            git_context=_git_context(job.cwd),
         )
         args = claude_runner.build_args(model=cfg.option("sweep", "model", DEFAULT_MODEL))
         env = claude_runner.build_env(base=os.environ)

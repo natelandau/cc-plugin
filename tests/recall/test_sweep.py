@@ -485,16 +485,6 @@ def _fake_runner_for(file_path: str) -> Callable[..., dict[str, object]]:
     return _runner
 
 
-@dataclass(frozen=True)
-class _SweepJob:
-    """Minimal SweepJob stand-in for run_job tests."""
-
-    data_dir: Path
-    state_dir: Path
-    transcript_path: str
-    window: list[dict] = field(default_factory=list)
-
-
 def test_run_job_clean_write_releases_lock_and_logs(
     tmp_path: Path,
     import_recall_module: Callable[[str], ModuleType],
@@ -516,6 +506,7 @@ def test_run_job_clean_write_releases_lock_and_logs(
         data_dir=data_dir,
         state_dir=state_dir,
         transcript_path="",
+        cwd=str(tmp_path),
         window=[],
     )
     cfg = _Cfg()
@@ -551,6 +542,7 @@ def test_run_job_escaped_write_removes_file_and_returns_note(
         data_dir=data_dir,
         state_dir=state_dir,
         transcript_path="",
+        cwd=str(tmp_path),
         window=[],
     )
     cfg = _Cfg()
@@ -585,6 +577,7 @@ def test_run_job_always_releases_lock_on_runner_failure(
         data_dir=data_dir,
         state_dir=state_dir,
         transcript_path="",
+        cwd=str(tmp_path),
         window=[],
     )
     cfg = _Cfg()
