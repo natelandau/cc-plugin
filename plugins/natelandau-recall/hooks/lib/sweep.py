@@ -63,9 +63,13 @@ def acquire_lock(state_dir: Path, *, now: float, stale_after: float = STALE_AFTE
         if fd is None:
             return None
     try:
-        os.write(fd, str(now).encode("utf-8"))
-    finally:
-        os.close(fd)
+        try:
+            os.write(fd, str(now).encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError:
+        # Write failed (ENOSPC/EIO); the empty lock file reads as stale next attempt.
+        return None
     return lock
 
 
@@ -112,16 +116,19 @@ def gate(event: dict[str, Any], cfg: Config, *, now: float) -> SweepJob | None:
     lock = acquire_lock(state_dir, now=now)
     if lock is None:
         return None
+    try:
+        transcript_path = _resolve_transcript(event, state_dir)
+        entries = transcript.read_entries(transcript_path) if transcript_path else []
+        window = transcript.window_since_compact(entries)
+        meaningful = transcript.meaningful_messages(window)
 
-    transcript_path = _resolve_transcript(event, state_dir)
-    entries = transcript.read_entries(transcript_path) if transcript_path else []
-    window = transcript.window_since_compact(entries)
-    meaningful = transcript.meaningful_messages(window)
-
-    min_exchanges = cfg.int_option("sweep", "min_exchanges", DEFAULT_MIN_EXCHANGES)
-    if len(meaningful) < min_exchanges:
+        min_exchanges = cfg.int_option("sweep", "min_exchanges", DEFAULT_MIN_EXCHANGES)
+        if len(meaningful) < min_exchanges:
+            release_lock(lock)
+            return None
+        return SweepJob(
+            data_dir=data_dir, state_dir=state_dir, transcript_path=transcript_path, window=window
+        )
+    except Exception:  # noqa: BLE001 - gate must never raise or leak the lock
         release_lock(lock)
         return None
-    return SweepJob(
-        data_dir=data_dir, state_dir=state_dir, transcript_path=transcript_path, window=window
-    )

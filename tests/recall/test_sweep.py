@@ -136,6 +136,25 @@ def test_acquire_lock_steals_stale_lock(
     assert float(second.read_text(encoding="utf-8").strip()) == 1400.0
 
 
+def test_acquire_lock_steals_malformed_lock(
+    tmp_path: Path,
+    import_recall_module: Callable[[str], ModuleType],
+) -> None:
+    """Verify a lock with a non-numeric timestamp is treated as stale and stolen."""
+    # Given an existing lock file with corrupt (non-float) content
+    sweep = import_recall_module("lib.sweep")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "sweep.lock").write_text("not-a-float", encoding="utf-8")
+
+    # When acquiring (corrupt content parses to stored=0.0, so always stale)
+    lock = sweep.acquire_lock(state_dir, now=400.0, stale_after=300.0)
+
+    # Then the corrupt lock is stolen and the new timestamp is written
+    assert lock is not None
+    assert float(lock.read_text(encoding="utf-8").strip()) == 400.0
+
+
 def test_acquire_lock_fresh_lock_not_stolen(
     tmp_path: Path,
     import_recall_module: Callable[[str], ModuleType],
