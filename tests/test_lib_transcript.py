@@ -1,9 +1,8 @@
 """Unit tests for hooks/lib/transcript.py: the shared Stop-event readers.
 
 Covers the message reconstruction (split-across-lines, message.id grouping,
-legacy fallback) and the turn-scoped file-write detection that
-capture_followups relies on, by passing plain entry dicts to the pure
-functions.
+legacy fallback) and the turn-scoped file-write detection, by passing plain
+entry dicts to the pure functions.
 """
 
 from __future__ import annotations

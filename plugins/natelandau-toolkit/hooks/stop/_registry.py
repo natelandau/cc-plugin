@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from lib.profiles import ALL, STANDARD_UP
+from lib.profiles import ALL
 
 PLUGINS: list[tuple[str, frozenset[str]]] = [
     ("stop_phrase_guard", ALL),
-    ("capture_followups", STANDARD_UP),
 ]
