@@ -153,3 +153,70 @@ def test_discover_limit_keeps_most_recent(tmp_path: Path) -> None:
     manifest = _bootstrap(tmp_path, cwd).discover(limit=2)
     # Then the two newest non-live sessions remain, oldest-first
     assert [e["session_id"] for e in manifest] == ["b", "c"]
+
+
+def test_apply_writes_learnings_and_backlog_and_ledger(tmp_path: Path) -> None:
+    """Verify apply writes learnings and backlog files and records session ids in the ledger."""
+    # Given a bootstrap instance and a merge plan
+    bs = _bootstrap(tmp_path, Path("/proj"))
+    plan = {
+        "learnings": [{"filename": "trap.md", "content": "summary: a trap\n"}],
+        "backlog": "# backlog\n- [ ] [S] do a thing\n",
+        "processed_session_ids": ["s1", "s2"],
+    }
+    # When apply is called
+    result = bs.apply(plan)
+    # Then files are written and ledger is updated
+    assert (bs.store.learnings_dir / "trap.md").read_text(encoding="utf-8") == "summary: a trap\n"
+    assert bs.store.backlog_path.read_text(encoding="utf-8").startswith("# backlog")
+    assert bs.store.read_processed() == {"s1", "s2"}
+    assert result["ledger_added"] == 2
+
+
+def test_apply_rejects_path_escape(tmp_path: Path) -> None:
+    """Verify apply rejects paths that escape the store and writes nothing outside it."""
+    # Given a plan with a path-traversal filename
+    bs = _bootstrap(tmp_path, Path("/proj"))
+    plan = {
+        "learnings": [{"filename": "../escape.md", "content": "x"}],
+        "backlog": None,
+        "processed_session_ids": [],
+    }
+    # When apply is called
+    result = bs.apply(plan)
+    # Then nothing is written outside the store and the op is reported rejected
+    assert not (bs.store.data_dir.parent / "escape.md").exists()
+    assert any("escape.md" in r for r in result["rejected"])
+
+
+def test_apply_rejects_absolute_filename(tmp_path: Path) -> None:
+    """Verify apply rejects a learning whose filename is an absolute path."""
+    # Given a plan with an absolute path as the learning filename
+    bs = _bootstrap(tmp_path, Path("/proj"))
+    plan = {
+        "learnings": [{"filename": "/etc/passwd", "content": "x"}],
+        "backlog": None,
+        "processed_session_ids": [],
+    }
+    # When apply is called
+    result = bs.apply(plan)
+    # Then the absolute path is reported rejected and nothing was written
+    assert any("/etc/passwd" in r for r in result["rejected"])
+    assert result["written"] == []
+
+
+def test_apply_redacts_secrets(tmp_path: Path) -> None:
+    """Verify apply scrubs secrets from content before writing and records the path."""
+    # Given a plan whose learning content contains a secret-shaped token
+    bs = _bootstrap(tmp_path, Path("/proj"))
+    secret = "abcdefghijklmnopqrst" + "uvwxyz0123"
+    plan = {
+        "learnings": [{"filename": "leak.md", "content": f"token = '{secret}'"}],
+        "backlog": None,
+        "processed_session_ids": [],
+    }
+    # When apply is called
+    bs.apply(plan)
+    # Then the written file does not contain the secret
+    written = (bs.store.learnings_dir / "leak.md").read_text(encoding="utf-8")
+    assert secret not in written
