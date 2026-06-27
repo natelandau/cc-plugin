@@ -186,6 +186,50 @@ def test_meaningful_mixed_noise_and_clean() -> None:
 
 
 # ---------------------------------------------------------------------------
+# meaningful_text (prompt-ready role + text view)
+# ---------------------------------------------------------------------------
+
+
+def test_meaningful_text_keeps_only_user_and_agent_text() -> None:
+    """Verify meaningful_text returns role+text for human and agent-visible messages only."""
+    # Given a window mixing a user message and a rich assistant turn
+    user = _user("How do I do X?")
+    assistant = {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "thinking", "thinking": "PRIVATE reasoning"},
+                {"type": "text", "text": "Do it like this."},
+                {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
+            ]
+        },
+    }
+    entries = [
+        user,
+        assistant,
+        _tool_result_user(),
+        _user("<system-reminder>noise</system-reminder>"),
+    ]
+
+    # When extracting the prompt-ready view
+    out = transcript.meaningful_text(entries)
+
+    # Then only the human text and the agent's user-facing text survive
+    assert out == [
+        {"role": "user", "text": "How do I do X?"},
+        {"role": "assistant", "text": "Do it like this."},
+    ]
+
+
+def test_meaningful_text_empty_window_returns_empty() -> None:
+    """Verify a window with no real messages yields an empty list."""
+    # Given only tool noise and a thinking-only turn / When extracting
+    out = transcript.meaningful_text([_tool_result_user(), _thinking_assistant()])
+    # Then nothing is produced
+    assert out == []
+
+
+# ---------------------------------------------------------------------------
 # read_entries
 # ---------------------------------------------------------------------------
 

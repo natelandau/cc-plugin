@@ -127,9 +127,13 @@ def _scrub(text: str) -> tuple[str, bool]:
 
 
 def _transcript_text(window: list[dict[str, Any]]) -> str:
-    """Serialize the user/assistant entries of the window for the prompt."""
-    relevant = [e for e in window if e.get("type") in {"user", "assistant"}]
-    return json.dumps(relevant, ensure_ascii=False)
+    """Serialize the window's real conversation (role + text only) for the prompt.
+
+    Only the human's messages and the agent's user-facing text are sent; the
+    agent's thinking, its tool calls/results, and system/hook noise are dropped
+    by `transcript.meaningful_text` since none of them are durable memory.
+    """
+    return json.dumps(transcript.meaningful_text(window), ensure_ascii=False)
 
 
 def _git_context(cwd: str, *, timeout: int = 10) -> str:

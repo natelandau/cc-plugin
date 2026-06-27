@@ -278,6 +278,49 @@ def _job_store(tmp_path: Path) -> Store:
     return store
 
 
+class _RecordingRunner:
+    """Captures the prompt it is handed so tests can assert on the sweep body."""
+
+    def __init__(self) -> None:
+        self.prompt: str | None = None
+
+    def run(self, prompt: str, *, cwd: str) -> RunResult:
+        self.prompt = prompt
+        return RunResult(success=True, exit_code=0, changed_files=[], text="done", stderr="")
+
+
+def test_run_job_prompt_carries_only_user_and_agent_text(tmp_path: Path) -> None:
+    """Verify the sweep prompt body excludes thinking, tool calls, and tool results."""
+    # Given a window with a user message and a rich assistant turn
+    store = _job_store(tmp_path)
+    runner = _RecordingRunner()
+    sweep = Sweep(store, RecallConfig(), runner)
+    window = [
+        _user("remember the threshold is five"),
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "thinking", "thinking": "PRIVATE-REASONING"},
+                    {"type": "text", "text": "Noted, threshold is five."},
+                    {"type": "tool_use", "name": "Bash", "input": {"command": "secret-tool-call"}},
+                ]
+            },
+        },
+    ]
+    job = SweepJob(window=window, cwd=str(tmp_path))
+
+    # When running the job
+    sweep._run_job(job)
+
+    # Then the prompt carries the human and agent text but none of the rest
+    assert runner.prompt is not None
+    assert "remember the threshold is five" in runner.prompt
+    assert "Noted, threshold is five." in runner.prompt
+    assert "PRIVATE-REASONING" not in runner.prompt
+    assert "secret-tool-call" not in runner.prompt
+
+
 def test_run_job_clean_write_logs_and_releases_lock(tmp_path: Path) -> None:
     """Verify run_job validates writes, logs, and releases the lock on a clean run."""
     # Given a store with a clean target file and a pre-held lock

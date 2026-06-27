@@ -140,3 +140,19 @@ def meaningful_messages(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         result.append(entry)
     return result
+
+
+def meaningful_text(entries: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Return `{"role", "text"}` for each meaningful user/assistant message.
+
+    The prompt-ready view of the transcript: the human's messages and the
+    agent's user-facing text only. `meaningful_messages` already strips noise,
+    tool_result lines, and thinking/tool-only turns; reducing each surviving
+    entry to its `_entry_text` then drops the thinking and tool_use blocks that
+    still ride along inside a mixed assistant turn, so nothing but real
+    conversation reaches the sweep.
+    """
+    return [
+        {"role": str(entry.get("type", "")), "text": _entry_text(entry)}
+        for entry in meaningful_messages(entries)
+    ]
