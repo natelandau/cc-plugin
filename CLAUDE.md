@@ -59,8 +59,8 @@ committing a code change.
 Per-stage dispatcher (`hooks/<stage>.py`, a one-liner into `lib/dispatch.py`) →
 `hooks/<stage>/_registry.py` (`PLUGINS` = ordered `(module, profiles)`) → plugin modules
 exposing `ID` + `evaluate(event, cfg) -> Decision | None`. First-block-wins; per-plugin
-exceptions are swallowed so one broken plugin never wedges a call. Only `pretooluse` and
-`stop` are wired; the other stages are ready noops. **Per-hook behavior lives in each
+exceptions are swallowed so one broken plugin never wedges a call. Only `pretooluse` is
+wired; the other stages are ready noops. **Per-hook behavior lives in each
 module's docstring + sibling `<hook>.rules.toml` — those are the source of truth, not
 this file** (`ls hooks/pretooluse/` for the current set).
 

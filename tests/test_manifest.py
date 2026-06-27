@@ -23,13 +23,13 @@ PLUGIN_ROOT_PREFIX = "${CLAUDE_PLUGIN_ROOT}/"
 # convention and works via filename fallback. New commands must include it.
 COMMANDS_WITHOUT_FRONTMATTER = frozenset({"transfer-context.md"})
 
-# Per-stage dispatcher scripts that exist but are not yet wired into hooks.json.
-# Each will replace the legacy wiring for its event in a later task; listing them
-# here exempts them from the orphan guard until that cutover lands. PreToolUse
-# (pretooluse.py) and Stop (stop.py) are already wired, so they are intentionally
-# absent.
+# Per-stage dispatcher scripts that exist but are not wired into hooks.json.
+# Each is a ready noop awaiting a future plugin; listing them here exempts them
+# from the orphan guard. PreToolUse (pretooluse.py) is the only wired stage, so
+# it is intentionally absent.
 STAGE_DISPATCHERS = frozenset(
     {
+        "stop.py",
         "posttooluse.py",
         "sessionstart.py",
         "sessionend.py",

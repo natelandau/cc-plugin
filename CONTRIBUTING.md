@@ -86,7 +86,7 @@ plugins/natelandau-toolkit/
   hooks/
     hooks.json                                Event registration for wired stages
     pretooluse.py                             Dispatcher entry point for PreToolUse
-    stop.py                                   Dispatcher entry point for Stop
+    stop.py                                   Dispatcher for Stop (unwired, noop)
     posttooluse.py                            Dispatcher for PostToolUse (unwired, noop)
     sessionstart.py                           Dispatcher for SessionStart (unwired, noop)
     sessionend.py                             Dispatcher for SessionEnd (unwired, noop)
@@ -98,10 +98,7 @@ plugins/natelandau-toolkit/
       protect_secrets.py
       protect_system.py
       use_uv.py
-    stop/                                     Stop stage plugins
-      _registry.py
-      stop_phrase_guard.py
-    posttooluse/ sessionstart/ sessionend/    Empty noop stages (each has a _registry.py)
+    stop/ posttooluse/ sessionstart/ sessionend/   Empty noop stages (each has a _registry.py)
     lib/                                      Shared library: dispatch, config, io, rules,
                                               profiles, bash, paths, state, transcript
   skills/<name>/SKILL.md                      Skill entry files

@@ -33,7 +33,7 @@ def test_defaults_when_no_files(hooks_dir: Path, tmp_path: Path) -> None:
     cfg = _load_config_mod(hooks_dir).load_config(home=tmp_path, project_dir=str(tmp_path))
     assert cfg.profile == "standard"
     assert cfg.disabled_hooks == frozenset()
-    assert cfg.option("stop-phrase-guard", "some_key", "default_val") == "default_val"
+    assert cfg.option("branch-protection", "some_key", "default_val") == "default_val"
 
 
 def test_project_overrides_global_scalar(hooks_dir: Path, tmp_path: Path) -> None:

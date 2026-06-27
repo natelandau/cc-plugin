@@ -2,8 +2,4 @@
 
 from __future__ import annotations
 
-from lib.profiles import ALL
-
-PLUGINS: list[tuple[str, frozenset[str]]] = [
-    ("stop_phrase_guard", ALL),
-]
+PLUGINS: list[tuple[str, frozenset[str]]] = []

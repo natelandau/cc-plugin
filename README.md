@@ -57,7 +57,6 @@ Hooks run automatically on every matching tool call. They block an action and ex
 | `commit-message` | Commits and PR titles that don't follow conventional-commit format. |
 | `config-protection` | Edits that weaken a linter, formatter, or typechecker config. |
 | `use-uv` | Nothing. It's a non-blocking nudge toward `uv run` for Python commands. |
-| `stop-phrase-guard` | Turn-ending messages that dodge the task or pause to ask when they should act. |
 
 ### Knowledge skills
 
@@ -167,7 +166,7 @@ The toolkit groups its hooks into three profiles. `profile` selects the tier; `d
 
 | Profile | Active hooks |
 | --- | --- |
-| `minimal` | branch-protection, protect-secrets, protect-system, stop-phrase-guard. |
+| `minimal` | branch-protection, protect-secrets, protect-system. |
 | `standard` (default) | minimal plus commit-message, config-protection, use-uv. |
 | `strict` | Same as standard, reserved for future use. |
 
@@ -177,7 +176,7 @@ profile = "standard"
 disabled_hooks = ["config-protection"]
 ```
 
-You can also add project-specific blocking rules without touching the built-in ones. The protect-secrets, protect-system, stop-phrase-guard, and config-protection hooks read an extra rules file from `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`. These rules are additive: they can add new blocks but can't weaken a built-in rule. To turn a hook off, use `disabled_hooks`. The config template documents the schema.
+You can also add project-specific blocking rules without touching the built-in ones. The protect-secrets, protect-system, and config-protection hooks read an extra rules file from `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`. These rules are additive: they can add new blocks but can't weaken a built-in rule. To turn a hook off, use `disabled_hooks`. The config template documents the schema.
 
 ### Recall: injection and sweep
 

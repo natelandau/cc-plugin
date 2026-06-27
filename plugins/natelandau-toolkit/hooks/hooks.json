@@ -1,5 +1,5 @@
 {
-  "description": "Per-stage PreToolUse and Stop dispatchers (branch, secrets, system, commit-message, uv on PreToolUse; phrase guard and follow-up capture on Stop).",
+  "description": "Per-stage PreToolUse dispatcher (branch, secrets, system, commit-message, uv).",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,17 +9,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse.py",
             "timeout": 15
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop.py",
-            "timeout": 5
           }
         ]
       }

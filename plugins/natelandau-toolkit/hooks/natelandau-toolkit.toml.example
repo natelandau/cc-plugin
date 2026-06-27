@@ -7,13 +7,13 @@ profile = "standard"
 
 # Hook ids to force-off regardless of profile. Ids: branch-protection,
 # protect-secrets, protect-system, commit-message, config-protection,
-# use-uv, stop-phrase-guard.
+# use-uv.
 # e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 
 # --- Per-project additive rules -------------------------------------------
-# The protect-secrets, protect-system, stop-phrase-guard, and config-protection
-# hooks also read an optional project rules file of the
+# The protect-secrets, protect-system, and config-protection hooks also read an
+# optional project rules file of the
 # same basename as their built-in <hook>.rules.toml, from:
 #
 #   <project>/.claude/natelandau-toolkit/<hook>.rules.toml
@@ -33,7 +33,7 @@ disabled_hooks = []
 # matches if any one hits): pattern = ['acme-prod\.conf$', '(?:^|/)\.acme/token$'].
 #
 # Match the array name to the hook's built-in file: [[rule]] for protect-secrets
-# and protect-system, [[violation]] for stop-phrase-guard, and the
+# and protect-system, and the
 # protected_files / protected_pyproject_tables lists for config-protection.
 # A protect-secrets rule must set field (or conditions);
 # a bare pattern cannot match there because the hook has no single primary text.

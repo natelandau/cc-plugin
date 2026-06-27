@@ -304,7 +304,7 @@ def test_conditions_are_anded(rules: ModuleType) -> None:
 
 def test_first_match_idless_rule(rules: ModuleType) -> None:
     """Verify a rule carrying only reason+pattern matches (no id)."""
-    # Given an id-less rule (as stop_phrase_guard loads)
+    # Given an id-less rule (reason + pattern only)
     data = {"violation": [{"reason": "stop", "pattern": "halt"}]}
     parsed = rules.parse_rules(data, "violation", required=frozenset({"reason"}))
 

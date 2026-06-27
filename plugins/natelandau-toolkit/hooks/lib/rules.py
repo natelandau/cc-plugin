@@ -1,7 +1,7 @@
 """Shared rule loading and matching for pattern-driven hooks.
 
-Consolidates the per-hook TOML loaders that `protect_system`,
-`protect_secrets`, and `stop_phrase_guard` used to each reimplement.
+Consolidates the per-hook TOML loaders that `protect_system` and
+`protect_secrets` used to each reimplement.
 Every rule is an `[[<section>]]` table sharing one canonical schema:
 
 - `id` (slug shown in block messages; optional for hooks that don't use it),

@@ -1,9 +1,10 @@
 """Full-path Stop dispatcher checks, including the stop_hook_active bail.
 
 Invokes hooks/stop.py as a subprocess with a payload on stdin (payloads are
-inert data; nothing destructive runs here). Covers the bail-on-re-fire path,
-the missing-transcript noop, and a positive block routed through parse_stop ->
-the stop plugins.
+inert data; nothing destructive runs here). Stop is a ready-noop stage (no
+registered plugins), so these cover the dispatcher scaffolding itself: the
+bail-on-re-fire path, the missing-transcript noop, and that a parsed transcript
+still yields no block while the stage has no plugins.
 """
 
 from __future__ import annotations
@@ -70,27 +71,9 @@ def test_missing_transcript_is_noop() -> None:
     assert proc.stdout.strip() == ""
 
 
-def test_phrase_violation_blocks_through_dispatcher(tmp_path: Path) -> None:
-    """Verify a violation-bearing closing message blocks via the full Stop path."""
-    # Given a transcript whose final assistant message trips the phrase guard
-    transcript = _write_transcript(
-        tmp_path,
-        [_assistant_text_entry("This failure is pre-existing and unrelated to my change.")],
-    )
-
-    # When the dispatcher runs over it
-    proc = _run({"hook_event_name": "Stop", "transcript_path": str(transcript)})
-
-    # Then a block decision is emitted (exit 0, JSON on stdout)
-    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
-    decision = json.loads(proc.stdout)
-    assert decision["decision"] == "block"
-    assert decision["reason"].startswith("STOP HOOK VIOLATION:")
-
-
-def test_clean_message_passes_through_dispatcher(tmp_path: Path) -> None:
-    """Verify a clean closing message yields no block through the full path."""
-    # Given a transcript whose final assistant message is clean
+def test_noop_stage_yields_no_block(tmp_path: Path) -> None:
+    """Verify a parsed transcript yields no block while Stop has no plugins."""
+    # Given a transcript with a normal closing assistant message
     transcript = _write_transcript(
         tmp_path, [_assistant_text_entry("Made the changes; tests pass. Ready for review.")]
     )
@@ -98,6 +81,6 @@ def test_clean_message_passes_through_dispatcher(tmp_path: Path) -> None:
     # When the dispatcher runs over it
     proc = _run({"hook_event_name": "Stop", "transcript_path": str(transcript)})
 
-    # Then it exits 0 with no decision
+    # Then it exits 0 with no decision (the stage is a ready noop)
     assert proc.returncode == 0, f"stderr={proc.stderr!r}"
     assert proc.stdout.strip() == ""
