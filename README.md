@@ -1,220 +1,195 @@
-# natelandau-toolkit
+# natelandau-cc-plugin
 
-A personal Claude Code plugin bundling one developer's hooks, skills, and
-slash commands into a single installable package.
+A personal [Claude Code](https://code.claude.com) marketplace containing two plugins: guardrails and workflow tooling for everyday coding, plus a project-memory system that remembers what each project taught you.
 
-> **Personal use only.** This plugin is published openly so Claude Code can
-> install it, but it's tuned to one person's workflow and tooling (uv, ruff,
-> ty, pytest). The hooks enforce opinionated rules and the stop-phrase guard
-> reflects personal preferences. Fork what's useful, but expect no support,
-> stability, or backwards compatibility.
+> [!WARNING]
+> This is a personal toolkit, built for one developer's machine and habits. It's opinionated about tools (uv, ruff, conventional commits), workflows, and what counts as "safe." It changes whenever those habits change, often without notice and without backward compatibility. Install it to study or fork it, not as a stable dependency. Pin to a tag if you need things to stay put.
 
-## What's inside
+## What you get
 
-The plugin ships three kinds of component: hooks that run automatically, skills
-Claude loads when relevant, and slash commands you invoke by name.
+Adding the marketplace gives you access to two plugins you can install independently.
 
-### Hooks
-
-Hooks run automatically on Claude's tool calls. Most block a risky action and
-explain why; the uv nudge is advisory. See [Configuration](#configuration) to
-tune or disable them.
-
-- Branch protection blocks destructive git operations, direct commits, and
-  merge commits to `main`/`master`.
-- Secret protection blocks reading, editing, or exfiltrating sensitive files.
-- System protection blocks system-destructive shell commands.
-- Commit-message validation holds `git commit` and `gh pr` titles to
-  conventional-commit format.
-- Config protection blocks edits that weaken a linter, formatter, or
-  typechecker config (including the `[tool.*]` tables in `pyproject.toml`),
-  while still allowing dependency and metadata changes and first-time setup.
-- The uv nudge suggests `uv run` when it sees a bare `python`, `pip`, `pytest`,
-  or `ruff` call, showing each suggestion at most once per session.
-- The stop-phrase guard stops Claude from ending a turn with certain filler
-  phrases.
-- The follow-up capture hook stops Claude from ending a turn that names
-  deferred work (out-of-scope items, follow-up PRs, TODOs) without either
-  doing it or recording it in the backlog (`.agent/BACKLOG.md` by default).
-
-### Skills Claude loads on its own
-
-Claude pulls these in when the task matches, no action needed:
-
-- `documentation-writer` for writing and editing user-facing docs.
-- `safe-refactoring` for behavior-preserving restructuring in any language.
-- `flask-development` for building Flask 3+ apps.
-- `htmx-expert` for writing and debugging htmx.
-- `accessibility` for auditing web UI against WCAG 2.2 while editing templates.
-- `nclutils` for code that uses the `nclutils` library.
-- `tufte-viz` for critiquing data visualizations against Tufte's principles.
-
-### Slash commands you invoke
-
-Type these yourself when you want them:
-
-- `/pr` commits outstanding work, runs the tests, pushes the branch, and opens
-  a pull request.
-- `/squash` collapses a finished branch into one commit on `main`, then cleans
-  up the branch.
-- `/fast-forward` lands a finished branch onto the local `main`/`master` as a
-  fast-forward of its logically grouped commits (no merge commit, no squash),
-  then deletes the branch and removes its worktree; local only, never pushes.
-- `/cleanup-branch` repackages the current branch's commits into fewer, logically
-  grouped, reviewable commits without changing the resulting code; it backs up
-  first, verifies the tree is byte-for-byte identical, and never pushes.
-- `/gha` investigates a GitHub Actions failure and suggests a fix.
-- `/refactor` runs a multi-agent, behavior-preserving refactor review of any code, with
-  `--quick` for a fast pass and `--fix` to apply the safe changes.
-- `/organize` reviews how a project is organized (file/directory layout, naming, module
-  boundaries, grab-bag files) and returns a report plus an ordered reorganization plan; it
-  is advisory and never moves files.
-- `/create-prd` turns the conversation into a Product Requirements Document.
-- `/daisyui` for building UIs with daisyUI v5 and Tailwind.
-- `/tortoise-orm` for building apps with Tortoise ORM.
+| Plugin | What it does |
+| --- | --- |
+| `natelandau-toolkit` | PreToolUse and Stop hooks that block risky actions, on-demand skills, slash commands, and review subagents. |
+| `natelandau-recall` | Captures durable project learnings, a deferred backlog, and architecture notes at session boundaries, then surfaces them when a new session starts. |
 
 ## Requirements
 
-- Claude Code with plugin support
-- [uv](https://docs.astral.sh/uv/), which runs the hook scripts and provisions
-  the Python version each one needs
-- Git
+Both plugins run their hooks as standalone Python scripts through [uv](https://docs.astral.sh/uv/), so you need a working install before either plugin does anything.
 
-## Installation
+- Claude Code (the host for all components).
+- `uv` on your `PATH`. The hook scripts launch with `uv run`, and uv fetches the required Python (3.14+) on first run.
+- `git`. The branch-protection and memory features read repository state.
 
-Install through Claude Code rather than copying files into `~/.claude/`. Run
-these inside Claude Code:
+## Install
 
-1. Add this repository as a marketplace:
+You install in two steps: register the marketplace, then install whichever plugins you want. Run these inside Claude Code.
+
+1. Add the marketplace from GitHub:
 
    ```
    /plugin marketplace add natelandau/cc-plugin
    ```
 
-2. Install the plugin:
+2. Install one or both plugins:
 
    ```
    /plugin install natelandau-toolkit@natelandau-cc-plugin
+   /plugin install natelandau-recall@natelandau-cc-plugin
    ```
 
-3. Reload so the hooks, skills, and commands activate without a restart:
+That's it. Hooks register automatically, and skills, commands, and subagents become available right away. To confirm, run `/plugin` and check that the plugins appear as enabled.
 
-   ```
-   /reload-plugins
-   ```
+## natelandau-toolkit
 
-The plugin installs to user scope, so it's available across all your projects.
-To pick a different scope or browse interactively, run `/plugin` and use the
-**Discover** and **Installed** tabs.
+This plugin combines four kinds of components: hooks that enforce rules, skills that add knowledge or run workflows, slash commands, and subagents.
 
-To disable, re-enable, or remove it later:
+### Hooks
+
+Hooks run automatically on every matching tool call. They block an action and explain why, so a guardrail holds even when the model would rather not. The active set depends on your profile (see [Configuration](#configuration)).
+
+| Hook | Blocks |
+| --- | --- |
+| `branch-protection` | Destructive git operations and file edits on `main` or `master`, including merge commits from `merge` and `pull`. |
+| `protect-secrets` | Reading, editing, writing, or exfiltrating sensitive files like `.env` and credential stores. |
+| `protect-system` | System-destructive shell commands. |
+| `commit-message` | Commits and PR titles that don't follow conventional-commit format. |
+| `config-protection` | Edits that weaken a linter, formatter, or typechecker config. |
+| `use-uv` | Nothing. It's a non-blocking nudge toward `uv run` for Python commands. |
+| `stop-phrase-guard` | Turn-ending messages that dodge the task or pause to ask when they should act. |
+
+### Knowledge skills
+
+These skills load on demand when your task matches. You don't invoke them by name. They give the model current, focused guidance on a tool or domain.
+
+| Skill | Use when you're working with |
+| --- | --- |
+| `accessibility` | Web UI accessibility: ARIA, keyboard nav, focus, contrast, WCAG 2.2. |
+| `daisyui` | daisyUI v5 and Tailwind CSS components, forms, and theming. |
+| `documentation-writer` | READMEs, changelogs, guides, and other user-facing prose. |
+| `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints. |
+| `gha` | Investigating GitHub Actions failures and finding the root cause. |
+| `htmx-expert` | htmx attributes, AJAX fragments, swaps, and hypermedia patterns. |
+| `nclutils` | Python projects that depend on the `nclutils` package. |
+| `safe-refactoring` | Behavior-preserving refactors in any language. |
+| `tortoise-orm` | Tortoise ORM v1.x models, queries, relations, and migrations. |
+| `tufte-viz` | Designing or critiquing data visualizations with Tufte's principles. |
+
+### Workflow commands
+
+These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. You invoke them deliberately; they never fire on their own. The git workflows are local-only and never push unless they say so.
+
+| Command | What it does |
+| --- | --- |
+| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones. |
+| `/organize [target]` | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files. |
+| `/create-prd` | Generates a Product Requirements Document from the conversation. |
+| `/pr` | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR with a conventional-commit title. |
+| `/cleanup-branch` | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code. |
+| `/squash` | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible. |
+| `/fast-forward` | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible. |
+
+### Subagents
+
+The review commands above delegate to focused subagents that run in their own context and return a short summary. You can also call them directly when you want their narrow job done without filling the main conversation.
+
+| Subagent | Job |
+| --- | --- |
+| `test-runner` | Runs the project's linters and test suite, returns a pass/fail summary. |
+| `doc-drift-reviewer` | Compares user-facing docs against the current branch and lists stale or missing coverage. |
+| `review-finder` | Applies one analysis angle to a scope and returns candidate findings. |
+| `review-verifier` | Judges a candidate finding as kept, plausible, or refuted with a cited reason. |
+
+## natelandau-recall
+
+This plugin gives every project a small, persistent memory. It learns from your sessions and reminds you at the start of the next one, so hard-won context survives past a single conversation.
+
+It works through three automatic hooks:
+
+- When a session starts, it injects a compact summary of the project's memory: architecture notes, an index of learnings, and a backlog overview.
+- When a session ends, or just before the context is compacted, it spawns a background agent that reads the transcript and updates the memory store.
+
+The sweep is conservative. It records non-obvious learnings (with rationale), deferred backlog items, and durable architecture goals. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
+
+### Where memory lives
+
+Memory is stored per project, outside the repository, so it never ends up in your commits. The location follows the XDG base directory spec:
 
 ```
-/plugin disable natelandau-toolkit@natelandau-cc-plugin
-/plugin enable natelandau-toolkit@natelandau-cc-plugin
-/plugin uninstall natelandau-toolkit@natelandau-cc-plugin
+~/.local/share/natelandau-recall/<project-key>/
+  architecture.md     durable goals and guidelines
+  backlog.md          deferred items grouped by commit type
+  learnings/          one file per gotcha, with summary and "read when" hints
 ```
+
+The project key is derived from the repository root, so all worktrees and branches of one repo share a single store.
+
+### Curating memory
+
+The automated sweep only adds and refines. It never deletes. To prune the store, run `/review-memory`. This command deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. It's the only place deletion happens.
 
 ## Configuration
 
-The hooks work without any setup. To change which hooks run or how strict they
-are, add a config file. Settings load from two locations, and the project file
-overrides the global one key by key:
+Both plugins read optional TOML config files. Settings cascade: a global file applies everywhere, and a project file overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.
 
-- Global: `~/.claude/natelandau-toolkit.toml`
-- Per-project: `<project>/.claude/natelandau-toolkit.toml`
+| Plugin | Global file | Project file |
+| --- | --- | --- |
+| `natelandau-toolkit` | `~/.claude/natelandau-toolkit.toml` | `<project>/.claude/natelandau-toolkit.toml` |
+| `natelandau-recall` | `~/.claude/natelandau-recall.toml` | `<project>/.claude/natelandau-recall.toml` |
 
-Copy `plugins/natelandau-toolkit/hooks/natelandau-toolkit.toml.example` to
-either path and edit it. Every key is optional, and an absent file uses the
-defaults below.
+Each plugin ships a `*.toml.example` template under its `hooks/` directory. Copy it to one of the paths above and edit.
 
-### Pick a profile
+### Toolkit: profiles and disabling hooks
 
-The `profile` key selects which tier of hooks runs:
+The toolkit groups its hooks into three profiles. `profile` selects the tier; `disabled_hooks` force-off individual hooks by id regardless of profile.
 
-| Profile    | Hooks that run                                                              |
-| ---------- | -------------------------------------------------------------------------- |
-| `minimal`  | branch protection, secret protection, system protection, stop-phrase guard |
-| `standard` | everything in `minimal`, plus commit-message validation, config protection, the uv nudge, and follow-up capture |
-| `strict`   | same as `standard` (reserved for future additions)                         |
-
-`standard` is the default. To run only the safety hooks:
+| Profile | Active hooks |
+| --- | --- |
+| `minimal` | branch-protection, protect-secrets, protect-system, stop-phrase-guard. |
+| `standard` (default) | minimal plus commit-message, config-protection, use-uv. |
+| `strict` | Same as standard, reserved for future use. |
 
 ```toml
-profile = "minimal"
+# ~/.claude/natelandau-toolkit.toml
+profile = "standard"
+disabled_hooks = ["config-protection"]
 ```
 
-### Turn off individual hooks
+You can also add project-specific blocking rules without touching the built-in ones. The protect-secrets, protect-system, stop-phrase-guard, and config-protection hooks read an extra rules file from `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`. These rules are additive: they can add new blocks but can't weaken a built-in rule. To turn a hook off, use `disabled_hooks`. The config template documents the schema.
 
-Use `disabled_hooks` to force a hook off no matter the profile:
+### Recall: injection and sweep
+
+The recall config controls what gets injected at session start and how the end-of-session sweep behaves.
 
 ```toml
-disabled_hooks = ["use-uv", "commit-message"]
+# ~/.claude/natelandau-recall.toml
+[inject]
+enabled = true                # set false to stop SessionStart memory injection
+architecture_max_bytes = 4096 # cap on architecture.md injected verbatim
+
+[sweep]
+enabled = true                # set false to stop the end-of-session sweep
+model = "claude-sonnet-4-6"   # model for the background sweep
+min_exchanges = 5             # skip the sweep below this many real exchanges
 ```
 
-### Set the follow-up backlog path
+## Uninstalling
 
-The `capture-followups` hook takes a `backlog` path (relative to the project
-root) that sets where it expects deferred work to be recorded; writing that file
-during the turn satisfies the hook. It defaults to `.agent/BACKLOG.md`:
+Remove a plugin, then the marketplace, from inside Claude Code:
 
-```toml
-[hooks.capture-followups]
-backlog = ".agent/BACKLOG.md"
+```
+/plugin uninstall natelandau-toolkit@natelandau-cc-plugin
+/plugin uninstall natelandau-recall@natelandau-cc-plugin
+/plugin marketplace remove natelandau-cc-plugin
 ```
 
-### Add project-specific rules
-
-Five hooks read an optional per-project rules file and add its rules to their
-built-in ones: `protect-secrets`, `protect-system`, `stop-phrase-guard`,
-`capture-followups`, and `config-protection`. Drop a file named after the hook
-under your project's
-`.claude/natelandau-toolkit/` directory:
-
-    <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
-
-These rules are additive only: a project can add blocks but never weaken or
-remove a built-in one. To turn a hook off entirely use `disabled_hooks`. A
-malformed project file is ignored (the hook warns and keeps enforcing its
-built-in rules), and the file is read whether or not you also keep a
-`natelandau-toolkit.toml`.
-
-Each file uses the same format as the hook's built-in rules. For example, to
-block a project's production config from being read or edited:
-
-```toml
-# <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
-[[rule]]
-id      = "acme-prod-conf"
-reason  = "production secrets live in this file"
-field   = "file_path"
-pattern = 'acme-prod\.conf$'
-```
-
-`pattern` may be a single regex (as above) or a list of regexes, which match if
-any one hits — handy for folding several paths into one rule:
-
-```toml
-[[rule]]
-id      = "acme-secrets"
-reason  = "Acme credential files"
-field   = "file_path"
-pattern = ['acme-prod\.conf$', '(?:^|/)\.acme/token$']
-```
-
-Match the array name to the hook's built-in file: `[[rule]]` for
-`protect-secrets` and `protect-system`, `[[violation]]` for `stop-phrase-guard`,
-`[[trigger]]` for `capture-followups`, and `protected_files` /
-`protected_pyproject_tables` lists for `config-protection`. A `protect-secrets` rule must target a named `field` (or
-use `conditions`), since that hook has no single primary text for a bare
-`pattern` to match against.
+Uninstalling the recall plugin leaves your stored memory in place under `~/.local/share/natelandau-recall/`. Delete that directory if you want it gone.
 
 ## Contributing
 
-Development setup, running the test gates, the hooks stage-dispatcher model, and instructions for adding hooks, skills, commands, and agents all live in [CONTRIBUTING.md](CONTRIBUTING.md).
+This is a personal project, but the internals are documented for anyone forking it. See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture, the hook plugin contract, testing, and how to add a component.
 
 ## License
 
-Released under the [MIT License](LICENSE). You're welcome to fork or borrow
-code, but the personal-use caveat above still applies in spirit: don't expect
-this repo to behave like a maintained product.
+Released under the [MIT License](LICENSE).
