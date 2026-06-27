@@ -9,6 +9,8 @@ from pathlib import Path
 
 from recall.store import Store, encode_project_key, project_root  # ty: ignore[unresolved-import]
 
+from tests.recall._store_factory import store_at
+
 _CLEAN = {"PATH": os.environ.get("PATH", "")}
 
 # Git env vars that refer to a specific repository location; must be cleared so
@@ -141,17 +143,14 @@ def test_for_cwd_state_dir_hashes_key(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _store_at(tmp_path: Path) -> Store:
-    return Store(key="k", data_dir=tmp_path / "data", state_dir=tmp_path / "state")
-
-
 def test_path_accessors(tmp_path: Path) -> None:
     """Verify the path properties point at the expected store locations."""
     # Given a store rooted at tmp dirs
-    store = _store_at(tmp_path)
+    store = store_at(tmp_path)
     # Then each accessor composes the right path
     assert store.learnings_dir == tmp_path / "data" / "learnings"
     assert store.backlog_path == tmp_path / "data" / "backlog.md"
+    assert store.handoff_path == tmp_path / "data" / "HANDOFF.md"
     assert store.lock_path == tmp_path / "state" / "sweep.lock"
     assert store.transcript_pointer_path == tmp_path / "state" / "transcript-path"
     assert store.log_path == tmp_path / "state" / "sweep.log"
@@ -160,7 +159,7 @@ def test_path_accessors(tmp_path: Path) -> None:
 def test_save_and_read_transcript_pointer(tmp_path: Path) -> None:
     """Verify the transcript pointer round-trips through the state dir."""
     # Given a store with no state dir yet
-    store = _store_at(tmp_path)
+    store = store_at(tmp_path)
     # When saving a transcript path
     store.save_transcript_pointer("/tmp/x/t.jsonl")  # noqa: S108
     # Then it is read back verbatim (mkdir handled internally)
@@ -170,15 +169,76 @@ def test_save_and_read_transcript_pointer(tmp_path: Path) -> None:
 def test_read_transcript_pointer_missing_returns_empty(tmp_path: Path) -> None:
     """Verify reading an absent pointer returns '' rather than raising."""
     # Given a store whose pointer was never written
-    store = _store_at(tmp_path)
+    store = store_at(tmp_path)
     # Then reading fails open to an empty string
     assert store.read_transcript_pointer() == ""
+
+
+def _seed_handoff(store: Store, text: str) -> None:
+    store.data_dir.mkdir(parents=True, exist_ok=True)
+    store.handoff_path.write_text(text, encoding="utf-8")
+
+
+def test_read_handoff_returns_contents(tmp_path: Path) -> None:
+    """Verify read_handoff returns the handoff contents verbatim when present."""
+    # Given a store with a seeded handoff
+    store = store_at(tmp_path)
+    _seed_handoff(store, "# Handoff\nbody")
+    # Then the contents come back verbatim
+    assert store.read_handoff() == "# Handoff\nbody"
+
+
+def test_read_handoff_missing_returns_none(tmp_path: Path) -> None:
+    """Verify read_handoff fails open to None when no handoff exists."""
+    # Given a store with no handoff
+    store = store_at(tmp_path)
+    # Then reading returns None rather than raising
+    assert store.read_handoff() is None
+
+
+def test_read_handoff_empty_returns_none(tmp_path: Path) -> None:
+    """Verify an empty handoff file reads as None (nothing to carry)."""
+    # Given a store with an empty handoff file
+    store = store_at(tmp_path)
+    _seed_handoff(store, "")
+    # Then it is treated as nothing to carry
+    assert store.read_handoff() is None
+
+
+def test_read_handoff_invalid_utf8_returns_none(tmp_path: Path) -> None:
+    """Verify a handoff with invalid UTF-8 fails open to None rather than raising."""
+    # Given a store whose handoff holds bytes that are not valid UTF-8
+    store = store_at(tmp_path)
+    store.data_dir.mkdir(parents=True, exist_ok=True)
+    store.handoff_path.write_bytes(b"\xff\xfe bad bytes")
+    # Then reading it is nothing-to-carry, not a crash
+    assert store.read_handoff() is None
+
+
+def test_delete_handoff_removes_file(tmp_path: Path) -> None:
+    """Verify delete_handoff removes the handoff file."""
+    # Given a store with a seeded handoff
+    store = store_at(tmp_path)
+    _seed_handoff(store, "x")
+    # When deleting it
+    store.delete_handoff()
+    # Then the file is gone
+    assert not store.handoff_path.exists()
+
+
+def test_delete_handoff_missing_is_noop(tmp_path: Path) -> None:
+    """Verify delete_handoff is a no-op (never raises) when the file is already gone."""
+    # Given a store with no handoff
+    store = store_at(tmp_path)
+    # Then deleting it does not raise
+    store.delete_handoff()
+    assert not store.handoff_path.exists()
 
 
 def test_save_transcript_pointer_ignores_empty(tmp_path: Path) -> None:
     """Verify saving an empty transcript path writes nothing."""
     # Given a store
-    store = _store_at(tmp_path)
+    store = store_at(tmp_path)
     # When saving an empty path
     store.save_transcript_pointer("")
     # Then no pointer file is created
@@ -188,7 +248,7 @@ def test_save_transcript_pointer_ignores_empty(tmp_path: Path) -> None:
 def test_is_empty_true_when_no_artifacts(tmp_path: Path) -> None:
     """Verify is_empty reports True when no memory artifacts exist."""
     # Given a store with an empty (absent) data dir
-    store = _store_at(tmp_path)
+    store = store_at(tmp_path)
     # Then the store is empty
     assert store.is_empty() is True
 
@@ -196,7 +256,7 @@ def test_is_empty_true_when_no_artifacts(tmp_path: Path) -> None:
 def test_is_empty_false_with_a_learning(tmp_path: Path) -> None:
     """Verify is_empty reports False once a learning file exists."""
     # Given a store whose learnings dir holds one file
-    store = _store_at(tmp_path)
+    store = store_at(tmp_path)
     store.learnings_dir.mkdir(parents=True)
     (store.learnings_dir / "x.md").write_text("body", encoding="utf-8")
     # Then the store is not empty

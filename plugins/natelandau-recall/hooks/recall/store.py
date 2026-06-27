@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 PLUGIN_NS = "natelandau-recall"
 LEARNINGS_DIRNAME = "learnings"
 BACKLOG_NAME = "backlog.md"
+HANDOFF_NAME = "HANDOFF.md"
 LOCK_NAME = "sweep.lock"
 TRANSCRIPT_POINTER_NAME = "transcript-path"
 LOG_NAME = "sweep.log"
@@ -121,6 +122,11 @@ class Store:
         return self.data_dir / BACKLOG_NAME
 
     @property
+    def handoff_path(self) -> Path:
+        """The consume-once session handoff file (human-readable, beside the backlog)."""
+        return self.data_dir / HANDOFF_NAME
+
+    @property
     def lock_path(self) -> Path:
         """The single-writer sweep lock."""
         return self.state_dir / LOCK_NAME
@@ -151,6 +157,28 @@ class Store:
             return self.transcript_pointer_path.read_text(encoding="utf-8").strip()
         except OSError:
             return ""
+
+    def read_handoff(self) -> str | None:
+        """Return the consume-once handoff contents, or None when there is nothing to carry.
+
+        Fails open: a missing, unreadable, empty, or non-UTF-8 HANDOFF.md (a
+        hand-edited or pasted-in file) reads as None rather than raising, so one
+        bad file never aborts the surrounding session-start injection.
+        """
+        try:
+            text = self.handoff_path.read_text(encoding="utf-8")
+        except OSError, UnicodeDecodeError:
+            return None
+        return text or None
+
+    def delete_handoff(self) -> None:
+        """Best-effort remove the handoff after it has been injected; never raises.
+
+        Called only once the inject is emitted, so a delete the OS rejects leaves
+        the baton in place for the next attempt rather than dropping it silently.
+        """
+        with contextlib.suppress(OSError):
+            self.handoff_path.unlink()
 
     def is_empty(self) -> bool:
         """Return whether the store holds no backlog or learnings."""

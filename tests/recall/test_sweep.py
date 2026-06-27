@@ -7,15 +7,14 @@ from typing import TYPE_CHECKING
 
 from recall.config import RecallConfig  # ty: ignore[unresolved-import]
 from recall.runner import RunResult  # ty: ignore[unresolved-import]
-from recall.store import Store  # ty: ignore[unresolved-import]
 from recall.sweep import Lock, Sweep, SweepJob  # ty: ignore[unresolved-import]
+
+from tests.recall._store_factory import store_at
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-
-def _store(tmp_path: Path) -> Store:
-    return Store(key="k", data_dir=tmp_path / "data", state_dir=tmp_path / "state")
+    from recall.store import Store  # ty: ignore[unresolved-import]
 
 
 class _FakeRunner:
@@ -117,7 +116,7 @@ def _write_transcript(path: Path, entries: list[dict]) -> None:
 def test_gate_below_threshold_returns_none_and_releases(tmp_path: Path) -> None:
     """Verify gate returns None and releases the lock below min_exchanges."""
     # Given a sparse transcript (2 meaningful) and a threshold of 5
-    store = _store(tmp_path)
+    store = store_at(tmp_path)
     t_file = tmp_path / "sparse.jsonl"
     _write_transcript(t_file, [_user("hi"), _assistant("yo")])
     sweep = Sweep(store, RecallConfig(min_exchanges=5), _FakeRunner([]))
@@ -132,7 +131,7 @@ def test_gate_below_threshold_returns_none_and_releases(tmp_path: Path) -> None:
 def test_gate_above_threshold_returns_job_and_holds_lock(tmp_path: Path) -> None:
     """Verify gate returns a SweepJob with the window and keeps the lock held."""
     # Given a rich transcript (6 meaningful, threshold 5)
-    store = _store(tmp_path)
+    store = store_at(tmp_path)
     entries = _meaningful(6)
     t_file = tmp_path / "rich.jsonl"
     _write_transcript(t_file, entries)
@@ -150,7 +149,7 @@ def test_gate_above_threshold_returns_job_and_holds_lock(tmp_path: Path) -> None
 def test_gate_falls_back_to_transcript_pointer(tmp_path: Path) -> None:
     """Verify gate reads the saved pointer when the event transcript path is empty."""
     # Given a store with a saved transcript pointer
-    store = _store(tmp_path)
+    store = store_at(tmp_path)
     entries = _meaningful(6)
     t_file = tmp_path / "session.jsonl"
     _write_transcript(t_file, entries)
@@ -169,7 +168,7 @@ def test_gate_falls_back_to_transcript_pointer(tmp_path: Path) -> None:
 
 
 def _sweep_with_data(tmp_path: Path) -> tuple[Sweep, Path]:
-    store = _store(tmp_path)
+    store = store_at(tmp_path)
     store.data_dir.mkdir(parents=True)
     return Sweep(store, RecallConfig(), _FakeRunner([])), store.data_dir
 
@@ -271,7 +270,7 @@ def test_validate_writes_missing_file_no_note(tmp_path: Path) -> None:
 
 
 def _job_store(tmp_path: Path) -> Store:
-    store = _store(tmp_path)
+    store = store_at(tmp_path)
     store.data_dir.mkdir(parents=True)
     store.state_dir.mkdir(parents=True)
     store.lock_path.write_text("12345.0", encoding="utf-8")  # pre-held lock

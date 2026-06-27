@@ -60,6 +60,16 @@ def _seed_learning(tmp_path: Path, proj: Path) -> None:
     )
 
 
+def _seed_handoff(tmp_path: Path, proj: Path, text: str = "# Handoff\nthe baton") -> Store:
+    """Seed a HANDOFF.md into the project's store and return the store."""
+    store = Store.for_cwd(
+        cwd=proj, env={"XDG_DATA_HOME": str(tmp_path / "data"), "CLAUDE_PROJECT_DIR": str(proj)}
+    )
+    store.data_dir.mkdir(parents=True, exist_ok=True)
+    store.handoff_path.write_text(text, encoding="utf-8")
+    return store
+
+
 # ---------------------------------------------------------------------------
 # SessionStart
 # ---------------------------------------------------------------------------
@@ -131,7 +141,128 @@ def test_sessionstart_disabled_inject_exits_silently(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SessionEnd / PreCompact (sweep) — never spawns a real worker
+# SessionStart - handoff consumption
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("source", ["compact", "clear", "startup"])
+def test_sessionstart_consumes_handoff_on_fresh_start(source: str, tmp_path: Path) -> None:
+    """Verify a handoff is injected and then deleted on compact/clear/startup."""
+    # Given a project with a pending handoff
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    store = _seed_handoff(tmp_path, proj)
+    # When SessionStart runs from a fresh-context source
+    proc = _run("sessionstart", {"cwd": str(proj), "source": source}, _isolated_env(tmp_path, proj))
+    # Then the baton is injected and the file is consumed
+    assert proc.returncode == 0, proc.stderr
+    context = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "the baton" in context
+    assert not store.handoff_path.exists()
+
+
+def test_sessionstart_consumes_handoff_on_unknown_source(tmp_path: Path) -> None:
+    """Verify any non-resume source consumes the handoff (denylist, not allowlist)."""
+    # Given a pending handoff and a source string the hook does not enumerate
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    store = _seed_handoff(tmp_path, proj)
+    # When SessionStart runs from an unknown future start source
+    proc = _run(
+        "sessionstart",
+        {"cwd": str(proj), "source": "some-new-source"},
+        _isolated_env(tmp_path, proj),
+    )
+    # Then the baton is still injected and consumed rather than stranded
+    assert proc.returncode == 0, proc.stderr
+    context = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "the baton" in context
+    assert not store.handoff_path.exists()
+
+
+def test_sessionstart_skips_handoff_on_resume(tmp_path: Path) -> None:
+    """Verify resume neither injects nor deletes the handoff (same session may own it)."""
+    # Given a project with a pending handoff
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    store = _seed_handoff(tmp_path, proj)
+    # When SessionStart runs from a resume
+    proc = _run(
+        "sessionstart", {"cwd": str(proj), "source": "resume"}, _isolated_env(tmp_path, proj)
+    )
+    # Then nothing is injected and the baton is left intact
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == ""
+    assert store.handoff_path.exists()
+
+
+def test_sessionstart_consumes_handoff_when_inject_disabled(tmp_path: Path) -> None:
+    """Verify the handoff is carried even when memory injection is disabled."""
+    # Given a pending handoff and a project config turning inject off
+    proj = tmp_path / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    (proj / ".claude" / "natelandau-recall.toml").write_text(
+        "[inject]\nenabled = false\n", encoding="utf-8"
+    )
+    store = _seed_handoff(tmp_path, proj)
+    # When SessionStart runs
+    proc = _run(
+        "sessionstart", {"cwd": str(proj), "source": "startup"}, _isolated_env(tmp_path, proj)
+    )
+    # Then the explicit user artifact is still injected and consumed
+    assert proc.returncode == 0, proc.stderr
+    context = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "the baton" in context
+    assert not store.handoff_path.exists()
+
+
+def test_sessionstart_handoff_precedes_memory(tmp_path: Path) -> None:
+    """Verify the handoff block is emitted ahead of the memory block."""
+    # Given a project with both a handoff and a learning
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_handoff(tmp_path, proj)
+    _seed_learning(tmp_path, proj)
+    # When SessionStart runs
+    proc = _run(
+        "sessionstart", {"cwd": str(proj), "source": "startup"}, _isolated_env(tmp_path, proj)
+    )
+    # Then both appear, handoff first
+    assert proc.returncode == 0, proc.stderr
+    context = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert context.index("the baton") < context.index("The X gotcha")
+
+
+def test_sessionstart_keeps_handoff_when_emit_fails(tmp_path: Path) -> None:
+    """Verify a failed inject leaves the handoff in place (delete only after a clean emit)."""
+    # Given a pending handoff and a stdout that cannot be written (read end of a pipe)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    store = _seed_handoff(tmp_path, proj)
+    read_fd, write_fd = os.pipe()
+    base = {k: v for k, v in os.environ.items() if k != "NL_RECALL_HEADLESS"}
+    try:
+        # When SessionStart tries to emit to an unwritable fd, the flush raises
+        proc = subprocess.run(
+            [str(HOOKS / "sessionstart.py")],
+            input=json.dumps({"cwd": str(proj), "source": "startup"}),
+            stdout=read_fd,  # read end is not writable -> os.write fails with EBADF
+            stderr=subprocess.PIPE,
+            text=True,
+            env={**base, **_isolated_env(tmp_path, proj)},
+            check=False,
+            timeout=30,
+        )
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+    # Then the hook still fails open (exit 0) and the baton survives for a retry
+    assert proc.returncode == 0, proc.stderr
+    assert store.handoff_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# SessionEnd / PreCompact (sweep) - never spawns a real worker
 # ---------------------------------------------------------------------------
 
 

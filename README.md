@@ -107,7 +107,7 @@ This plugin gives every project a small, persistent memory. It learns from your 
 
 It works through three automatic hooks:
 
-- When a session starts, it injects a compact summary of the project's memory: an index of learnings and a backlog overview.
+- When a session starts, it injects a compact summary of the project's memory: an index of learnings and a backlog overview, plus any handoff left for the next session (see [Handing off to the next session](#handing-off-to-the-next-session)).
 - When a session ends, or just before the context is compacted, it spawns a background agent that reads the transcript and updates the memory store.
 
 The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items as self-contained files in `learnings/`. It applies a strict bar: a fact earns a place only if it would help work on a *different* part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
@@ -123,6 +123,21 @@ Memory is stored per project, outside the repository, so it never ends up in you
 ```
 
 The project key is derived from the repository root, so all worktrees and branches of one repo share a single store.
+
+### Handing off to the next session
+
+Sometimes you want to carry an in-progress task into a fresh session, most often right before you run `/compact` or `/clear`. The automatic sweep records durable learnings, but it doesn't preserve the live details of what you're doing right now. A handoff covers that.
+
+Run `/recall-handoff` to write a `HANDOFF.md` into the project's memory store. It captures the goal, progress so far, what worked, what to avoid, the key files, and the next steps, so a fresh session can continue where this one stopped. If a handoff already exists, the command reads it first and updates it instead of overwriting your earlier notes.
+
+The next session picks up the handoff on its own. When a session starts from `/compact`, `/clear`, or a new launch, recall injects the handoff and then deletes it, so you get it once and it never lingers. A resumed session skips it, since that session already has the context.
+
+The handoff lives alongside the rest of your memory in the store directory:
+
+```
+~/.local/share/natelandau-recall/<project-key>/
+  HANDOFF.md          consume-once handoff for the next session
+```
 
 ### Curating memory
 

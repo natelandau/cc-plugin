@@ -112,10 +112,11 @@ plugins/natelandau-recall/
   .claude-plugin/plugin.json                  Plugin manifest
   hooks/
     hooks.json                                SessionStart, SessionEnd, PreCompact registration
-    sessionstart.py sessionend.py precompact.py   Thin entry scripts
+    sessionstart.py sessionend.py precompact.py   Thin hook entry scripts
+    recall-path.py                            Store-path resolver the skills call
     recall/                                   Flat engine package (Store, Injector, Sweep, etc.)
     prompts/sweep.md                          Prompt template for the headless sweep
-  skills/recall-review/SKILL.md               Memory curation skill (manual-only)
+  skills/recall-*/SKILL.md                    Memory-curation and handoff skills
 
 tests/                                        Toolkit characterization tests
 tests/recall/                                 Recall tests (import the engine directly)
@@ -282,14 +283,15 @@ These steps wire a stage that currently has an empty `_registry.py` and no entry
 
 ## How natelandau-recall works
 
-Recall is standalone. It does not use the toolkit's dispatcher, registry, or profile harness. Three thin entry scripts wire a flat engine package.
+Recall is standalone. It does not use the toolkit's dispatcher, registry, or profile harness. Three thin hook entry scripts wire a flat engine package, alongside a `recall-path.py` resolver the skills call.
 
-- `hooks/sessionstart.py` builds the SessionStart memory block and injects it.
+- `hooks/sessionstart.py` builds the SessionStart memory block and injects it. It also injects a pending `HANDOFF.md` handoff ahead of that block on any start except `resume`, deleting it only after a confirmed write and independent of `inject_enabled`.
 - `hooks/sessionend.py` and `hooks/precompact.py` trigger the sweep that distills the session into memory.
+- `hooks/recall-path.py` resolves store paths (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) over `Store`. The recall skills call it instead of re-deriving the dash-encoded project key, so the encoding lives in one place (`paths.py`).
 
 The engine lives in `hooks/recall/`. The main pieces are:
 
-- `Store`: resolves the XDG data and state roots and the per-project key, and owns small fail-open IO helpers.
+- `Store`: resolves the XDG data and state roots and the per-project key, and owns small fail-open IO helpers, including the consume-once handoff (`read_handoff`/`delete_handoff`).
 - `Injector`: assembles the SessionStart block (learnings index, backlog summary).
 - `Sweep`, with `Lock` and `ClaudeRunner`: gates, detaches, runs, and validates the headless `claude -p` pass.
 - `RecallConfig`: the flat config object.
@@ -317,7 +319,7 @@ Recall tests in `tests/recall/` import the engine directly, for example `from re
 
 ## Adding skills, commands, and agents
 
-Skills, slash commands, and subagents are content files. They live under the plugin that ships them (most under `natelandau-toolkit`; recall ships the `recall-review` skill).
+Skills, slash commands, and subagents are content files. They live under the plugin that ships them (most under `natelandau-toolkit`; recall ships the `recall-review`, `recall-backlog`, and `recall-handoff` skills).
 
 ### New skill
 

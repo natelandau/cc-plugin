@@ -89,10 +89,18 @@ Standalone — **not** built on toolkit's harness (no dispatcher/registry/profil
 Three thin entry scripts (`hooks/sessionstart.py`, `sessionend.py`, `precompact.py`)
 wire a flat engine package `hooks/recall/`:
 
-- `Store` (XDG paths + per-project key), `Injector` (the SessionStart memory block),
+- `Store` (XDG paths + per-project key, plus consume-once `HANDOFF.md` baton IO via
+  `read_handoff`/`delete_handoff`), `Injector` (the SessionStart memory block),
   `Sweep`/`Lock`/`ClaudeRunner` (the headless `claude -p` sweep), `RecallConfig`, plus
   pure `transcript`/`frontmatter`/`paths`/`io`/`headless`. Deep behavior is in each
   module's docstring.
+- **Store paths have one source of truth: `paths.py`** (the dash-encoded project key).
+  Python reaches it through `Store`; **skills MUST call the `hooks/recall-path.py`
+  facade** (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) to resolve a path,
+  never re-derive the encoding in prose. A skill references it via
+  `${CLAUDE_SKILL_DIR}/../../hooks/recall-path.py` (`${CLAUDE_PLUGIN_ROOT}` is a hook
+  var, not a skill var). The script is executable (`100755`); the engine modules it
+  imports stay `100644`.
 - **Config is flat** `[inject]`/`[sweep]` TOML (`hooks/natelandau-recall.toml.example`),
   no profiles or `disabled_hooks`.
 - The sweep runs **detached** (double-fork) so it outlives session teardown, with an

@@ -31,13 +31,15 @@ the same either way.
 
 ## Locate the memory store
 
-Compute the project key:
+Resolve the store paths with the recall path resolver. It derives the project's store
+for you, so never compute the key by hand:
 
-1. Run `git rev-parse --path-format=absolute --git-common-dir` from the current directory. Strip the trailing `/.git` component to get the project root. If git fails or is unavailable, fall back to `$CLAUDE_PROJECT_DIR`, then to `cwd`.
-2. Dash-encode the absolute path: drop the leading `/`, then replace every remaining `/` with `-`. Any path segment that starts with `.` gets its dot turned into a dash, yielding a double dash at that boundary (e.g. `/repos/.hidden` → `repos--hidden`). The key never starts with a dash.
-3. The memory directory is `$XDG_DATA_HOME/natelandau-recall/<encoded-key>/` (default `~/.local/share/natelandau-recall/<encoded-key>/` when `XDG_DATA_HOME` is unset).
+```bash
+${CLAUDE_SKILL_DIR}/../../hooks/recall-path.py --data-dir   # the store directory
+${CLAUDE_SKILL_DIR}/../../hooks/recall-path.py --backlog    # backlog.md inside it
+```
 
-If the directory or its `backlog.md` does not exist, report "No backlog found for
+If the store directory or its `backlog.md` does not exist, report "No backlog found for
 this project." and stop. If `backlog.md` has no open `- [ ]` items, report "The
 backlog has no open items." and stop.
 
