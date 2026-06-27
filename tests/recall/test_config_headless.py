@@ -2,42 +2,22 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
     from types import ModuleType
 
     import pytest
 
 
-def _load(hooks_dir: Path, *parts: str) -> ModuleType:
-    """Load a recall lib module by file path, avoiding sys.path pollution."""
-    path = hooks_dir.joinpath(*parts)
-    spec = importlib.util.spec_from_file_location(path.stem, path)
-    assert spec
-    assert spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    # Register under a qualified key before exec: a slotted frozen dataclass
-    # (Config) resolves its own class via sys.modules[cls.__module__] mid-exec.
-    # Qualified so it can't shadow a real module; popped on failure to avoid
-    # leaking a half-built module into a later test.
-    key = f"recall_test_{path.stem}"
-    sys.modules[key] = mod
-    try:
-        spec.loader.exec_module(mod)
-    except BaseException:
-        sys.modules.pop(key, None)
-        raise
-    return mod
-
-
-def test_load_config_defaults_to_standard_profile(recall_hooks_dir: Path, tmp_path: Path) -> None:
+def test_load_config_defaults_to_standard_profile(
+    load_recall_module: Callable[..., ModuleType], tmp_path: Path
+) -> None:
     """Verify an absent config yields the standard profile and empty disables."""
     # Given no config files anywhere
-    config = _load(recall_hooks_dir, "lib", "config.py")
+    config = load_recall_module("lib", "config.py")
 
     # When config loads with isolated home/project
     cfg = config.load_config(home=tmp_path / "home", project_dir=str(tmp_path / "proj"))
@@ -47,7 +27,9 @@ def test_load_config_defaults_to_standard_profile(recall_hooks_dir: Path, tmp_pa
     assert cfg.disabled_hooks == frozenset()
 
 
-def test_int_option_parses_and_falls_back(recall_hooks_dir: Path, tmp_path: Path) -> None:
+def test_int_option_parses_and_falls_back(
+    load_recall_module: Callable[..., ModuleType], tmp_path: Path
+) -> None:
     """Verify int_option reads an int and falls back on bad/absent values."""
     # Given a project config setting one int option and one garbage value
     proj = tmp_path / "proj"
@@ -56,7 +38,7 @@ def test_int_option_parses_and_falls_back(recall_hooks_dir: Path, tmp_path: Path
         '[hooks.sweep]\nmin_exchanges = "7"\narchitecture_max_bytes = "notint"\n',
         encoding="utf-8",
     )
-    config = _load(recall_hooks_dir, "lib", "config.py")
+    config = load_recall_module("lib", "config.py")
 
     # When config loads
     cfg = config.load_config(home=tmp_path / "home", project_dir=str(proj))
@@ -66,9 +48,11 @@ def test_int_option_parses_and_falls_back(recall_hooks_dir: Path, tmp_path: Path
     assert cfg.int_option("sweep", "architecture_max_bytes", 4096) == 4096
 
 
-def test_is_headless_reads_env(recall_hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_is_headless_reads_env(
+    load_recall_module: Callable[..., ModuleType], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify is_headless reflects NL_RECALL_HEADLESS."""
-    headless = _load(recall_hooks_dir, "lib", "headless.py")
+    headless = load_recall_module("lib", "headless.py")
 
     # Given the env unset then set
     monkeypatch.delenv(headless.HEADLESS_ENV, raising=False)
