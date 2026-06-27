@@ -90,6 +90,25 @@ def test_backlog_summary_counts_and_quick_wins(
     assert "big thing" not in out
 
 
+def test_backlog_summary_ignores_blank_header(
+    tmp_path: Path, import_recall_module: Callable[[str], ModuleType]
+) -> None:
+    """Verify a header with no type word does not produce an empty-type count."""
+    # Given a backlog whose section header has no type word
+    (tmp_path / _BACKLOG_NAME).write_text(
+        "## \n- [ ] [S] orphan — 2026-06-26\n## fix\n- [ ] [M] real — 2026-06-26\n",
+        encoding="utf-8",
+    )
+    memory = import_recall_module("lib.memory")
+    # When summarizing
+    out = memory.backlog_summary(tmp_path)
+    # Then only the well-formed section is counted; no blank/orphan artifacts
+    assert "1 deferred" in out
+    assert "1 fix" in out
+    assert "deferred:  " not in out
+    assert "orphan" not in out
+
+
 def test_empty_store_injects_nothing(
     tmp_path: Path, import_recall_module: Callable[[str], ModuleType]
 ) -> None:

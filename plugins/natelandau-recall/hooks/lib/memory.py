@@ -38,7 +38,11 @@ def architecture_block(data: Path, *, max_bytes: int) -> str:
     arch = data / store.ARCHITECTURE_NAME
     if not arch.exists():
         return ""
-    raw = arch.read_bytes()
+    try:
+        raw = arch.read_bytes()
+    except OSError:
+        # Fail open: skip just this block rather than wedging the whole injection
+        return ""
     if len(raw) <= max_bytes:
         return raw.decode("utf-8", errors="replace")
     truncated = raw[:max_bytes].decode("utf-8", errors="replace")
@@ -91,7 +95,11 @@ def backlog_summary(data: Path) -> str:
     backlog = data / store.BACKLOG_NAME
     if not backlog.exists():
         return ""
-    text = backlog.read_text(encoding="utf-8")
+    try:
+        text = backlog.read_text(encoding="utf-8")
+    except OSError:
+        # Fail open: skip just this block rather than wedging the whole injection
+        return ""
 
     current_section: str | None = None
     counts: dict[str, int] = {}
@@ -99,7 +107,8 @@ def backlog_summary(data: Path) -> str:
 
     for line in text.splitlines():
         if line.startswith("## "):
-            current_section = line[3:].strip()
+            # A blank header ("## ") leaves current_section None so orphaned items are ignored
+            current_section = line[3:].strip() or None
         elif line.startswith("- [ ]") and current_section is not None:
             counts[current_section] = counts.get(current_section, 0) + 1
             if "[S]" in line:
