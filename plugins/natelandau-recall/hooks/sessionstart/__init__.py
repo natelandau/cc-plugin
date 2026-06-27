@@ -1,1 +1,0 @@
-"""SessionStart stage package."""

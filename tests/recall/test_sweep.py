@@ -1,594 +1,329 @@
-"""Verify the sweep gate: lock acquisition, stale-lock stealing, exchange threshold, and run_job."""
+"""Verify the sweep: lock lifecycle, gate threshold, write validation, and run_job."""
 
 from __future__ import annotations
 
 import json
-import os
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from recall.config import RecallConfig  # ty: ignore[unresolved-import]
+from recall.runner import RunResult  # ty: ignore[unresolved-import]
+from recall.store import Store  # ty: ignore[unresolved-import]
+from recall.sweep import Lock, Sweep, SweepJob  # ty: ignore[unresolved-import]
+
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from pathlib import Path
-    from types import ModuleType
-
-    import pytest
 
 
-@dataclass(frozen=True)
-class _Cfg:
-    """Minimal Config stand-in for sweep tests."""
+def _store(tmp_path: Path) -> Store:
+    return Store(key="k", data_dir=tmp_path / "data", state_dir=tmp_path / "state")
 
-    profile: str = "standard"
-    disabled_hooks: frozenset[str] = frozenset()
-    project_dir: str | None = None
-    hook_options: dict[str, dict[str, str]] = field(default_factory=dict)
-    min_exchanges: int = 5
 
-    def option(self, hook_id: str, key: str, default: str) -> str:
-        """Return a per-hook string option or the default."""
-        return default
+class _FakeRunner:
+    """Duck-typed Runner that reports a canned set of changed files; never spawns claude."""
 
-    def int_option(self, hook_id: str, key: str, default: int) -> int:
-        """Return min_exchanges when queried for sweep, else default."""
-        if hook_id == "sweep" and key == "min_exchanges":
-            return self.min_exchanges
-        return default
+    def __init__(self, changed_files: list[str]) -> None:
+        self.changed_files = changed_files
+
+    def run(self, prompt: str, *, cwd: str) -> RunResult:
+        return RunResult(
+            success=True,
+            exit_code=0,
+            changed_files=list(self.changed_files),
+            text="done",
+            stderr="",
+        )
 
 
 # ---------------------------------------------------------------------------
-# JSONL transcript helpers (mirror the shape produced by Claude Code)
+# Lock
+# ---------------------------------------------------------------------------
+
+
+def test_lock_acquire_succeeds_first(tmp_path: Path) -> None:
+    """Verify acquire returns True and writes the timestamp when the lock is free."""
+    # Given a lock path under a not-yet-created dir
+    lock = Lock(tmp_path / "state" / "sweep.lock")
+    # When acquiring for the first time
+    assert lock.acquire(now=1000.0) is True
+    # Then the file exists and stores the timestamp
+    assert float(lock.path.read_text(encoding="utf-8").strip()) == 1000.0
+
+
+def test_lock_held_second_acquire_fails(tmp_path: Path) -> None:
+    """Verify a second acquire within the stale window returns False."""
+    # Given an already-held fresh lock
+    lock = Lock(tmp_path / "state" / "sweep.lock")
+    assert lock.acquire(now=1000.0) is True
+    # When acquiring again well within the stale window
+    second = Lock(tmp_path / "state" / "sweep.lock")
+    # Then it fails (the lock is still fresh)
+    assert second.acquire(now=1100.0) is False
+
+
+def test_lock_steals_stale(tmp_path: Path) -> None:
+    """Verify a lock older than stale_after is stolen and re-stamped."""
+    # Given a lock acquired at t=1000 with a 300s window
+    Lock(tmp_path / "state" / "sweep.lock").acquire(now=1000.0)
+    # When acquiring 400s later (past the threshold)
+    stealer = Lock(tmp_path / "state" / "sweep.lock", stale_after=300.0)
+    # Then the stale lock is stolen and the new timestamp written
+    assert stealer.acquire(now=1400.0) is True
+    assert float(stealer.path.read_text(encoding="utf-8").strip()) == 1400.0
+
+
+def test_lock_steals_malformed(tmp_path: Path) -> None:
+    """Verify a lock with a non-numeric timestamp is treated as stale and stolen."""
+    # Given an existing lock file with corrupt content
+    lock = Lock(tmp_path / "state" / "sweep.lock")
+    lock.path.parent.mkdir(parents=True)
+    lock.path.write_text("not-a-float", encoding="utf-8")
+    # When acquiring (corrupt parses to stored=0.0, always stale)
+    assert lock.acquire(now=400.0) is True
+
+
+def test_lock_release_removes_file(tmp_path: Path) -> None:
+    """Verify release unlinks the lock file and never raises when already gone."""
+    # Given a held lock
+    lock = Lock(tmp_path / "state" / "sweep.lock")
+    lock.acquire(now=1.0)
+    # When released twice
+    lock.release()
+    lock.release()
+    # Then the file is gone and no error was raised
+    assert not lock.path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Sweep._gate
 # ---------------------------------------------------------------------------
 
 
 def _user(text: str) -> dict:
-    """Build a user entry with a plain-string content field."""
     return {"type": "user", "message": {"role": "user", "content": text}}
 
 
 def _assistant(text: str) -> dict:
-    """Build an assistant entry with a single text block."""
-    return {
-        "type": "assistant",
-        "message": {
-            "id": "msg_a",
-            "role": "assistant",
-            "content": [{"type": "text", "text": text}],
-        },
-    }
+    return {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}
+
+
+def _meaningful(n: int) -> list[dict]:
+    return [_user(f"u{i}") if i % 2 == 0 else _assistant(f"a{i}") for i in range(n)]
 
 
 def _write_transcript(path: Path, entries: list[dict]) -> None:
-    """Write a JSONL transcript file at the given path."""
     path.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
 
 
-def _meaningful_entries(n: int) -> list[dict]:
-    """Build n interleaved user/assistant entries, all meaningful (no noise)."""
-    entries: list[dict] = []
-    for i in range(n):
-        if i % 2 == 0:
-            entries.append(_user(f"User message {i}"))
-        else:
-            entries.append(_assistant(f"Assistant response {i}"))
-    return entries
-
-
-# ---------------------------------------------------------------------------
-# acquire_lock tests
-# ---------------------------------------------------------------------------
-
-
-def test_acquire_lock_succeeds_on_first_call(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify acquire_lock returns a lock path when the lock does not yet exist."""
-    # Given an empty state dir and a fresh timestamp
-    sweep = import_recall_module("lib.sweep")
-    state_dir = tmp_path / "state"
-    now = 1000.0
-
-    # When acquiring the lock for the first time
-    lock = sweep.acquire_lock(state_dir, now=now)
-
-    # Then a path is returned, the file exists, and stores the timestamp
-    assert lock is not None
-    assert lock.exists()
-    assert float(lock.read_text(encoding="utf-8").strip()) == now
-
-
-def test_acquire_lock_second_call_returns_none_held(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a second acquire_lock with the same timestamp returns None (lock held)."""
-    # Given an already-acquired fresh lock
-    sweep = import_recall_module("lib.sweep")
-    state_dir = tmp_path / "state"
-    now = 1000.0
-    first = sweep.acquire_lock(state_dir, now=now)
-    assert first is not None
-
-    # When acquiring again with the same now (well within stale_after)
-    second = sweep.acquire_lock(state_dir, now=now)
-
-    # Then the second attempt fails because the lock is still fresh
-    assert second is None
-
-
-def test_acquire_lock_steals_stale_lock(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a lock older than stale_after is stolen on a subsequent acquire."""
-    # Given a lock acquired at now=1000 with a 300s stale window
-    sweep = import_recall_module("lib.sweep")
-    state_dir = tmp_path / "state"
-    first = sweep.acquire_lock(state_dir, now=1000.0, stale_after=300.0)
-    assert first is not None
-
-    # When acquiring 400s later (past the 300s threshold)
-    second = sweep.acquire_lock(state_dir, now=1400.0, stale_after=300.0)
-
-    # Then the stale lock is stolen and a new lock is returned with the new timestamp
-    assert second is not None
-    assert float(second.read_text(encoding="utf-8").strip()) == 1400.0
-
-
-def test_acquire_lock_steals_malformed_lock(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a lock with a non-numeric timestamp is treated as stale and stolen."""
-    # Given an existing lock file with corrupt (non-float) content
-    sweep = import_recall_module("lib.sweep")
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    (state_dir / "sweep.lock").write_text("not-a-float", encoding="utf-8")
-
-    # When acquiring (corrupt content parses to stored=0.0, so always stale)
-    lock = sweep.acquire_lock(state_dir, now=400.0, stale_after=300.0)
-
-    # Then the corrupt lock is stolen and the new timestamp is written
-    assert lock is not None
-    assert float(lock.read_text(encoding="utf-8").strip()) == 400.0
-
-
-def test_acquire_lock_fresh_lock_not_stolen(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a lock within stale_after is not stolen."""
-    # Given a lock acquired at now=1000 with a 300s stale window
-    sweep = import_recall_module("lib.sweep")
-    state_dir = tmp_path / "state"
-    first = sweep.acquire_lock(state_dir, now=1000.0, stale_after=300.0)
-    assert first is not None
-
-    # When acquiring 200s later (within the 300s stale window)
-    second = sweep.acquire_lock(state_dir, now=1200.0, stale_after=300.0)
-
-    # Then the fresh lock is not stolen and None is returned
-    assert second is None
-
-
-# ---------------------------------------------------------------------------
-# gate tests
-# ---------------------------------------------------------------------------
-
-
-def test_gate_returns_none_and_releases_lock_below_threshold(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify gate returns None and releases the lock when below min_exchanges."""
-    # Given a project with a sparse transcript (2 entries) and a threshold of 5
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(proj))
-
+def test_gate_below_threshold_returns_none_and_releases(tmp_path: Path) -> None:
+    """Verify gate returns None and releases the lock below min_exchanges."""
+    # Given a sparse transcript (2 meaningful) and a threshold of 5
+    store = _store(tmp_path)
     t_file = tmp_path / "sparse.jsonl"
-    _write_transcript(t_file, [_user("hello"), _assistant("hi")])
-
-    sweep = import_recall_module("lib.sweep")
-    store = import_recall_module("lib.store")
-    env = dict(os.environ)
-    key = store.project_key(cwd=proj, env=env)
-    state_dir_path = store.state_dir(key, env=env)
-
-    event: dict = {"cwd": str(proj), "transcript_path": str(t_file)}
-    cfg = _Cfg(min_exchanges=5)
-
-    # When gate is called with only 2 meaningful messages (< 5 threshold)
-    result = sweep.gate(event, cfg, now=1000.0)
-
-    # Then None is returned and the lock file is cleaned up
+    _write_transcript(t_file, [_user("hi"), _assistant("yo")])
+    sweep = Sweep(store, RecallConfig(min_exchanges=5), _FakeRunner([]))
+    event = {"cwd": str(tmp_path), "transcript_path": str(t_file)}
+    # When gating
+    result = sweep._gate(event, now=1000.0)
+    # Then None is returned and the lock is cleaned up
     assert result is None
-    assert not (state_dir_path / "sweep.lock").exists()
+    assert not store.lock_path.exists()
 
 
-def test_gate_returns_sweep_job_above_threshold(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify gate returns a SweepJob with the windowed entries when >= min_exchanges."""
-    # Given a project with a rich transcript (6 meaningful entries, threshold=5)
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(proj))
-
-    entries = _meaningful_entries(6)
+def test_gate_above_threshold_returns_job_and_holds_lock(tmp_path: Path) -> None:
+    """Verify gate returns a SweepJob with the window and keeps the lock held."""
+    # Given a rich transcript (6 meaningful, threshold 5)
+    store = _store(tmp_path)
+    entries = _meaningful(6)
     t_file = tmp_path / "rich.jsonl"
     _write_transcript(t_file, entries)
-
-    sweep = import_recall_module("lib.sweep")
-    event: dict = {"cwd": str(proj), "transcript_path": str(t_file)}
-    cfg = _Cfg(min_exchanges=5)
-
-    # When gate is called with 6 meaningful messages (>= 5 threshold)
-    result = sweep.gate(event, cfg, now=1000.0)
-
-    # Then a SweepJob is returned, the lock stays held, and the window covers all entries
+    sweep = Sweep(store, RecallConfig(min_exchanges=5), _FakeRunner([]))
+    event = {"cwd": str(tmp_path / "proj"), "transcript_path": str(t_file)}
+    # When gating
+    result = sweep._gate(event, now=1000.0)
+    # Then a job covering all entries is returned and the lock stays held for run_job
     assert result is not None
-    assert result.transcript_path == str(t_file)
+    assert result.cwd == str(tmp_path / "proj")
     assert len(result.window) == len(entries)
-    # Lock is held on success (not released — the run step owns release)
-    assert (result.state_dir / "sweep.lock").exists()
+    assert store.lock_path.exists()
 
 
-def test_gate_falls_back_to_transcript_pointer(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify gate reads the transcript path from the state-dir pointer when event path is empty."""
-    # Given a project whose state dir has a saved transcript-path pointer
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(proj))
-
-    entries = _meaningful_entries(6)
+def test_gate_falls_back_to_transcript_pointer(tmp_path: Path) -> None:
+    """Verify gate reads the saved pointer when the event transcript path is empty."""
+    # Given a store with a saved transcript pointer
+    store = _store(tmp_path)
+    entries = _meaningful(6)
     t_file = tmp_path / "session.jsonl"
     _write_transcript(t_file, entries)
-
-    # Compute the expected state_dir and write the transcript-path pointer into it
-    sweep = import_recall_module("lib.sweep")
-    store = import_recall_module("lib.store")
-    env = dict(os.environ)
-    key = store.project_key(cwd=proj, env=env)
-    state_dir_path = store.state_dir(key, env=env)
-    state_dir_path.mkdir(parents=True, exist_ok=True)
-    (state_dir_path / "transcript-path").write_text(str(t_file), encoding="utf-8")
-
-    # When gate is called with an empty transcript_path in the event
-    event: dict = {"cwd": str(proj), "transcript_path": ""}
-    cfg = _Cfg(min_exchanges=5)
-    result = sweep.gate(event, cfg, now=1000.0)
-
-    # Then a SweepJob is returned, using the path from the saved pointer
+    store.save_transcript_pointer(str(t_file))
+    sweep = Sweep(store, RecallConfig(min_exchanges=5), _FakeRunner([]))
+    # When gating with an empty event transcript path
+    result = sweep._gate({"cwd": str(tmp_path), "transcript_path": ""}, now=1000.0)
+    # Then the job is built from the pointer's transcript
     assert result is not None
-    assert result.transcript_path == str(t_file)
     assert len(result.window) == len(entries)
 
 
 # ---------------------------------------------------------------------------
-# validate_writes tests
+# Sweep._validate_writes (containment + secret scrub)
 # ---------------------------------------------------------------------------
 
 
-def test_validate_writes_outside_data_dir_is_removed(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
+def _sweep_with_data(tmp_path: Path) -> tuple[Sweep, Path]:
+    store = _store(tmp_path)
+    store.data_dir.mkdir(parents=True)
+    return Sweep(store, RecallConfig(), _FakeRunner([])), store.data_dir
+
+
+def test_validate_writes_escaped_file_removed(tmp_path: Path) -> None:
     """Verify a changed file outside data_dir is deleted and noted as escaped."""
-    # Given a file that lives outside data_dir
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
+    # Given a file outside data_dir
+    sweep, _ = _sweep_with_data(tmp_path)
     outside = tmp_path / "outside.md"
-    outside.write_text("should not be here", encoding="utf-8")
-
-    # When validate_writes is called with that path
-    notes = sweep.validate_writes([str(outside)], data_dir=data_dir)
-
-    # Then the file is gone and a note is recorded
+    outside.write_text("nope", encoding="utf-8")
+    # When validating
+    notes = sweep._validate_writes([str(outside)])
+    # Then the file is gone and an escaped note is recorded
     assert not outside.exists()
-    assert len(notes) == 1
-    assert notes[0].startswith("escaped:")
+    assert notes == [f"escaped: {outside}"]
 
 
-def test_validate_writes_aws_key_redacted(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
+def test_validate_writes_aws_key_redacted(tmp_path: Path) -> None:
     """Verify an AWS access key ID inside data_dir is redacted in place."""
-    # Given a file inside data_dir containing an AKIA token
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    target = data_dir / "memory.md"
-    secret = "AKIAIOSFODNN7EXAMPLE"  # noqa: S105 - intentional fake credential for pattern testing
+    # Given a file containing an AKIA token
+    sweep, data_dir = _sweep_with_data(tmp_path)
+    target = data_dir / "m.md"
+    secret = "AKIAIOSFODNN7EXAMPLE"  # noqa: S105 - fake credential for pattern testing
     target.write_text(f"key: {secret}", encoding="utf-8")
-
-    # When validate_writes processes it
-    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
-
-    # Then the secret is gone, the redaction marker is present, and the note is correct
-    content = target.read_text(encoding="utf-8")
-    assert secret not in content
-    assert "«redacted-secret»" in content
+    # When validating
+    notes = sweep._validate_writes([str(target)])
+    # Then the secret is redacted and noted
+    assert secret not in target.read_text(encoding="utf-8")
+    assert "«redacted-secret»" in target.read_text(encoding="utf-8")
     assert notes == [f"secret-redacted: {target}"]
 
 
-def test_validate_writes_github_token_redacted(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a GitHub personal access token inside data_dir is redacted in place."""
-    # Given a file inside data_dir containing a ghp_ token (30+ chars after prefix)
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    target = data_dir / "notes.md"
+def test_validate_writes_github_token_redacted(tmp_path: Path) -> None:
+    """Verify a GitHub personal access token inside data_dir is redacted."""
+    # Given a file containing a ghp_ token
+    sweep, data_dir = _sweep_with_data(tmp_path)
+    target = data_dir / "n.md"
     secret = "ghp_" + "A" * 30
     target.write_text(f"token={secret}", encoding="utf-8")
-
-    # When validate_writes processes it
-    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
-
-    # Then the secret is gone and the marker is present
-    content = target.read_text(encoding="utf-8")
-    assert secret not in content
-    assert "«redacted-secret»" in content
+    # When validating / Then it is redacted
+    notes = sweep._validate_writes([str(target)])
+    assert secret not in target.read_text(encoding="utf-8")
     assert notes == [f"secret-redacted: {target}"]
 
 
-def test_validate_writes_pem_private_key_redacted(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a PEM private key header inside data_dir is redacted in place."""
-    # Given a file inside data_dir containing a PEM private-key header
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    target = data_dir / "keys.md"
-    # Constructed at runtime to avoid triggering the detect-private-key pre-commit hook
+def test_validate_writes_pem_key_redacted(tmp_path: Path) -> None:
+    """Verify a PEM private-key header inside data_dir is redacted."""
+    # Given a file containing a PEM header (built at runtime to dodge secret scanners)
+    sweep, data_dir = _sweep_with_data(tmp_path)
+    target = data_dir / "k.md"
     secret = "-----BEGIN RSA " + "PRIVATE KEY-----"
     target.write_text(f"cert: {secret}", encoding="utf-8")
-
-    # When validate_writes processes it
-    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
-
-    # Then the header is gone and the marker is present
-    content = target.read_text(encoding="utf-8")
-    assert secret not in content
-    assert "«redacted-secret»" in content
+    # When validating / Then it is redacted
+    notes = sweep._validate_writes([str(target)])
+    assert secret not in target.read_text(encoding="utf-8")
     assert notes == [f"secret-redacted: {target}"]
 
 
-def test_validate_writes_api_key_value_redacted_label_preserved(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
+def test_validate_writes_api_key_value_redacted_label_kept(tmp_path: Path) -> None:
     """Verify the api_key label is kept and only the value is redacted."""
-    # Given a file inside data_dir with an api_key = <value> line
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    target = data_dir / "config.md"
-    value = "supersecretvalue12345"  # 21 chars, matches [A-Za-z0-9/+_-]{20,}
+    # Given an api_key = <value> line
+    sweep, data_dir = _sweep_with_data(tmp_path)
+    target = data_dir / "c.md"
+    value = "supersecretvalue12345"  # 21 chars, matches the value pattern
     target.write_text(f"api_key = {value}", encoding="utf-8")
-
-    # When validate_writes processes it
-    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
-
-    # Then the value is redacted but the label remains
+    # When validating
+    notes = sweep._validate_writes([str(target)])
     content = target.read_text(encoding="utf-8")
+    # Then the value is gone but the label survives
     assert value not in content
     assert "api_key" in content
-    assert "«redacted-secret»" in content
     assert notes == [f"secret-redacted: {target}"]
 
 
-def test_validate_writes_clean_file_untouched(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a clean file inside data_dir is left byte-identical and produces no note."""
-    # Given a clean file inside data_dir with no secret content
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
+def test_validate_writes_clean_file_untouched(tmp_path: Path) -> None:
+    """Verify a clean file inside data_dir is left byte-identical with no note."""
+    # Given a clean file
+    sweep, data_dir = _sweep_with_data(tmp_path)
     target = data_dir / "clean.md"
-    original = "This is a normal memory file with nothing sensitive."
+    original = "nothing sensitive here."
     target.write_text(original, encoding="utf-8")
-
-    # When validate_writes processes it
-    notes = sweep.validate_writes([str(target)], data_dir=data_dir)
-
-    # Then the file is untouched and no notes are produced
+    # When validating / Then it is untouched
+    notes = sweep._validate_writes([str(target)])
     assert target.read_text(encoding="utf-8") == original
     assert notes == []
 
 
-def test_validate_writes_missing_file_inside_data_dir_produces_no_note(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify a path inside data_dir that doesn't exist on disk produces no note and doesn't raise."""
-    # Given a path inside data_dir that was never written to disk
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    ghost = data_dir / "ghost.md"
-
-    # When validate_writes processes it
-    notes = sweep.validate_writes([str(ghost)], data_dir=data_dir)
-
-    # Then no note is produced and no exception is raised
-    assert notes == []
+def test_validate_writes_missing_file_no_note(tmp_path: Path) -> None:
+    """Verify a path inside data_dir that was never written produces no note."""
+    # Given a ghost path inside data_dir
+    sweep, data_dir = _sweep_with_data(tmp_path)
+    # When validating / Then nothing is noted and nothing raises
+    assert sweep._validate_writes([str(data_dir / "ghost.md")]) == []
 
 
 # ---------------------------------------------------------------------------
-# run_job tests (fake runner — never spawns real claude)
+# Sweep._run_job (fake runner — never spawns real claude)
 # ---------------------------------------------------------------------------
 
 
-def _make_stream_json(file_path: str) -> str:
-    """Build canned stream-json output reporting a single Write tool call."""
-    assistant_line = json.dumps(
-        {
-            "type": "assistant",
-            "message": {
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "name": "Write",
-                        "input": {"file_path": file_path, "content": "clean memory content"},
-                    }
-                ]
-            },
-        }
-    )
-    result_line = json.dumps({"type": "result", "result": "done"})
-    return assistant_line + "\n" + result_line + "\n"
+def _job_store(tmp_path: Path) -> Store:
+    store = _store(tmp_path)
+    store.data_dir.mkdir(parents=True)
+    store.state_dir.mkdir(parents=True)
+    store.lock_path.write_text("12345.0", encoding="utf-8")  # pre-held lock
+    return store
 
 
-def _fake_runner_for(file_path: str) -> Callable[..., dict[str, object]]:
-    """Return a fake runner that reports a Write to file_path and ignores all args."""
-
-    def _runner(
-        prompt: str,
-        *,
-        args: list[str],
-        env: dict[str, str],
-        cwd: str,
-        timeout: int = 180,
-    ) -> dict[str, object]:
-        return {
-            "success": True,
-            "exit_code": 0,
-            "stdout": _make_stream_json(file_path),
-            "stderr": "",
-        }
-
-    return _runner
-
-
-def test_run_job_clean_write_releases_lock_and_logs(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify run_job parses written files, skips clean ones, writes sweep.log, and releases lock."""
-    # Given a SweepJob with a pre-created file inside data_dir and a pre-created lock
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    state_dir = tmp_path / "state"
-    data_dir.mkdir(parents=True)
-    state_dir.mkdir(parents=True)
-
-    target = data_dir / "memory.md"
+def test_run_job_clean_write_logs_and_releases_lock(tmp_path: Path) -> None:
+    """Verify run_job validates writes, logs, and releases the lock on a clean run."""
+    # Given a store with a clean target file and a pre-held lock
+    store = _job_store(tmp_path)
+    target = store.data_dir / "memory.md"
     target.write_text("clean memory content", encoding="utf-8")
-    lock = state_dir / "sweep.lock"
-    lock.write_text("12345.0", encoding="utf-8")
-
-    job = sweep.SweepJob(
-        data_dir=data_dir,
-        state_dir=state_dir,
-        transcript_path="",
-        cwd=str(tmp_path),
-        window=[],
-    )
-    cfg = _Cfg()
-    fake = _fake_runner_for(str(target))
-
-    # When run_job is called with the fake runner
-    notes = sweep.run_job(job, cfg, runner=fake)
-
-    # Then validate_writes ran (clean file → no notes), sweep.log exists, and lock is gone
+    sweep = Sweep(store, RecallConfig(), _FakeRunner([str(target)]))
+    job = SweepJob(window=[], cwd=str(tmp_path))
+    # When running the job
+    notes = sweep._run_job(job)
+    # Then the clean file yields no notes, the log is written, and the lock is freed
     assert notes == []
-    assert (state_dir / "sweep.log").exists()
-    assert not lock.exists()
+    assert store.log_path.exists()
+    assert not store.lock_path.exists()
 
 
-def test_run_job_escaped_write_removes_file_and_returns_note(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify run_job removes a file written outside data_dir and returns an escaped note."""
-    # Given a file pre-created OUTSIDE data_dir and a fake runner reporting it as written
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    state_dir = tmp_path / "state"
-    data_dir.mkdir(parents=True)
-    state_dir.mkdir(parents=True)
-
+def test_run_job_escaped_write_reverted_and_lock_released(tmp_path: Path) -> None:
+    """Verify run_job reverts a write outside data_dir and still releases the lock."""
+    # Given a runner that reports a file written outside data_dir
+    store = _job_store(tmp_path)
     outside = tmp_path / "outside.md"
-    outside.write_text("should not be here", encoding="utf-8")
-    lock = state_dir / "sweep.lock"
-    lock.write_text("12345.0", encoding="utf-8")
-
-    job = sweep.SweepJob(
-        data_dir=data_dir,
-        state_dir=state_dir,
-        transcript_path="",
-        cwd=str(tmp_path),
-        window=[],
-    )
-    cfg = _Cfg()
-    fake = _fake_runner_for(str(outside))
-
-    # When run_job is called with the fake runner
-    notes = sweep.run_job(job, cfg, runner=fake)
-
-    # Then the escaped file is gone, the note is recorded, and the lock is released
+    outside.write_text("nope", encoding="utf-8")
+    sweep = Sweep(store, RecallConfig(), _FakeRunner([str(outside)]))
+    job = SweepJob(window=[], cwd=str(tmp_path))
+    # When running the job
+    notes = sweep._run_job(job)
+    # Then the escaped file is gone, noted, and the lock is released
     assert not outside.exists()
-    assert len(notes) == 1
-    assert notes[0].startswith("escaped:")
-    assert not lock.exists()
+    assert notes == [f"escaped: {outside}"]
+    assert not store.lock_path.exists()
 
 
-def test_run_job_always_releases_lock_on_runner_failure(
-    tmp_path: Path,
-    import_recall_module: Callable[[str], ModuleType],
-) -> None:
-    """Verify run_job releases the lock even when the runner raises an exception."""
-    # Given a fake runner that always raises
-    sweep = import_recall_module("lib.sweep")
-    data_dir = tmp_path / "data"
-    state_dir = tmp_path / "state"
-    data_dir.mkdir(parents=True)
-    state_dir.mkdir(parents=True)
+def test_run_job_releases_lock_on_runner_failure(tmp_path: Path) -> None:
+    """Verify run_job releases the lock even when the runner raises."""
+    # Given a runner that always raises
 
-    lock = state_dir / "sweep.lock"
-    lock.write_text("12345.0", encoding="utf-8")
+    class _Exploding:
+        def run(self, prompt: str, *, cwd: str) -> RunResult:
+            msg = "boom"
+            raise RuntimeError(msg)
 
-    job = sweep.SweepJob(
-        data_dir=data_dir,
-        state_dir=state_dir,
-        transcript_path="",
-        cwd=str(tmp_path),
-        window=[],
-    )
-    cfg = _Cfg()
-
-    def _exploding_runner(**_: object) -> dict[str, object]:
-        msg = "simulated runner failure"
-        raise RuntimeError(msg)
-
-    # When run_job is called with the exploding runner
-    notes = sweep.run_job(job, cfg, runner=_exploding_runner)
-
-    # Then it returns empty notes and the lock is still released
+    store = _job_store(tmp_path)
+    sweep = Sweep(store, RecallConfig(), _Exploding())
+    job = SweepJob(window=[], cwd=str(tmp_path))
+    # When running the job
+    notes = sweep._run_job(job)
+    # Then it returns no notes and the lock is still released
     assert notes == []
-    assert not lock.exists()
+    assert not store.lock_path.exists()

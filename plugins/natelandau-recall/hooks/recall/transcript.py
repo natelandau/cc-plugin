@@ -3,8 +3,6 @@
 Provides a windowed, noise-filtered view of the session transcript so the
 sweep only processes content recorded since the last compaction boundary and
 skips system/hook injections that are not meaningful user/assistant turns.
-
-Stdlib only; no sibling lib imports.
 """
 
 from __future__ import annotations
@@ -35,8 +33,7 @@ def read_entries(transcript_path: str) -> list[dict[str, Any]]:
 
     Blank lines, non-JSON lines, and non-object JSON values are dropped so a
     truncated or partially-flushed transcript never raises. Returns [] when
-    the file cannot be read, so callers fail open. The per-hook `timeout` in
-    hooks.json bounds a runaway file.
+    the file cannot be read, so callers fail open.
     """
     try:
         raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")

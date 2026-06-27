@@ -1,17 +1,16 @@
-"""Symlink-escape-hardened path containment for hooks that derive write targets.
+"""Symlink-escape-hardened path containment for the post-sweep write backstop.
 
-A hook that writes under a root computed from untrusted input (e.g. the
-session-keyed state bridge, whose filename derives from the payload's
-`session_id`) must confirm the destination stays inside that root. A plain
-`resolve()` plus membership test can be defeated two ways: an intermediate
-directory may be a symlink pointing out of the root, or the target may not
-exist yet so there is nothing to canonicalize.
+The sweep runs a skip-permissions agent that could be steered by prompt
+injection into writing outside the trusted memory store. Before trusting any
+file the agent reports writing, the sweep confirms it stays inside the store. A
+plain `resolve()` plus membership test can be defeated two ways: an intermediate
+directory may be a symlink pointing out of the root, or the target may not exist
+yet so there is nothing to canonicalize.
 
 `realpath_nearest_existing` closes both gaps: it canonicalizes the nearest
 *existing* ancestor (resolving its symlinks) and re-appends the not-yet-created
 tail lexically, so a symlinked intermediate is resolved while a missing leaf is
-still placed correctly. `assert_within_root` is the fail-closed guard built on
-it. Adapted from the containment approach in the ECC reference plugin.
+still placed correctly. `is_within_root` is the containment check built on it.
 """
 
 from __future__ import annotations
@@ -61,29 +60,3 @@ def is_within_root(target: Path, root: Path) -> bool:
     intermediate symlink cannot smuggle the target outside `root`.
     """
     return _contains(realpath_nearest_existing(root), realpath_nearest_existing(target))
-
-
-def assert_within_root(target: Path, root: Path, *, action: str = "write") -> Path:
-    """Return the canonicalized `target`, or raise if it escapes `root`.
-
-    The fail-closed guard for any hook that writes under a derived root: it
-    refuses, rather than silently proceeding, when the resolved destination is
-    not contained in the resolved root.
-
-    Args:
-        target: The path about to be written, possibly not yet existing.
-        root: The trusted directory the write must stay within.
-        action: Verb used in the error message (e.g. "write", "read").
-
-    Returns:
-        The canonicalized, contained target path.
-
-    Raises:
-        PathEscapeError: If `target` resolves outside `root`.
-    """
-    real_root = realpath_nearest_existing(root)
-    real_target = realpath_nearest_existing(target)
-    if not _contains(real_root, real_target):
-        msg = f"refusing to {action} outside {root}: {target} escapes the trusted root"
-        raise PathEscapeError(msg)
-    return real_target

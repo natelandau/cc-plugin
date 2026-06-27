@@ -2,7 +2,7 @@
 
 The sweep spawns `claude -p` with NL_RECALL_HEADLESS=1 in its environment. That
 child is itself a Claude Code session, so when it ends it fires SessionEnd/Stop
-and would re-trigger the very hooks that spawned it. Every recall dispatcher
+and would re-trigger the very hooks that spawned it. Every recall hook script
 checks this first and no-ops, breaking the loop.
 """
 

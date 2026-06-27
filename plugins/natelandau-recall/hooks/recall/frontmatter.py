@@ -2,7 +2,7 @@
 
 Only the header block is read, never the body, so building the always-injected
 learnings index from N files costs N small reads. The index is a view over the
-files (no separate index.md to drift). See spec §4.3, §5.
+files (no separate index.md to drift).
 """
 
 from __future__ import annotations
@@ -19,12 +19,6 @@ def _read_header(path: Path) -> list[str] | None:
 
     Returns `None` when the file has no valid frontmatter block so the caller
     can fail open without raising.
-
-    Args:
-        path: Path to the markdown file to read.
-
-    Returns:
-        List of raw header lines, or None if no valid frontmatter found.
     """
     try:
         with path.open(encoding="utf-8") as fh:
@@ -45,12 +39,6 @@ def _parse_inline_list(value: str) -> list[str]:
 
     Accepts both double- and single-quoted elements. Returns an empty list
     when the value is not a bracketed list or is malformed JSON.
-
-    Args:
-        value: The raw string value after `read_when:`.
-
-    Returns:
-        Parsed list of non-empty strings, or an empty list on failure.
     """
     if not (value.startswith("[") and value.endswith("]")):
         return []
@@ -63,18 +51,12 @@ def _parse_inline_list(value: str) -> list[str]:
     return [str(x).strip() for x in parsed if str(x).strip()]
 
 
-def extract_frontmatter(path: Path) -> tuple[str, list[str]]:
+def extract(path: Path) -> tuple[str, list[str]]:
     """Return `(summary, read_when)` from a file's frontmatter, empties if absent.
 
     Reads up to the closing `---` only. `read_when` accepts an inline JSON-ish
     list (`["a", "b"]`) or a YAML block list of `- item` lines. Any read error
     yields `("", [])` so the caller fails open.
-
-    Args:
-        path: Path to the markdown learning file to parse.
-
-    Returns:
-        A tuple of (summary string, read_when list); both empty if no valid frontmatter.
     """
     header_lines = _read_header(path)
     if header_lines is None:
@@ -105,18 +87,12 @@ def scan_learnings(learnings_dir: Path) -> list[tuple[Path, str, list[str]]]:
 
     Files lacking a `summary` are skipped (a learning with no index line is not
     surfaced). A missing directory yields an empty list.
-
-    Args:
-        learnings_dir: Directory to scan for `*.md` learning files.
-
-    Returns:
-        Sorted list of (path, summary, read_when) tuples for files that have a summary.
     """
     if not learnings_dir.is_dir():
         return []
     out: list[tuple[Path, str, list[str]]] = []
     for md in sorted(learnings_dir.glob("*.md")):
-        summary, read_when = extract_frontmatter(md)
+        summary, read_when = extract(md)
         if summary:
             out.append((md, summary, read_when))
     return out

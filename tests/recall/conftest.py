@@ -1,88 +1,26 @@
-"""Shared fixtures for natelandau-recall hook tests."""
+"""Shared fixtures for natelandau-recall hook tests.
+
+The recall hooks dir is placed on sys.path so tests import the engine directly
+as `from recall.store import Store`. The package name is unique to this plugin,
+so it never collides with the toolkit's `lib` package even in one pytest process
+(and `tests/` is itself a package, so `tests.recall` never shadows `recall`).
+"""
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from types import ModuleType
+_RECALL_HOOKS = (
+    Path(__file__).resolve().parent.parent.parent / "plugins" / "natelandau-recall" / "hooks"
+)
+if str(_RECALL_HOOKS) not in sys.path:
+    sys.path.insert(0, str(_RECALL_HOOKS))
 
 
 @pytest.fixture(scope="session")
 def recall_hooks_dir() -> Path:
     """Resolve the recall plugin's hooks directory."""
-    return Path(__file__).resolve().parent.parent.parent / "plugins" / "natelandau-recall" / "hooks"
-
-
-@pytest.fixture(scope="session")
-def load_recall_module(recall_hooks_dir: Path) -> Callable[..., ModuleType]:
-    """Return a loader function for recall lib modules.
-
-    Loads by relative path parts under the recall hooks dir without polluting
-    sys.path. The module is named with a qualified key and registered under that
-    same key before exec, which (a) prevents shadowing a real stdlib/installed
-    module of the same stem, and (b) because the key IS the module's __name__,
-    lets a slotted/frozen dataclass resolve its own class via
-    sys.modules[cls.__module__] mid-exec (e.g. Config).
-    """
-
-    def _load(*parts: str) -> ModuleType:
-        path = recall_hooks_dir.joinpath(*parts)
-        # Name the spec with the qualified key so __name__ == registration key.
-        key = f"recall_test_{path.stem}"
-        spec = importlib.util.spec_from_file_location(key, path)
-        assert spec
-        assert spec.loader
-        mod = importlib.util.module_from_spec(spec)
-        # Popped on failure to avoid leaking a half-built module into a later test.
-        sys.modules[key] = mod
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            sys.modules.pop(key, None)
-            raise
-        return mod
-
-    return _load
-
-
-@pytest.fixture
-def import_recall_module(recall_hooks_dir: Path) -> Callable[[str], ModuleType]:
-    """Import a recall hooks module by dotted name with recall's lib isolated on sys.path.
-
-    The recall hooks dir is inserted at sys.path[0] so the module's own
-    `from lib import ...` siblings resolve to the RECALL lib, not the toolkit
-    lib of the same name. Snapshots sys.path and every `lib`/`lib.*`
-    sys.modules entry, evicts them, imports, then restores in a finally.
-    The returned module keeps working after restore because its sibling
-    references are already bound to the recall module objects.
-    """
-
-    def _import(dotted: str) -> ModuleType:
-        hooks = str(recall_hooks_dir)
-        top = dotted.split(".", maxsplit=1)[0]
-        saved_path = list(sys.path)
-        saved_modules = dict(sys.modules)
-        # Evict the dotted module's top-level package and `lib` so the import
-        # re-resolves them against the recall hooks dir rather than the toolkit's
-        # cached same-named packages.
-        for name in list(sys.modules):
-            root = name.split(".")[0]
-            if root in {"lib", top}:
-                del sys.modules[name]
-        sys.path.insert(0, hooks)
-        try:
-            return importlib.import_module(dotted)
-        finally:
-            sys.path[:] = saved_path
-            sys.modules.clear()
-            sys.modules.update(saved_modules)
-
-    return _import
+    return _RECALL_HOOKS

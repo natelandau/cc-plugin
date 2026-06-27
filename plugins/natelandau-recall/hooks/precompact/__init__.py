@@ -1,1 +1,0 @@
-"""PreCompact stage package."""
