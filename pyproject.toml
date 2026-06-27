@@ -6,11 +6,11 @@
 
 [dependency-groups]
     dev = [
-        "commitizen>=4.16.3",
+        "commitizen>=4.16.4",
         "prek>=0.4.5",
         "pytest>=9.1.1",
-        "ruff>=0.15.18",
-        "ty>=0.0.51",
+        "ruff>=0.15.20",
+        "ty>=0.0.55",
         "typos>=1.47.2",
         "yamllint>=1.38.0",
     ]
