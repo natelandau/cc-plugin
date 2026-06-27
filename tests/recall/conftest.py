@@ -67,19 +67,22 @@ def import_recall_module(recall_hooks_dir: Path) -> Callable[[str], ModuleType]:
 
     def _import(dotted: str) -> ModuleType:
         hooks = str(recall_hooks_dir)
+        top = dotted.split(".", maxsplit=1)[0]
         saved_path = list(sys.path)
-        saved_lib = {k: v for k, v in sys.modules.items() if k == "lib" or k.startswith("lib.")}
-        for k in list(sys.modules):
-            if k == "lib" or k.startswith("lib."):
-                del sys.modules[k]
+        saved_modules = dict(sys.modules)
+        # Evict the dotted module's top-level package and `lib` so the import
+        # re-resolves them against the recall hooks dir rather than the toolkit's
+        # cached same-named packages.
+        for name in list(sys.modules):
+            root = name.split(".")[0]
+            if root in {"lib", top}:
+                del sys.modules[name]
         sys.path.insert(0, hooks)
         try:
             return importlib.import_module(dotted)
         finally:
             sys.path[:] = saved_path
-            for k in list(sys.modules):
-                if k == "lib" or k.startswith("lib."):
-                    del sys.modules[k]
-            sys.modules.update(saved_lib)
+            sys.modules.clear()
+            sys.modules.update(saved_modules)
 
     return _import
