@@ -33,9 +33,6 @@ tune or disable them.
   or `ruff` call, showing each suggestion at most once per session.
 - The stop-phrase guard stops Claude from ending a turn with certain filler
   phrases.
-- The follow-up capture hook stops Claude from ending a turn that names
-  deferred work (out-of-scope items, follow-up PRs, TODOs) without either
-  doing it or recording it in the backlog (`.agent/BACKLOG.md` by default).
 
 ### Skills Claude loads on its own
 
@@ -135,7 +132,7 @@ The `profile` key selects which tier of hooks runs:
 | Profile    | Hooks that run                                                              |
 | ---------- | -------------------------------------------------------------------------- |
 | `minimal`  | branch protection, secret protection, system protection, stop-phrase guard |
-| `standard` | everything in `minimal`, plus commit-message validation, config protection, the uv nudge, and follow-up capture |
+| `standard` | everything in `minimal`, plus commit-message validation, config protection, and the uv nudge |
 | `strict`   | same as `standard` (reserved for future additions)                         |
 
 `standard` is the default. To run only the safety hooks:
@@ -152,22 +149,11 @@ Use `disabled_hooks` to force a hook off no matter the profile:
 disabled_hooks = ["use-uv", "commit-message"]
 ```
 
-### Set the follow-up backlog path
-
-The `capture-followups` hook takes a `backlog` path (relative to the project
-root) that sets where it expects deferred work to be recorded; writing that file
-during the turn satisfies the hook. It defaults to `.agent/BACKLOG.md`:
-
-```toml
-[hooks.capture-followups]
-backlog = ".agent/BACKLOG.md"
-```
-
 ### Add project-specific rules
 
-Five hooks read an optional per-project rules file and add its rules to their
+Four hooks read an optional per-project rules file and add its rules to their
 built-in ones: `protect-secrets`, `protect-system`, `stop-phrase-guard`,
-`capture-followups`, and `config-protection`. Drop a file named after the hook
+and `config-protection`. Drop a file named after the hook
 under your project's
 `.claude/natelandau-toolkit/` directory:
 
@@ -204,8 +190,8 @@ pattern = ['acme-prod\.conf$', '(?:^|/)\.acme/token$']
 
 Match the array name to the hook's built-in file: `[[rule]]` for
 `protect-secrets` and `protect-system`, `[[violation]]` for `stop-phrase-guard`,
-`[[trigger]]` for `capture-followups`, and `protected_files` /
-`protected_pyproject_tables` lists for `config-protection`. A `protect-secrets` rule must target a named `field` (or
+and `protected_files` / `protected_pyproject_tables` lists for `config-protection`.
+A `protect-secrets` rule must target a named `field` (or
 use `conditions`), since that hook has no single primary text for a bare
 `pattern` to match against.
 

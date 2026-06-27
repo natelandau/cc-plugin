@@ -88,7 +88,6 @@ plugins/natelandau-toolkit/
       use_uv.py
     stop/                                     Stop stage plugins
       _registry.py
-      capture_followups.py
       stop_phrase_guard.py
     posttooluse/                              PostToolUse plugins (empty, noop)
       _registry.py
