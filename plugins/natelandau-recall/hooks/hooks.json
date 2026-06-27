@@ -1,0 +1,14 @@
+{
+  "description": "Project memory: SessionStart injects, SessionEnd and PreCompact spawn the headless sweep.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.py", "timeout": 10 } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/sessionend.py", "timeout": 10 } ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/precompact.py", "timeout": 10 } ] }
+    ]
+  }
+}
