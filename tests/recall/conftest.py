@@ -25,19 +25,22 @@ def load_recall_module(recall_hooks_dir: Path) -> Callable[..., ModuleType]:
     """Return a loader function for recall lib modules.
 
     Loads by relative path parts under the recall hooks dir without polluting
-    sys.path. Registers the module under a qualified key before exec so that
-    slotted frozen dataclasses can resolve their own class mid-exec.
+    sys.path. The module is named with a qualified key and registered under that
+    same key before exec, which (a) prevents shadowing a real stdlib/installed
+    module of the same stem, and (b) because the key IS the module's __name__,
+    lets a slotted/frozen dataclass resolve its own class via
+    sys.modules[cls.__module__] mid-exec (e.g. Config).
     """
 
     def _load(*parts: str) -> ModuleType:
         path = recall_hooks_dir.joinpath(*parts)
-        spec = importlib.util.spec_from_file_location(path.stem, path)
+        # Name the spec with the qualified key so __name__ == registration key.
+        key = f"recall_test_{path.stem}"
+        spec = importlib.util.spec_from_file_location(key, path)
         assert spec
         assert spec.loader
         mod = importlib.util.module_from_spec(spec)
-        # Qualified key prevents shadowing real modules; popped on failure to
-        # avoid leaking a half-built module into a later test.
-        key = f"recall_test_{path.stem}"
+        # Popped on failure to avoid leaking a half-built module into a later test.
         sys.modules[key] = mod
         try:
             spec.loader.exec_module(mod)

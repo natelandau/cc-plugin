@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -111,3 +112,15 @@ def test_data_dir_honors_xdg(store: ModuleType, tmp_path: Path) -> None:
     d = store.data_dir("-Users-nate-repo", env=env)
     # Then it is rooted under the plugin namespace
     assert d == tmp_path / "xdg" / "natelandau-recall" / "-Users-nate-repo"
+
+
+def test_state_dir_honors_xdg_and_hashes_key(store: ModuleType, tmp_path: Path) -> None:
+    """Verify state_dir nests a 12-char sha1 of the key under $XDG_STATE_HOME."""
+    # Given an explicit XDG_STATE_HOME and a project key
+    key = "-Users-nate-repo"
+    env = {**_CLEAN, "XDG_STATE_HOME": str(tmp_path / "st")}
+    # When computing the state dir
+    d = store.state_dir(key, env=env)
+    # Then it is hashed (not the raw key) under the plugin namespace
+    expected_hash = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]  # noqa: S324
+    assert d == tmp_path / "st" / "natelandau-recall" / expected_hash
