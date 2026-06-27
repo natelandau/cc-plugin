@@ -80,7 +80,6 @@ Each subagent receives a prompt that instructs it to:
 
 ```json
 {
-  "session_id": "<the session_id passed to this subagent>",
   "learnings": [
     {"summary": "<one sentence>", "read_when": ["<hint>"], "body": "<learning>"}
   ],
@@ -90,9 +89,11 @@ Each subagent receives a prompt that instructs it to:
 }
 ```
 
-Collect every candidate JSON object returned by the subagents. Most sessions
-will return empty arrays; that is expected. Keep the `session_id` field in each
-response so the merge step can track provenance.
+After receiving each subagent response, the ORCHESTRATOR must tag the returned
+object with the `session_id` from the manifest entry it dispatched to that
+subagent (set `candidate["session_id"] = entry["session_id"]` before collecting).
+This keeps provenance deterministic rather than relying on the subagent to echo
+it correctly. Most sessions will return empty arrays; that is expected.
 
 ## Step 4: Merge candidates (one subagent, oldest-first)
 

@@ -23,6 +23,6 @@ creating, or editing any file:
 }
 ```
 
-Each learning file's content MUST begin with frontmatter containing `summary:`
+The `backlog` string MUST reproduce every existing backlog item you are not intentionally removing, because it replaces the file wholesale. Each learning file's content MUST begin with frontmatter containing `summary:`
 (one sentence) and `read_when:` (a list); a learning without `summary:` is
 dropped from the index. Output the JSON object and nothing else.

@@ -142,12 +142,26 @@ class Bootstrap:
             "mtime": candidate.mtime,
         }
 
+    def _staged_session_ids(self) -> set[str]:
+        """Return stems of all staged session scratch files in the bootstrap dir.
+
+        Fails open: returns an empty set if the directory is missing or unreadable
+        so callers never raise when the bootstrap dir was never created.
+        """
+        try:
+            return {p.stem for p in self.store.bootstrap_dir.glob("*.json")}
+        except OSError:
+            return set()
+
     def apply(self, plan: dict[str, object]) -> dict[str, object]:
         """Write an approved merge plan to the store under containment + scrub; never raises.
 
         Every learning and the backlog body is path-contained to the store and
         secret-scrubbed before write, the same backstop the live sweep applies to
-        its agent's writes. Records the mined session ids in the processed ledger.
+        its agent's writes. Ledgers ALL staged sessions (every *.json scratch file
+        in the bootstrap dir), so a session that produced no memory is still marked
+        processed and skipped on future runs. Also ledgers any extra session ids
+        supplied in the plan's ``processed_session_ids`` list.
 
         Args:
             plan: Dict with keys ``learnings`` (list of filename/content dicts),
@@ -155,7 +169,8 @@ class Bootstrap:
 
         Returns:
             Dict with keys ``written`` (paths written), ``rejected`` (paths blocked),
-            ``redacted`` (paths whose content was scrubbed), and ``ledger_added`` (count).
+            ``redacted`` (paths whose content was scrubbed), and ``ledger_added``
+            (count of session ids newly added to the ledger by this call).
         """
         written: list[str] = []
         rejected: list[str] = []
@@ -169,13 +184,17 @@ class Bootstrap:
         if isinstance(backlog, str):
             self._write_one(self.store.backlog_path, backlog, written, rejected, redacted)
 
-        added = 0
+        # Union of staged scratch files (deterministic) + plan ids (backward compat).
+        before = self.store.read_processed()
+        all_ids: set[str] = self._staged_session_ids()
         ids = plan.get("processed_session_ids")
         if isinstance(ids, list):
             for sid in ids:
                 if isinstance(sid, str) and sid:
-                    self.store.add_processed(sid)
-                    added += 1
+                    all_ids.add(sid)
+        for sid in all_ids:
+            self.store.add_processed(sid)
+        added = len(all_ids - before)
 
         return {
             "written": written,

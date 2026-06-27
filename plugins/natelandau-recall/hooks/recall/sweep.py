@@ -202,7 +202,9 @@ class Sweep:
             return []
         else:
             if result.success:
-                self.store.add_processed(job.session_id)
+                self.store.add_processed(
+                    job.session_id
+                )  # add_processed is OSError-guarded (fail-open), safe in a never-raises worker
             return notes
         finally:
             lock.release()

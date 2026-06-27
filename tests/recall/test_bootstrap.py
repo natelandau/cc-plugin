@@ -198,6 +198,22 @@ def test_apply_rejects_absolute_filename(tmp_path: Path) -> None:
     assert result["written"] == []
 
 
+def test_apply_ledgers_all_staged_sessions(tmp_path: Path) -> None:
+    """Verify apply ledgers all staged scratch files even when the plan produces no memory."""
+    # Given a bootstrap with two staged scratch files and an empty plan
+    bs = _bootstrap(tmp_path, Path("/proj"))
+    bs.store.bootstrap_dir.mkdir(parents=True, exist_ok=True)
+    (bs.store.bootstrap_dir / "a.json").write_text("[]", encoding="utf-8")
+    (bs.store.bootstrap_dir / "b.json").write_text("[]", encoding="utf-8")
+
+    # When apply is called with no plan-level session ids
+    result = bs.apply({"learnings": [], "backlog": None, "processed_session_ids": []})
+
+    # Then both staged sessions are recorded in the ledger
+    assert bs.store.read_processed() == {"a", "b"}
+    assert result["ledger_added"] == 2
+
+
 def test_apply_redacts_secrets(tmp_path: Path) -> None:
     """Verify apply scrubs secrets from content before writing and records the path."""
     # Given a plan whose learning content contains a secret-shaped token
