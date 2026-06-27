@@ -14,7 +14,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ from recall import transcript
 from recall.config import RecallConfig
 from recall.paths import is_within_root
 from recall.runner import ClaudeRunner
+from recall.safety import scrub
 from recall.store import Store
 
 if TYPE_CHECKING:
@@ -35,22 +35,6 @@ if TYPE_CHECKING:
 
 STALE_AFTER = 300.0
 PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "sweep.md"
-
-_REDACTED = "«redacted-secret»"
-
-# (pattern, replacement). Token-shaped secrets replace the whole match; the
-# key:value form preserves the label and redacts only the value.
-SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"AKIA[0-9A-Z]{16}"), _REDACTED),
-    (re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}"), _REDACTED),
-    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), _REDACTED),
-    (
-        re.compile(
-            r"(?i)((?:api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?)([A-Za-z0-9/+_\-]{20,})"
-        ),
-        r"\1" + _REDACTED,
-    ),
-)
 
 
 @dataclass(slots=True)
@@ -114,16 +98,6 @@ class Lock:
         """Best-effort remove the lock; never raises."""
         with contextlib.suppress(OSError):
             self.path.unlink(missing_ok=True)
-
-
-def _scrub(text: str) -> tuple[str, bool]:
-    """Redact any secret-shaped content; return (scrubbed_text, changed)."""
-    changed = False
-    for pattern, repl in SECRET_PATTERNS:
-        text, n = pattern.subn(repl, text)
-        if n:
-            changed = True
-    return text, changed
 
 
 def _transcript_text(window: list[dict[str, Any]]) -> str:
@@ -246,7 +220,7 @@ class Sweep:
                 content = path.read_text(encoding="utf-8")
             except OSError:
                 continue  # absent/unreadable: nothing to scan
-            scrubbed, changed = _scrub(content)
+            scrubbed, changed = scrub(content)
             if changed:
                 try:
                     path.write_text(scrubbed, encoding="utf-8")
