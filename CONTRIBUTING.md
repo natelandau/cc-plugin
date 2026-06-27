@@ -115,7 +115,7 @@ plugins/natelandau-recall/
     sessionstart.py sessionend.py precompact.py   Thin entry scripts
     recall/                                   Flat engine package (Store, Injector, Sweep, etc.)
     prompts/sweep.md                          Prompt template for the headless sweep
-  commands/review-memory.md                   Memory curation command
+  skills/recall-review/SKILL.md               Memory curation skill (manual-only)
 
 tests/                                        Toolkit characterization tests
 tests/recall/                                 Recall tests (import the engine directly)
@@ -317,7 +317,7 @@ Recall tests in `tests/recall/` import the engine directly, for example `from re
 
 ## Adding skills, commands, and agents
 
-Skills, slash commands, and subagents are content files. They live under the plugin that ships them (most under `natelandau-toolkit`; recall ships the `review-memory` command).
+Skills, slash commands, and subagents are content files. They live under the plugin that ships them (most under `natelandau-toolkit`; recall ships the `recall-review` skill).
 
 ### New skill
 

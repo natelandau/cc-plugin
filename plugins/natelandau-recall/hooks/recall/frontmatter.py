@@ -8,6 +8,7 @@ files (no separate index.md to drift).
 from __future__ import annotations
 
 import json
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -86,7 +87,10 @@ def scan_learnings(learnings_dir: Path) -> list[tuple[Path, str, list[str]]]:
     """Return `(file, summary, read_when)` for each summarized `*.md`, sorted.
 
     Files lacking a `summary` are skipped (a learning with no index line is not
-    surfaced). A missing directory yields an empty list.
+    surfaced) and warned to stderr, since a dropped learning is usually a
+    frontmatter mistake (e.g. `name:`/`description:` instead of `summary:`) the
+    author wants to know about, not an intentional omission. A missing directory
+    yields an empty list.
     """
     if not learnings_dir.is_dir():
         return []
@@ -95,4 +99,9 @@ def scan_learnings(learnings_dir: Path) -> list[tuple[Path, str, list[str]]]:
         summary, read_when = extract(md)
         if summary:
             out.append((md, summary, read_when))
+        else:
+            print(  # noqa: T201
+                f"natelandau-recall: skipping learning with no 'summary:' frontmatter: {md}",
+                file=sys.stderr,
+            )
     return out

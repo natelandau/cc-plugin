@@ -37,12 +37,15 @@ _GIT_TIMEOUT = 5
 def encode_project_key(path: Path) -> str:
     """Encode an absolute path into one flat directory name.
 
-    Each `/` becomes `-` (a leading `/` becomes a leading `-`); a path segment
-    that begins with `.` (a hidden directory) has its leading dot turned into a
-    dash too, yielding a double dash at that boundary. Interior dots are kept.
-    Mirrors Claude Code's own project-dir convention.
+    The leading slash is dropped, then each remaining `/` becomes `-`; a path
+    segment that begins with `.` (a hidden directory) has its leading dot turned
+    into a dash, yielding a double dash at that boundary. Interior dots are kept.
+
+    Dropping the leading slash (rather than encoding it to a leading `-`) keeps
+    the key from starting with a dash, which shells and CLI tools would otherwise
+    parse as an option flag (e.g. `rm -rf -Users-...`).
     """
-    parts = str(path).split("/")
+    parts = [part for part in str(path).split("/") if part]
     encoded = ["-" + part[1:] if part.startswith(".") else part for part in parts]
     return "-".join(encoded)
 

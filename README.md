@@ -110,7 +110,7 @@ It works through three automatic hooks:
 - When a session starts, it injects a compact summary of the project's memory: architecture notes, an index of learnings, and a backlog overview.
 - When a session ends, or just before the context is compacted, it spawns a background agent that reads the transcript and updates the memory store.
 
-The sweep is conservative. It records non-obvious learnings (with rationale), deferred backlog items, and durable architecture goals. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
+The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items, routing each by altitude (project-wide notes to `architecture.md`, self-contained items to `learnings/`). It applies a strict bar: a fact earns a place only if it would help work on a *different* part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
 
 ### Where memory lives
 
@@ -120,14 +120,14 @@ Memory is stored per project, outside the repository, so it never ends up in you
 ~/.local/share/natelandau-recall/<project-key>/
   architecture.md     durable goals and guidelines
   backlog.md          deferred items grouped by commit type
-  learnings/          one file per gotcha, with summary and "read when" hints
+  learnings/          one file per item, with a summary and "read when" hints
 ```
 
 The project key is derived from the repository root, so all worktrees and branches of one repo share a single store.
 
 ### Curating memory
 
-The automated sweep only adds and refines. It never deletes. To prune the store, run `/review-memory`. This command deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. It's the only place deletion happens.
+The automated sweep only adds and refines. It never deletes. To prune the store, run `/recall-review`. This skill re-judges each entry's altitude and value (demoting or deleting `architecture.md` sections that describe a single subsystem rather than a project-wide invariant), deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. It's the only place deletion happens.
 
 ## Configuration
 
@@ -171,7 +171,7 @@ architecture_max_bytes = 4096 # cap on architecture.md injected verbatim
 [sweep]
 enabled = true                # set false to stop the end-of-session sweep
 model = "claude-sonnet-4-6"   # model for the background sweep
-min_exchanges = 5             # skip the sweep below this many real exchanges
+min_exchanges = 10            # skip the sweep below this many real messages (user + assistant)
 ```
 
 ## Uninstalling

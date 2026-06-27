@@ -9,6 +9,8 @@ from recall.frontmatter import extract, scan_learnings  # ty: ignore[unresolved-
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 
 def _write(p: Path, summary: str, read_when: str, body: str = "body") -> None:
     p.write_text(
@@ -65,6 +67,25 @@ def test_scan_learnings_sorted_and_filtered(tmp_path: Path) -> None:
     out = scan_learnings(tmp_path)
     # Then only summarized files appear, sorted by filename
     assert [p.name for p, _, _ in out] == ["one.md", "two.md"]
+
+
+def test_scan_learnings_warns_on_missing_summary(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a learning dropped for a missing summary is reported to stderr."""
+    # Given a learning file whose frontmatter omits summary (e.g. used name/description)
+    (tmp_path / "broken.md").write_text(
+        "---\nname: broken\ndescription: wrong keys\n---\nbody\n", encoding="utf-8"
+    )
+
+    # When scanning the directory
+    out = scan_learnings(tmp_path)
+
+    # Then it is excluded and a stderr warning names the dropped file
+    assert out == []
+    err = capsys.readouterr().err
+    assert "natelandau-recall" in err
+    assert "broken.md" in err
 
 
 def test_scan_missing_dir(tmp_path: Path) -> None:

@@ -24,7 +24,7 @@ def test_load_defaults_when_no_files(tmp_path: Path) -> None:
     assert cfg.architecture_max_bytes == 4096
     assert cfg.sweep_enabled is True
     assert cfg.sweep_model == "claude-sonnet-4-6"
-    assert cfg.min_exchanges == 5
+    assert cfg.min_exchanges == 10
 
 
 def test_project_overrides_win(tmp_path: Path) -> None:
@@ -66,7 +66,7 @@ def test_malformed_toml_fails_open_to_defaults(
     cfg = RecallConfig.load(home=tmp_path / "home", project_dir=str(proj))
 
     # Then the broken file is ignored and defaults stand, with a stderr warning
-    assert cfg.min_exchanges == 5
+    assert cfg.min_exchanges == 10
     assert cfg.inject_enabled is True
     assert "natelandau-recall" in capsys.readouterr().err
 
@@ -84,7 +84,7 @@ def test_bad_value_types_fall_back(tmp_path: Path) -> None:
     cfg = RecallConfig.load(home=tmp_path / "home", project_dir=str(proj))
 
     # Then the bad value is dropped for the default
-    assert cfg.min_exchanges == 5
+    assert cfg.min_exchanges == 10
 
 
 def test_is_headless_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:

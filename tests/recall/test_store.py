@@ -37,19 +37,20 @@ def _git(path: Path, *args: str) -> None:
 
 
 def test_encode_plain_path() -> None:
-    """Verify a normal absolute path dash-encodes with a leading dash."""
+    """Verify a normal absolute path dash-encodes without a leading dash."""
     # Given a non-hidden absolute path / When encoded
     out = encode_project_key(Path("/Users/nate/repos/cc-plugin"))
-    # Then slashes become dashes and the leading slash is a leading dash
-    assert out == "-Users-nate-repos-cc-plugin"
+    # Then slashes become dashes and the leading slash is dropped (no flag-like dash)
+    assert out == "Users-nate-repos-cc-plugin"
+    assert not out.startswith("-")
 
 
 def test_encode_hidden_segment_double_dash() -> None:
-    """Verify a leading-dot segment yields a double dash."""
+    """Verify an interior leading-dot segment yields a double dash."""
     # Given a path containing a hidden directory / When encoded
     out = encode_project_key(Path("/Users/nate/.local/share/chezmoi/dotfiles"))
     # Then the /.local boundary becomes a double dash; interior dots are preserved
-    assert out == "-Users-nate--local-share-chezmoi-dotfiles"
+    assert out == "Users-nate--local-share-chezmoi-dotfiles"
 
 
 def test_encode_interior_dot_preserved() -> None:
@@ -57,7 +58,7 @@ def test_encode_interior_dot_preserved() -> None:
     # Given a path with an interior dot / When encoded
     out = encode_project_key(Path("/srv/my.project/src"))
     # Then only the segment-leading dot rule applies (none here)
-    assert out == "-srv-my.project-src"
+    assert out == "srv-my.project-src"
 
 
 # ---------------------------------------------------------------------------

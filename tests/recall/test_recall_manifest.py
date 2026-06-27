@@ -18,7 +18,7 @@ _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 def _parse_frontmatter(text: str) -> dict[str, str] | None:
     """Extract top-level key/value pairs from a YAML frontmatter block.
 
-    Intentionally minimal: handles the flat `key: value` shape used by commands
+    Intentionally minimal: handles the flat `key: value` shape used by the skill
     in this plugin, plus indented continuation lines. Avoids a PyYAML dep so the
     test suite stays light.
     """
@@ -41,11 +41,8 @@ def _parse_frontmatter(text: str) -> dict[str, str] | None:
     return fields
 
 
-def _command_files() -> list[Path]:
-    commands_dir = ROOT / "commands"
-    if not commands_dir.is_dir():
-        return []
-    return sorted(commands_dir.glob("*.md"))
+def _skill_files() -> list[Path]:
+    return sorted((ROOT / "skills").glob("*/SKILL.md"))
 
 
 def _hooks_commands() -> list[tuple[str, str]]:
@@ -82,13 +79,28 @@ def test_command_resolves_and_is_executable(event: str, command: str) -> None:
     assert os.access(resolved, os.X_OK), resolved
 
 
-@pytest.mark.parametrize("command_path", _command_files(), ids=lambda p: p.name)
-def test_command_has_frontmatter(command_path: Path) -> None:
-    """Verify every commands/*.md declares description frontmatter."""
-    # Given a command file
+@pytest.mark.parametrize("skill_path", _skill_files(), ids=lambda p: p.parent.name)
+def test_skill_has_required_frontmatter(skill_path: Path) -> None:
+    """Verify every SKILL.md declares name and description frontmatter."""
+    # Given a skill entry file
     # When the frontmatter is parsed
-    fields = _parse_frontmatter(command_path.read_text())
+    fields = _parse_frontmatter(skill_path.read_text())
 
-    # Then frontmatter is present with a description field
-    assert fields is not None, f"{command_path}: missing YAML frontmatter"
-    assert "description" in fields, f"{command_path}: frontmatter missing 'description'"
+    # Then frontmatter is present with name and description fields
+    assert fields is not None, f"{skill_path}: missing YAML frontmatter"
+    assert "name" in fields, f"{skill_path}: frontmatter missing 'name'"
+    assert "description" in fields, f"{skill_path}: frontmatter missing 'description'"
+
+
+@pytest.mark.parametrize("skill_path", _skill_files(), ids=lambda p: p.parent.name)
+def test_skill_name_matches_directory(skill_path: Path) -> None:
+    """Verify SKILL.md frontmatter 'name' equals the containing directory."""
+    # Given a skill entry file
+    fields = _parse_frontmatter(skill_path.read_text())
+
+    # Then the declared name matches the directory it lives in
+    assert fields is not None, f"{skill_path}: missing YAML frontmatter"
+    assert fields.get("name") == skill_path.parent.name, (
+        f"{skill_path}: frontmatter name {fields.get('name')!r} "
+        f"!= directory {skill_path.parent.name!r}"
+    )

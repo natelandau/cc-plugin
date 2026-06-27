@@ -9,4 +9,4 @@ architecture_max_bytes = 4096 # cap on architecture.md injected verbatim
 [sweep]
 enabled = true                # set false to stop the end-of-session sweep
 model = "claude-sonnet-4-6"   # model for the headless sweep
-min_exchanges = 5             # skip the sweep below this many real exchanges
+min_exchanges = 10            # skip the sweep below this many real messages (user + assistant)

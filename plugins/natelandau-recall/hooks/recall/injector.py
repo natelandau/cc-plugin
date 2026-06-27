@@ -64,7 +64,7 @@ class Injector:
         truncated = raw[:max_bytes].decode("utf-8", errors="replace")
         return (
             truncated
-            + f"\n\n[architecture.md truncated at {max_bytes} bytes — run /review-memory to trim]"
+            + f"\n\n[architecture.md truncated at {max_bytes} bytes — run /recall-review to trim]"
         )
 
     def _learnings_index(self) -> str:

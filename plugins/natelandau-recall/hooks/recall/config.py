@@ -19,7 +19,10 @@ CONFIG_NAME = "natelandau-recall.toml"
 
 DEFAULT_ARCHITECTURE_MAX_BYTES = 4096
 DEFAULT_SWEEP_MODEL = "claude-sonnet-4-6"
-DEFAULT_MIN_EXCHANGES = 5
+# Counts individual meaningful messages (user + assistant), not paired turns,
+# so this is ~5 back-and-forth turns — a floor that keeps trivial sessions
+# (a quick question, a one-line fix) from triggering a sweep at all.
+DEFAULT_MIN_EXCHANGES = 10
 
 
 @dataclass(frozen=True, slots=True)
