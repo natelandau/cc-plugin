@@ -8,6 +8,9 @@
     dev = [
         "commitizen>=4.16.4",
         "prek>=0.4.5",
+        "pytest-clarity>=1.0.1",
+        "pytest-sugar>=1.1.1",
+        "pytest-xdist>=3.8.0",
         "pytest>=9.1.1",
         "ruff>=0.15.20",
         "ty>=0.0.55",
@@ -27,7 +30,7 @@
     version_provider           = "uv"
 
 [tool.pytest.ini_options]
-    addopts   = ["--color=yes", "--strict-markers", "-ra"]
+    addopts   = ["--color=yes", "--dist=loadfile", "--strict-markers", "-n=auto", "-ra"]
     cache_dir = ".cache/pytest"
     testpaths = ["tests"]
 
