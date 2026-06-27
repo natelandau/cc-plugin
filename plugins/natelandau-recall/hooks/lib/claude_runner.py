@@ -2,8 +2,11 @@
 
 Self-contained, stdlib only. Provides environment isolation (the recursion
 guard), CLI argument construction, subprocess execution that never raises,
-stream-json parsing, and prompt-template loading. The sweep injects `run` as a
-dependency so tests exercise the deterministic parts without spawning a real agent.
+stream-json parsing, and prompt-template loading. Tests exercise only the
+deterministic parts (build_env / build_args / parse_stream_json / load_template);
+`run` is intentionally left untested to avoid spawning a real agent. The sweep
+(lib/sweep.py) takes `run` as a default argument so its own tests can substitute
+a fake.
 """
 
 from __future__ import annotations
@@ -80,7 +83,8 @@ def run(
 
     Returns keys: success (bool), exit_code (int), stdout (str), stderr (str).
     Failures map to negative exit codes: timeout -2, claude-not-found -3,
-    OSError -5.
+    OSError -5. The result dict is seeded with exit_code -1 as an unset sentinel
+    that every code path overwrites, so -1 is never actually returned.
 
     Args:
         prompt: The prompt text to pass to the claude CLI via stdin.
