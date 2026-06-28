@@ -27,6 +27,17 @@ def test_scrub_preserves_label_redacts_value() -> None:
     assert changed is True
 
 
+def test_scrub_redacts_fine_grained_github_pat() -> None:
+    # Given text containing a fine-grained GitHub PAT (github_pat_ prefix)
+    text = "token " + "github_pat_" + "11ABCDE" + "fghij" * 8
+    # When scrubbed
+    out, changed = scrub(text)
+    # Then the PAT is redacted (the gh[pousr]_ form alone would miss this prefix)
+    assert "github_pat_11" not in out
+    assert REDACTED in out
+    assert changed is True
+
+
 def test_scrub_clean_text_unchanged() -> None:
     # Given text with no secrets
     text = "just a normal learning about how the parser works"

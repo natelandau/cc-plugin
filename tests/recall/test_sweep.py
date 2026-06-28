@@ -402,3 +402,22 @@ def test_run_job_records_session_in_ledger(tmp_path: Path) -> None:
 
     # Then the session id is recorded in the ledger
     assert "sess-123" in store.read_processed()
+
+
+def test_run_job_failure_does_not_record_session(tmp_path: Path) -> None:
+    """Verify a failed run does not ledger the session, so a later sweep can retry it."""
+    # Given a runner that completes but reports failure (non-zero exit)
+
+    class _FailingRunner:
+        def run(self, prompt: str, *, cwd: str) -> RunResult:
+            return RunResult(success=False, exit_code=1, changed_files=[], text="", stderr="fail")
+
+    store = store_at(tmp_path)
+    sweep = Sweep(store, RecallConfig(), _FailingRunner())
+    job = SweepJob(window=[], cwd=str(tmp_path), session_id="sess-fail")
+
+    # When the job runs
+    sweep._run_job(job)
+
+    # Then the session is NOT recorded, leaving it eligible for a future sweep
+    assert "sess-fail" not in store.read_processed()

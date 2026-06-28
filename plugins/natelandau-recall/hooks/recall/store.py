@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
 
 PLUGIN_NS = "natelandau-recall"
 LEARNINGS_DIRNAME = "learnings"
@@ -175,6 +175,27 @@ class Store:
                 fh.write(f"{session_id}\n")
         except OSError:
             pass
+
+    def add_processed_many(self, session_ids: Iterable[str]) -> int:
+        """Append every absent session ID in one pass; return how many were new.
+
+        The batched form `add_processed` would otherwise re-read the ledger once
+        per id: the bootstrap apply records many sessions at once, so this reads
+        the ledger a single time and appends only the genuinely new ids.
+        Best-effort and never raises; returns 0 if the write fails.
+        """
+        existing = self.read_processed()
+        # dict.fromkeys dedups while preserving order in case the input repeats.
+        new_ids = [sid for sid in dict.fromkeys(session_ids) if sid and sid not in existing]
+        if not new_ids:
+            return 0
+        try:
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            with self.processed_path.open("a", encoding="utf-8") as fh:
+                fh.writelines(f"{sid}\n" for sid in new_ids)
+        except OSError:
+            return 0
+        return len(new_ids)
 
     def save_transcript_pointer(self, transcript_path: str) -> None:
         """Best-effort persist the transcript path for the sweep; never raises."""

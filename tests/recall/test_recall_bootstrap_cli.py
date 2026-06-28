@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from tests.recall._store_factory import write_transcript
+
 SCRIPT = (
     Path(__file__).resolve().parent.parent.parent
     / "plugins"
@@ -48,20 +50,9 @@ def _seed_transcripts(home: Path, cwd: Path, names: list[str]) -> None:
     tdir = bootstrap.transcripts_dir_for(cwd, home=home)
     tdir.mkdir(parents=True, exist_ok=True)
     for i, name in enumerate(names):
-        # Use 20 entries (well above DEFAULT_MIN_EXCHANGES=10) so transcripts
-        # clear the filter when the subprocess uses the default config.
-        lines = [
-            json.dumps({"type": "user", "message": {"content": f"question {j}"}})
-            if j % 2 == 0
-            else json.dumps(
-                {
-                    "type": "assistant",
-                    "message": {"content": [{"type": "text", "text": f"answer {j}"}]},
-                }
-            )
-            for j in range(20)
-        ]
-        (tdir / f"{name}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # 20 entries is well above the default min_exchanges (10) so each
+        # transcript clears the filter when the subprocess uses the default config.
+        write_transcript(tdir / f"{name}.jsonl", exchanges=20)
         os.utime(tdir / f"{name}.jsonl", (1000 + i, 1000 + i))
 
 

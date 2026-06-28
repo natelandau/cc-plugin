@@ -16,6 +16,8 @@ REDACTED = "«redacted-secret»"
 SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"AKIA[0-9A-Z]{16}"), REDACTED),
     (re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}"), REDACTED),
+    # Fine-grained PATs use a github_pat_ prefix the gh[pousr]_ form misses.
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), REDACTED),
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), REDACTED),
     (
         re.compile(

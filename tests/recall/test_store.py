@@ -289,3 +289,15 @@ def test_bootstrap_dir_under_state(tmp_path: Path) -> None:
     store = store_at(tmp_path)
     # Then the bootstrap scratch dir lives under state_dir
     assert store.bootstrap_dir == store.state_dir / "bootstrap"
+
+
+def test_add_processed_many_batches_and_dedups(tmp_path: Path) -> None:
+    """Verify add_processed_many records only genuinely new ids and returns that count."""
+    # Given a store with one id already recorded
+    store = store_at(tmp_path)
+    store.add_processed("a")
+    # When a batch overlapping the existing id (and carrying a duplicate) is added
+    added = store.add_processed_many(["a", "b", "b", "c"])
+    # Then only the new ids are recorded, each once, and the new count is returned
+    assert added == 2
+    assert store.read_processed() == {"a", "b", "c"}

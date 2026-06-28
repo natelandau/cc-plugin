@@ -2,31 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
 from recall.config import RecallConfig  # ty: ignore[unresolved-import]
 
 from recall import bootstrap  # ty: ignore[unresolved-import]
-from tests.recall._store_factory import store_at
-
-
-def _write_transcript(path: Path, *, exchanges: int, first_user: str = "hello") -> None:
-    """Write a JSONL transcript with `exchanges` user+assistant text messages."""
-    lines: list[str] = []
-    for i in range(exchanges):
-        role = "user" if i % 2 == 0 else "assistant"
-        text = first_user if i == 0 else f"msg {i}"
-        if role == "user":
-            lines.append(json.dumps({"type": "user", "message": {"content": text}}))
-        else:
-            lines.append(
-                json.dumps(
-                    {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}
-                )
-            )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+from tests.recall._store_factory import store_at, write_transcript
 
 
 def _bootstrap(tmp_path: Path, cwd: Path) -> bootstrap.Bootstrap:
@@ -96,9 +78,9 @@ def test_discover_stages_eligible_transcripts(tmp_path: Path) -> None:
     # Given two healthy transcripts plus the live (newest) one
     cwd = Path("/proj")
     tdir = _tdir(tmp_path, cwd)
-    _write_transcript(tdir / "old.jsonl", exchanges=4)
-    _write_transcript(tdir / "mid.jsonl", exchanges=4)
-    _write_transcript(tdir / "live.jsonl", exchanges=4)
+    write_transcript(tdir / "old.jsonl", exchanges=4)
+    write_transcript(tdir / "mid.jsonl", exchanges=4)
+    write_transcript(tdir / "live.jsonl", exchanges=4)
     os.utime(tdir / "old.jsonl", (1000, 1000))
     os.utime(tdir / "mid.jsonl", (2000, 2000))
     os.utime(tdir / "live.jsonl", (3000, 3000))  # newest == live, auto-excluded
@@ -117,11 +99,11 @@ def test_discover_skips_short_sweep_and_processed(tmp_path: Path) -> None:
     """Verify discover filters out tiny, sweep, and already-processed sessions."""
     cwd = Path("/proj")
     tdir = _tdir(tmp_path, cwd)
-    _write_transcript(tdir / "tiny.jsonl", exchanges=1)  # below min_exchanges=2
-    _write_transcript(tdir / "sweep.jsonl", exchanges=4, first_user=bootstrap.SWEEP_SIGNATURE)
-    _write_transcript(tdir / "done.jsonl", exchanges=4)
-    _write_transcript(tdir / "keep.jsonl", exchanges=4)
-    _write_transcript(tdir / "live.jsonl", exchanges=4)
+    write_transcript(tdir / "tiny.jsonl", exchanges=1)  # below min_exchanges=2
+    write_transcript(tdir / "sweep.jsonl", exchanges=4, first_user=bootstrap.SWEEP_SIGNATURE)
+    write_transcript(tdir / "done.jsonl", exchanges=4)
+    write_transcript(tdir / "keep.jsonl", exchanges=4)
+    write_transcript(tdir / "live.jsonl", exchanges=4)
     for i, name in enumerate(["tiny", "sweep", "done", "keep", "live"]):
         os.utime(tdir / f"{name}.jsonl", (1000 + i, 1000 + i))
 
@@ -139,7 +121,7 @@ def test_discover_limit_keeps_most_recent(tmp_path: Path) -> None:
     cwd = Path("/proj")
     tdir = _tdir(tmp_path, cwd)
     for i, name in enumerate(["a", "b", "c", "live"]):
-        _write_transcript(tdir / f"{name}.jsonl", exchanges=4)
+        write_transcript(tdir / f"{name}.jsonl", exchanges=4)
         os.utime(tdir / f"{name}.jsonl", (1000 + i, 1000 + i))
 
     # When limited to the 2 most recent (live excluded first)
@@ -229,3 +211,40 @@ def test_apply_redacts_secrets(tmp_path: Path) -> None:
     # Then the written file does not contain the secret
     written = (bs.store.learnings_dir / "leak.md").read_text(encoding="utf-8")
     assert secret not in written
+
+
+def test_apply_non_dict_plan_is_noop(tmp_path: Path) -> None:
+    """Verify a non-dict plan (e.g. a malformed JSON array) applies nothing and never raises."""
+    # Given a bootstrap and a plan that is a list, not an object
+    bs = _bootstrap(tmp_path, Path("/proj"))
+    # When apply is called with the malformed plan
+    result = bs.apply([{"filename": "x.md"}])
+    # Then nothing is written or ledgered and no exception escapes
+    assert result == {"written": [], "rejected": [], "redacted": [], "ledger_added": 0}
+
+
+def test_apply_empty_backlog_does_not_truncate(tmp_path: Path) -> None:
+    """Verify an empty-string backlog leaves an existing backlog.md untouched."""
+    # Given an existing backlog file and a plan whose backlog is an empty string
+    bs = _bootstrap(tmp_path, Path("/proj"))
+    bs.store.data_dir.mkdir(parents=True, exist_ok=True)
+    bs.store.backlog_path.write_text("# backlog\n- [ ] [S] keep me\n", encoding="utf-8")
+    # When apply is called with backlog == ""
+    bs.apply({"learnings": [], "backlog": "", "processed_session_ids": []})
+    # Then the existing backlog is not wiped
+    assert "keep me" in bs.store.backlog_path.read_text(encoding="utf-8")
+
+
+def test_sweep_signature_present_in_sweep_prompt() -> None:
+    """Verify SWEEP_SIGNATURE still matches the sweep prompt so sweeper transcripts stay filtered."""
+    # Given the live sweep prompt that bootstrap's filter keys off
+    sweep_md = (
+        Path(__file__).resolve().parent.parent.parent
+        / "plugins"
+        / "natelandau-recall"
+        / "hooks"
+        / "prompts"
+        / "sweep.md"
+    )
+    # Then the signature bootstrap matches against is present verbatim (drift guard)
+    assert bootstrap.SWEEP_SIGNATURE in sweep_md.read_text(encoding="utf-8")
