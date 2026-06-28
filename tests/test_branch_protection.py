@@ -79,6 +79,15 @@ class Case:
     expect_exit: int
     stderr_contains: tuple[str, ...] = ()
     output_contains: tuple[str, ...] = ()
+    # When set, the command must route to a permission ASK for this branch,
+    # asserted by parsing the hook's JSON stdout rather than substring-matching it.
+    asks: str | None = None
+
+
+# Canonical hook messages asserted verbatim across many cases. Naming them once
+# keeps a single typo from silently weakening a test.
+BLOCK_FILE_MOD = "Cannot modify files on the 'master' branch"
+BLOCK_COMMIT = "Cannot commit directly to the 'master' branch"
 
 
 CASES: tuple[Case, ...] = (
@@ -87,22 +96,19 @@ CASES: tuple[Case, ...] = (
         id="edit on master blocked",
         make_payload=lambda r: _edit(f"{r['master']}/foo.py"),
         expect_exit=2,
-        stderr_contains=(
-            "BLOCKED [branch-protection]",
-            "Cannot modify files on the 'master' branch",
-        ),
+        stderr_contains=("BLOCKED [branch-protection]", BLOCK_FILE_MOD),
     ),
     Case(
         id="write on master blocked",
         make_payload=lambda r: _write(f"{r['master']}/foo.py"),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="notebook on master blocked",
         make_payload=lambda r: _notebook(f"{r['master']}/foo.ipynb"),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="edit on feat allowed",
@@ -225,7 +231,7 @@ CASES: tuple[Case, ...] = (
         id="rm on master blocked",
         make_payload=lambda r: _bash("rm foo.py", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="rm on feat allowed",
@@ -447,7 +453,7 @@ CASES: tuple[Case, ...] = (
         id="git commit on master blocked",
         make_payload=lambda r: _bash("git commit -m x", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     Case(
         id="squash chain commit on master allowed",
@@ -464,13 +470,13 @@ CASES: tuple[Case, ...] = (
         id="git merge --no-ff on master asks",
         make_payload=lambda r: _bash("git merge --no-ff feat", cwd=r["master"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     Case(
         id="bare git merge on master asks",
         make_payload=lambda r: _bash("git merge feat", cwd=r["master"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     Case(
         id="git merge --ff-only on master allowed",
@@ -496,7 +502,7 @@ CASES: tuple[Case, ...] = (
         id="git pull on master asks",
         make_payload=lambda r: _bash("git pull", cwd=r["master"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     Case(
         id="git pull --ff-only on master allowed",
@@ -560,7 +566,7 @@ CASES: tuple[Case, ...] = (
         id="rm tracked file on master blocked",
         make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # === Reverse asymmetry: a file-modifying Bash command is keyed off the
     # branch of the file it TOUCHES, not the shell's cwd. A write into a repo on
@@ -570,13 +576,13 @@ CASES: tuple[Case, ...] = (
         id="rm into protected repo from feat cwd blocked",
         make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="redirect into protected repo from feat cwd blocked",
         make_payload=lambda r: _bash(f"echo x > {r['master']}/out.txt", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # A gitignored target in a protected repo is still exempt, even reached from
     # a feature-branch cwd: gitignored paths are never tracked history.
@@ -591,7 +597,7 @@ CASES: tuple[Case, ...] = (
         id="relative .. traversal into protected repo blocked",
         make_payload=lambda r: _bash("echo x > sub/../out.txt", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # === Target-keyed git commit/merge: the operated-on repo is read from
     # `git -C <path>` and `cd <path> &&`, not assumed to be the shell's cwd. ===
@@ -599,13 +605,13 @@ CASES: tuple[Case, ...] = (
         id="git -C protected repo commit from feat cwd blocked",
         make_payload=lambda r: _bash(f"git -C {r['master']} commit -m x", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     Case(
         id="cd into protected repo then commit blocked",
         make_payload=lambda r: _bash(f"cd {r['master']} && git commit -m x", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     # No false positive in the other direction: committing into a feature-branch
     # repo is fine even when the shell sits on a protected branch.
@@ -620,7 +626,7 @@ CASES: tuple[Case, ...] = (
         id="git -C protected repo merge from feat cwd asks",
         make_payload=lambda r: _bash(f"git -C {r['master']} merge topic", cwd=r["feat"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     # A safe merge form (--ff-only) onto a protected repo passes silently.
     Case(
@@ -635,7 +641,7 @@ CASES: tuple[Case, ...] = (
         id="merge plus tracked-file delete on master denied not asked",
         make_payload=lambda r: _bash("git merge feat && rm foo.py", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # Precedence across git clauses: a later direct-commit DENY outranks an
     # earlier merge/pull ASK in the same command, so prepending `git pull` cannot
@@ -644,7 +650,7 @@ CASES: tuple[Case, ...] = (
         id="pull then commit on master denied not asked",
         make_payload=lambda r: _bash("git pull && git commit -m x", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     # cd-tracking applies to file mods too: a relative write after `cd <protected>`
     # is judged against the cd'd-into repo, not the original shell cwd.
@@ -652,13 +658,13 @@ CASES: tuple[Case, ...] = (
         id="cd into protected repo then rm relative file blocked",
         make_payload=lambda r: _bash(f"cd {r['master']} && rm foo.py", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="cd into protected repo then redirect blocked",
         make_payload=lambda r: _bash(f"cd {r['master']} && echo x > out.txt", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # An unconfinable write (sed -i) in an earlier clause must not mask a later
     # confinable write into a protected repo: each clause is judged on its own.
@@ -668,7 +674,7 @@ CASES: tuple[Case, ...] = (
             f"sed -i s/a/b/ bar.py && rm {r['master']}/foo.py", cwd=r["feat"]
         ),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # A squash chain written with `git -C <repo>` is recognized, so the follow-up
     # commit is allowed rather than wrongly blocked by the commit guard.
@@ -686,13 +692,13 @@ CASES: tuple[Case, ...] = (
         id="git -C quoted protected repo commit blocked",
         make_payload=lambda r: _bash(f"git -C '{r['master']}' commit -m x", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     Case(
         id="rm quoted tracked file in protected repo blocked",
         make_payload=lambda r: _bash(f"rm '{r['master']}/foo.py'", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
 )
 
@@ -729,6 +735,12 @@ def test_enforce_branch_protection(
         assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
     for s in case.output_contains:
         assert s in proc.stdout or s in proc.stderr, f"missing {s!r} in output{diag}"
+    if case.asks is not None:
+        # An ASK is a structured permission decision on stdout, not a substring:
+        # parse it so the assertion survives any reformatting of the JSON.
+        decision = json.loads(proc.stdout)["hookSpecificOutput"]
+        assert decision["permissionDecision"] == "ask", f"not an ask{diag}"
+        assert case.asks in decision["permissionDecisionReason"], f"wrong branch{diag}"
 
 
 def _load_hook(hooks_dir: Path) -> ModuleType:
