@@ -737,9 +737,12 @@ def test_enforce_branch_protection(
     if case.asks is not None:
         # An ASK is a structured permission decision on stdout, not a substring:
         # parse it so the assertion survives any reformatting of the JSON.
+        assert proc.stdout, f"expected an ask decision on stdout{diag}"
         decision = json.loads(proc.stdout)["hookSpecificOutput"]
         assert decision["permissionDecision"] == "ask", f"not an ask{diag}"
-        assert case.asks in decision["permissionDecisionReason"], f"wrong branch{diag}"
+        # Match the quoted branch (`'master'`) so a name that merely contains it
+        # (e.g. 'master-backup') can't satisfy the check.
+        assert f"'{case.asks}'" in decision["permissionDecisionReason"], f"wrong branch{diag}"
 
 
 def _load_hook(hooks_dir: Path) -> ModuleType:
