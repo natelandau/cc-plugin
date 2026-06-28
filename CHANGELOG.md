@@ -1,3 +1,15 @@
+## v0.14.2 (2026-06-28)
+
+### Fix
+
+- ignore an ambient GIT_DIR when resolving git repos (#15)
+- **hooks**: key branch protection off the target, not the cwd (#14)
+- **hooks**: key branch protection off the target file's branch
+
+### Refactor
+
+- **recall**: slim session-start backlog to a triage pointer
+
 ## v0.14.1 (2026-06-27)
 
 ### Fix
