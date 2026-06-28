@@ -93,6 +93,26 @@ def test_project_root_non_git_uses_claude_project_dir(tmp_path: Path) -> None:
     assert root == proj.resolve()
 
 
+def test_project_root_ignores_ambient_git_dir(tmp_path: Path) -> None:
+    """Verify project_root resolves cwd's repo, not a leaked ambient GIT_DIR."""
+    # Given two separate repos and an env whose GIT_DIR names the other one. Git
+    # exports GIT_DIR under a hook or worktree; if honored it would key the store
+    # to the wrong project.
+    here = tmp_path / "here"
+    here.mkdir()
+    _git(here, "init", "-q")
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q")
+    env = {**_CLEAN, "GIT_DIR": str(other / ".git")}
+
+    # When resolving the root of `here` with the leaked GIT_DIR present
+    root = project_root(cwd=here, env=env)
+
+    # Then the cwd's own repo wins over the leaked GIT_DIR
+    assert root == here.resolve()
+
+
 # ---------------------------------------------------------------------------
 # Store.for_cwd: XDG roots and key hashing
 # ---------------------------------------------------------------------------

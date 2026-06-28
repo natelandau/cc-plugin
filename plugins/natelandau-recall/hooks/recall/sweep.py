@@ -26,7 +26,7 @@ from recall.config import RecallConfig
 from recall.paths import is_within_root
 from recall.runner import ClaudeRunner
 from recall.safety import scrub
-from recall.store import Store
+from recall.store import Store, git_safe_env
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -122,6 +122,9 @@ def _git_context(cwd: str, *, timeout: int = 10) -> str:
             text=True,
             timeout=timeout,
             check=False,
+            # Strip leaked git-location vars so `git log` reads the repo at `cwd`,
+            # not whatever repo an ambient GIT_DIR names.
+            env=git_safe_env(os.environ),
         )
     except OSError, subprocess.SubprocessError:
         return ""

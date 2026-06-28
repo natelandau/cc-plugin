@@ -35,6 +35,28 @@ BOOTSTRAP_DIRNAME = "bootstrap"
 
 _GIT_TIMEOUT = 5
 
+# Git location vars that, if present in the environment, override `cwd` and pin
+# `git` to whatever repo they name. Git exports these when it runs a hook or when
+# the shell sits in a linked worktree, so a recall hook that inherited them would
+# resolve the wrong repo -- and thus the wrong project key, reading and writing
+# another project's memory. Stripped before every git call so resolution honors
+# `cwd`.
+GIT_LOCATION_VARS = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_WORK_TREE",
+    }
+)
+
+
+def git_safe_env(env: Mapping[str, str]) -> dict[str, str]:
+    """Copy `env` without the git location vars so git resolves from `cwd`, not an ambient GIT_DIR."""
+    return {k: v for k, v in env.items() if k not in GIT_LOCATION_VARS}
+
 
 def encode_project_key(path: Path) -> str:
     """Encode an absolute path into one flat directory name.
@@ -67,7 +89,7 @@ def project_root(*, cwd: Path, env: Mapping[str, str]) -> Path:
             text=True,
             timeout=_GIT_TIMEOUT,
             check=False,
-            env=dict(env),
+            env=git_safe_env(env),
         )
         out = proc.stdout.strip()
         if proc.returncode == 0 and out:
