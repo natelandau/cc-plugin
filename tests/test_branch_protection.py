@@ -811,3 +811,18 @@ def test_target_protected_branch_follows_symlink_into_protected_repo(
     # Then the branch lookup follows the link to the in-repo path and blocks it,
     # rather than reading the link's own (repo-less) parent directory as exempt
     assert m._target_protected_branch(str(link), "") == "master"
+
+
+def test_get_branch_at_path_ignores_ambient_git_dir(
+    repos: Mapping[str, str], hooks_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify branch detection honors the -C path over an inherited GIT_DIR."""
+    # Given an ambient GIT_DIR naming a different repo (master). Git exports it
+    # when running a hook or from a linked worktree; an absolute GIT_DIR overrides
+    # `git -C`, so without sanitizing it every lookup would report master's branch.
+    m = _load_hook(hooks_dir)
+    monkeypatch.setenv("GIT_DIR", str(Path(repos["master"]) / ".git"))
+    # When resolving the feat repo's branch
+    branch = m.get_branch_at_path(repos["feat"])
+    # Then the -C path wins: feat's own branch, not the leaked master
+    assert branch == "feat"

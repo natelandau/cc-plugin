@@ -16,6 +16,7 @@ feature branch (or a different repo, or no repo) passes even from a main cwd.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -184,15 +185,34 @@ PROTECTED_FILE_MOD_RULES: tuple[CommandRule, ...] = (
 # === Helpers ===
 
 
+# Git location vars that, if inherited from the environment, override `-C <path>`
+# and hijack branch detection to the wrong repo. Git exports these when it runs a
+# hook or when the shell sits inside a linked worktree, so without stripping them
+# the protected-branch lookup for a path could read an unrelated repo's branch.
+_GIT_LOCATION_VARS = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_WORK_TREE",
+    }
+)
+
+
 def _run_git(*args: str, cwd: str | None = None) -> str:
     """Run git capturing stdout, failing to "" so a missing repo or binary never wedges the hook."""
     cmd = ["git"]
     if cwd:
         cmd.extend(["-C", cwd])
     cmd.extend(args)
+    # Strip git location vars so an ambient GIT_DIR (set under a git hook or
+    # worktree) can't override `-C` and resolve the wrong repo's branch.
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_VARS}
     try:
         result = subprocess.run(  # noqa: S603
-            cmd, capture_output=True, text=True, timeout=5, check=False
+            cmd, capture_output=True, text=True, timeout=5, check=False, env=env
         )
         return result.stdout.strip()
     except subprocess.SubprocessError, FileNotFoundError:
