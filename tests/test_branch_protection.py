@@ -416,14 +416,11 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
-    # Safety: a `..` segment must not let a non-/tmp write masquerade as exempt
-    # by prefixing /tmp -- the traversal target is judged by the block rules.
-    Case(
-        id="tmp traversal redirect to tracked file on master blocked",
-        make_payload=lambda r: _bash("echo x > /tmp/../tracked.txt", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot modify files",),
-    ),
+    # Safety: a `..` segment must not let a write masquerade as /tmp-exempt by
+    # prefixing /tmp. The target is resolved to its real destination and judged
+    # there: a `..` that lands back inside the protected repo is blocked (see the
+    # "relative .. traversal into protected repo blocked" case below); one that
+    # resolves outside any repo is harmless. Unit coverage in `test_is_target_exempt`.
     # Protected branch: pure git read commands allowed
     Case(
         id="git status on master allowed",
@@ -455,19 +452,20 @@ CASES: tuple[Case, ...] = (
         ),
         expect_exit=0,
     ),
-    # Protected branch: merge commits blocked (they write to the branch
-    # directly, bypassing the git commit guard), safe forms allowed.
+    # Protected branch: merge commits are an ASK (a merge onto trunk is
+    # sometimes a deliberate, human-approved integration), routed to the
+    # permission prompt via exit 0 + permissionDecision; safe forms pass.
     Case(
-        id="git merge --no-ff on master blocked",
+        id="git merge --no-ff on master asks",
         make_payload=lambda r: _bash("git merge --no-ff feat", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot merge into the 'master' branch",),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
     ),
     Case(
-        id="bare git merge on master blocked",
+        id="bare git merge on master asks",
         make_payload=lambda r: _bash("git merge feat", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot merge into the 'master' branch",),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
     ),
     Case(
         id="git merge --ff-only on master allowed",
@@ -490,10 +488,10 @@ CASES: tuple[Case, ...] = (
         expect_exit=0,
     ),
     Case(
-        id="git pull on master blocked",
+        id="git pull on master asks",
         make_payload=lambda r: _bash("git pull", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot merge into the 'master' branch",),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
     ),
     Case(
         id="git pull --ff-only on master allowed",
@@ -564,6 +562,81 @@ CASES: tuple[Case, ...] = (
     Case(
         id="rm tracked file on master blocked",
         make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # === Reverse asymmetry: a file-modifying Bash command is keyed off the
+    # branch of the file it TOUCHES, not the shell's cwd. A write into a repo on
+    # a protected branch is caught no matter where the shell sits -- mirroring
+    # Edit/Write, which already keys off the target file's branch. ===
+    Case(
+        id="rm into protected repo from feat cwd blocked",
+        make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    Case(
+        id="redirect into protected repo from feat cwd blocked",
+        make_payload=lambda r: _bash(f"echo x > {r['master']}/out.txt", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # A gitignored target in a protected repo is still exempt, even reached from
+    # a feature-branch cwd: gitignored paths are never tracked history.
+    Case(
+        id="touch gitignored path in protected repo from feat cwd allowed",
+        make_payload=lambda r: _bash(f"touch {r['master']}/ignored_dir/x", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    # A `..` segment is resolved to its real destination and judged there: a
+    # relative traversal that lands back inside the protected repo is blocked.
+    Case(
+        id="relative .. traversal into protected repo blocked",
+        make_payload=lambda r: _bash("echo x > sub/../out.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # === Target-keyed git commit/merge: the operated-on repo is read from
+    # `git -C <path>` and `cd <path> &&`, not assumed to be the shell's cwd. ===
+    Case(
+        id="git -C protected repo commit from feat cwd blocked",
+        make_payload=lambda r: _bash(f"git -C {r['master']} commit -m x", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot commit directly to the 'master' branch",),
+    ),
+    Case(
+        id="cd into protected repo then commit blocked",
+        make_payload=lambda r: _bash(f"cd {r['master']} && git commit -m x", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot commit directly to the 'master' branch",),
+    ),
+    # No false positive in the other direction: committing into a feature-branch
+    # repo is fine even when the shell sits on a protected branch.
+    Case(
+        id="git -C feat repo commit from master cwd allowed",
+        make_payload=lambda r: _bash(f"git -C {r['feat']} commit -m x", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # A merge commit onto a protected branch is an ASK (permission prompt), not a
+    # hard DENY: it is sometimes a deliberate, human-approved integration.
+    Case(
+        id="git -C protected repo merge from feat cwd asks",
+        make_payload=lambda r: _bash(f"git -C {r['master']} merge topic", cwd=r["feat"]),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
+    ),
+    # A safe merge form (--ff-only) onto a protected repo passes silently.
+    Case(
+        id="git -C protected repo merge --ff-only from feat cwd allowed",
+        make_payload=lambda r: _bash(f"git -C {r['master']} merge --ff-only topic", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    # Precedence: a command that both merges (an ASK) and deletes a tracked file
+    # (a DENY) is denied, not merely prompted -- approving the prompt would
+    # otherwise let the unconditional file deletion through.
+    Case(
+        id="merge plus tracked-file delete on master denied not asked",
+        make_payload=lambda r: _bash("git merge feat && rm foo.py", cwd=r["master"]),
         expect_exit=2,
         stderr_contains=("Cannot modify files on the 'master' branch",),
     ),
@@ -663,9 +736,11 @@ def test_is_target_exempt(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert m._is_target_exempt(f"{base}/ignored_dir/x", "") is True
     assert m._is_target_exempt(f"{base}/foo.py", "") is False
 
-    # Then a relative target needs a cwd to resolve: exempt with it, declined without
+    # Then a relative target with a cwd resolves and is judged (gitignored here,
+    # so exempt). With no cwd it can't be located, so it can't be attributed to a
+    # protected branch and is treated as harmless (the fail-open default).
     assert m._is_target_exempt("ignored_dir/x", base) is True
-    assert m._is_target_exempt("ignored_dir/x", "") is False
+    assert m._is_target_exempt("ignored_dir/x", "") is True
 
 
 def test_is_target_exempt_follows_symlink_into_protected_repo(

@@ -1,9 +1,17 @@
 """PreToolUse hook: blocks destructive git commands and file modifications.
 
-Blocks destructive git operations (force push, hard reset, clean -f, etc.)
-on ALL branches, and blocks file modifications on protected branches
-(main/master). Supports git worktrees by checking the branch at the actual
-target location.
+Blocks destructive git operations (force push, hard reset, clean -f, etc.) on
+ALL branches. On protected branches (main/master) it also denies file
+modifications and direct commits, and routes merge commits to the permission
+prompt (an ASK) rather than a hard deny, since a merge onto trunk is sometimes
+a deliberate, human-approved integration.
+
+Every protected-branch check is keyed off the branch of the target the action
+touches, not the shell's working directory: file tools (Edit/Write) use the
+file's branch, file-modifying Bash commands use each write target's branch, and
+git commit/merge use the repo named by `git -C <path>` / `cd <path> &&`. So a
+write into a repo on main is caught wherever the shell sits, and a write into a
+feature branch (or a different repo, or no repo) passes even from a main cwd.
 """
 
 from __future__ import annotations
@@ -49,7 +57,21 @@ MERGE_COMMIT_HINT = (
 # `--abort`/`--quit` cancel an in-progress merge, and `pull --rebase`/`-r`
 # replays commits instead of merging. Anything else may create a merge commit.
 SAFE_MERGE_RE = re.compile(r"--ff-only\b|--squash\b|--abort\b|--quit\b|--rebase\b|\s-r\b")
-MERGE_PULL_RE = re.compile(r"^\s*git\s+(?:merge|pull)\b")
+
+# Leading per-invocation git options that precede the subcommand: `-c <key=val>`
+# and `-C <path>`. Matching them lets the commit/merge detectors fire on
+# `git -C <repo> commit` / `git -c k=v merge`, which a bare `git\s+commit`
+# anchor would miss -- the gap that let `git -C <other-repo> commit` slip the
+# guard regardless of branch.
+_GIT_OPTS = r"(?:-[cC]\s+\S+\s+)*"
+GIT_COMMIT_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}commit\b")
+GIT_MERGE_PULL_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}(?:merge|pull)\b")
+# Pulls the `-C <path>` target out of a git clause so the op is judged against
+# the repo it touches, not the shell's cwd.
+_GIT_C_DIR_RE = re.compile(r"\bgit\s+(?:-c\s+\S+\s+)*-C\s+(\S+)")
+# A leading `cd <dir>` clause, so the effective cwd can be tracked across
+# `cd <dir> && git ...`.
+_CD_RE = re.compile(r"^\s*cd\s+(\S+)")
 
 GIT_C_ADVISORY = (
     "WARNING: Avoid using `git -C <path>`. "
@@ -256,30 +278,6 @@ def get_branch_at_path(path: str) -> str:
     return _run_git("branch", "--show-current", cwd=str(dir_path))
 
 
-def get_effective_branch(event: dict[str, Any]) -> str:
-    """Determine the effective git branch based on tool context.
-
-    For file tools (Edit/Write/NotebookEdit), check the branch at the
-    file's location so edits inside a worktree are correctly allowed.
-    Falls back to the session's cwd, then the hook process's own cwd.
-    """
-    tool_name: str = event.get("tool_name", "")
-    tool_input: dict[str, Any] = event.get("tool_input") or {}
-    cwd: str = event.get("cwd", "")
-
-    if tool_name in ("Edit", "Write", "NotebookEdit"):
-        file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
-        if file_path:
-            return get_branch_at_path(file_path)
-
-    if cwd:
-        branch = get_branch_at_path(cwd)
-        if branch:
-            return branch
-
-    return _run_git("branch", "--show-current")
-
-
 def _git_dir(cwd: str) -> Path | None:
     """Return absolute git-dir for cwd, or None outside a repo."""
     raw = _run_git("rev-parse", "--git-dir", cwd=cwd)
@@ -323,19 +321,28 @@ def is_squash_merge_in_progress(command: str, git_dir: Path | None) -> bool:
     return False
 
 
-def creates_merge_commit(command: str) -> bool:
-    """Detect a `git merge`/`git pull` that may write a merge commit.
+def _resolve_against(path: str, cwd: str) -> str:
+    """Resolve `path` to an absolute string against `cwd` (returned as-is if absolute)."""
+    if Path(path).is_absolute():
+        return path
+    return str(Path(cwd) / path) if cwd else path
 
-    A merge commit modifies the protected branch directly, bypassing the
-    `git commit` guard (the merge writes the commit itself, no `git commit`
-    runs). Only the provably-safe forms in `SAFE_MERGE_RE` are exempt; every
-    other merge/pull is treated as a potential merge commit on the branch.
+
+def _git_clause_dir(clause: str, cwd: str) -> str:
+    """Return the repo dir a git clause operates on, honoring `git -C <path>`.
+
+    Falls back to the effective `cwd` when no `-C` is present, so the op is
+    judged against the repo it actually touches rather than wherever git was
+    invoked from.
     """
-    for part in bash.split_clauses(command):
-        stripped = part.strip()
-        if MERGE_PULL_RE.match(stripped) and not SAFE_MERGE_RE.search(stripped):
-            return True
-    return False
+    m = _GIT_C_DIR_RE.search(clause)
+    return _resolve_against(m.group(1), cwd) if m else cwd
+
+
+def _cd_target(clause: str, cwd: str) -> str | None:
+    """Return the dir a leading `cd <dir>` clause moves to (resolved against cwd), or None."""
+    m = _CD_RE.match(clause)
+    return _resolve_against(m.group(1), cwd) if m else None
 
 
 # === Checks ===
@@ -344,18 +351,6 @@ def creates_merge_commit(command: str) -> bool:
 def check_destructive(command: str) -> str | None:
     """Return a block reason if the command is destructive, else None."""
     return match_rules(command, DESTRUCTIVE_RULES)
-
-
-def _contains_git_commit(command: str) -> bool:
-    """Return whether any sub-part is a `git commit`."""
-    return any(re.match(r"^\s*git\s+commit\b", p) for p in bash.split_clauses(command))
-
-
-def _is_pure_git_command(command: str) -> bool:
-    """Return whether every sub-part is a git/gh subcommand."""
-    if not _is_git_command(command):
-        return False
-    return all(_is_git_command(p) or not p.strip() for p in bash.split_clauses(command))
 
 
 # A redirect operator (`>`, `>>`, `2>`, `&>`, `>|`) and the path it writes to,
@@ -409,137 +404,203 @@ def _write_targets(command: str) -> list[str] | None:
     return targets
 
 
-def _is_target_exempt(target: str, cwd: str) -> bool:
-    """Return whether writing `target` on a protected branch is harmless.
+def _target_protected_branch(target: str, cwd: str) -> str | None:
+    """Return the protected branch a write to `target` would dirty, or None if harmless.
 
-    A target is exempt when it lives under /tmp (cannot affect tracked
-    history), is not itself on a protected branch, or is gitignored. The
-    branch is keyed off the target's own location, not the shell's cwd, so a
-    write to a different branch, a different repo, or no repo at all (e.g. an
-    external XDG store path while the repo sits on main) is exempt -- the
-    mirror of the Edit/Write exemption, which already checks the file's branch.
-    An absolute target is judged on its own; a relative one resolves against
-    the command's `cwd`, and without a cwd it can't be resolved, so it is not
-    treated as exempt.
+    A write is harmless when its target lives under /tmp (never tracked
+    history), resolves to a location not on a protected branch, or is
+    gitignored. The branch is keyed off the target's own resolved location, not
+    the shell's cwd: a write into a feature branch, a different repo, or no repo
+    at all is harmless even from a main cwd, while a write into a repo on main
+    is caught wherever the shell sits -- the mirror of the Edit/Write exemption.
+    A relative target with no cwd can't be located, so it is treated as harmless
+    (the fail-open default; real payloads always carry a cwd).
     """
-    # A `..` segment can smuggle a write out of an exempt prefix, e.g.
-    # `/tmp/../tracked.txt` starts with "/tmp/" yet lands outside it, so never
-    # exempt a traversal path -- let the block rules judge the real target.
-    if ".." in Path(target).parts:
-        return False
-    if target.startswith("/tmp/"):  # noqa: S108
-        return True
     if Path(target).is_absolute():
-        abs_target: str = target
+        abs_target = target
     elif cwd:
         abs_target = str(Path(cwd) / target)
     else:
-        return False
-    # Resolve symlinks so the branch lookup and the gitignore check below judge
-    # the same physical path. A symlinked target could otherwise be branch-checked
-    # at the link's own location yet land on a tracked file inside the repo, the
-    # same path `_is_git_ignored` already canonicalizes with `.resolve()`.
-    abs_target = str(Path(abs_target).resolve())
-    # Branch protection guards the protected branch's tracked history; a target
-    # not on a protected branch cannot dirty it. Falling back to the gitignore
-    # check covers a target that IS on a protected branch but is never tracked.
-    if get_branch_at_path(abs_target) not in PROTECTED_BRANCHES:
-        return True
-    return _is_git_ignored(abs_target)
-
-
-def _targets_all_exempt(command: str, cwd: str) -> bool:
-    """Return whether every file a Bash command writes is exempt on a protected branch.
-
-    Protected-branch carve-out: a command whose writes all land in /tmp or on
-    gitignored paths cannot dirty tracked history, so it passes. A command that
-    writes nothing this can confine (`_write_targets` returns None), or writes
-    nothing at all (empty list), is not a carve-out and falls through to the
-    normal block rules.
-    """
-    targets: list[str] | None = _write_targets(command)
-    if not targets:  # None (unconfinable write) or [] (no detectable write)
-        return False
-    return all(_is_target_exempt(t, cwd) for t in targets)
-
-
-def _check_file_tool(tool_input: dict[str, Any], branch: str) -> str | None:
-    """Return a block reason for an Edit/Write/NotebookEdit, or None to allow.
-
-    Gitignored targets pass through (see `_is_git_ignored`); everything else
-    on a protected branch is blocked.
-    """
-    file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
-    if file_path and _is_git_ignored(file_path):
         return None
-    return f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+    # The /tmp carve-out tests the UNRESOLVED path: on macOS /tmp is a symlink
+    # to /private/tmp, so resolving first would defeat the prefix match. A `..`
+    # segment can smuggle a write out of /tmp, so skip the shortcut then and let
+    # the resolution below judge the real destination's branch instead.
+    no_traversal = ".." not in Path(target).parts
+    if no_traversal and (abs_target == "/tmp" or abs_target.startswith("/tmp/")):  # noqa: S108
+        return None
+    # Resolve symlinks (and any `..`) so the branch lookup and gitignore check
+    # judge the same physical path a symlinked or traversal target really lands on.
+    abs_target = str(Path(abs_target).resolve())
+    branch = get_branch_at_path(abs_target)
+    if branch not in PROTECTED_BRANCHES:
+        return None
+    if _is_git_ignored(abs_target):
+        return None
+    return branch
 
 
-def _check_protected_bash(command: str, cwd: str, branch: str) -> str | None:
-    """Return a block reason for a Bash command on a protected branch, else None.
+def _is_target_exempt(target: str, cwd: str) -> bool:
+    """Return whether writing `target` on a protected branch is harmless.
 
-    Three ways a Bash command can modify protected history: a direct
-    `git commit` (carved out for worktrees and in-progress squash merges), a
-    `git merge`/`git pull` that writes a merge commit, or a non-git file
-    mutation. Pure git reads and writes confined to exempt paths (/tmp or
-    gitignored) pass through.
+    The boolean view of `_target_protected_branch` (which carries the offending
+    branch name when a write is NOT exempt). See that function for the rules.
     """
-    if _contains_git_commit(command):
-        git_dir = _git_dir(cwd) if cwd else None
-        in_worktree = is_in_linked_worktree(cwd, git_dir) if git_dir else False
+    return _target_protected_branch(target, cwd) is None
+
+
+# === Checks: target-keyed evaluators ===
+
+
+def _evaluate_file_tool(event: dict[str, Any]) -> Decision | None:
+    """Return a Decision for an Edit/Write/NotebookEdit, keyed off the target file's branch.
+
+    A file on a protected branch is blocked unless it is gitignored (never part
+    of tracked history). A file on any other branch -- or outside any repo --
+    passes, so an edit inside a feature-branch worktree is allowed even when the
+    main checkout sits on main.
+    """
+    tool_input: dict[str, Any] = event.get("tool_input") or {}
+    file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+    if not file_path:
+        return None
+    branch = get_branch_at_path(file_path)
+    if branch not in PROTECTED_BRANCHES:
+        return None
+    if _is_git_ignored(file_path):
+        return None
+    return Decision.blocked(
+        ID, f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+    )
+
+
+def _git_op_decision(command: str, clause: str, repo_dir: str, branch: str) -> Decision | None:
+    """Return a Decision for one git clause whose repo is on a protected branch, else None.
+
+    A direct commit is denied unless carved out for a linked worktree or an
+    in-progress squash merge (its follow-up `git commit` is expected). A
+    merge/pull that would write a merge commit is an ASK -- routed to the
+    permission prompt rather than hard-denied, since landing work on trunk is
+    sometimes a deliberate, human-approved integration; the provably-safe forms
+    in `SAFE_MERGE_RE` pass silently.
+    """
+    if GIT_COMMIT_RE.match(clause):
+        git_dir = _git_dir(repo_dir) if repo_dir else None
+        in_worktree = is_in_linked_worktree(repo_dir, git_dir) if (repo_dir and git_dir) else False
         is_squash = is_squash_merge_in_progress(command, git_dir)
         if not in_worktree and not is_squash:
-            return f"Cannot commit directly to the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
-
-    if creates_merge_commit(command):
-        return f"Cannot merge into the '{branch}' branch. {MERGE_COMMIT_HINT}"
-
-    if _is_pure_git_command(command) or _targets_all_exempt(command, cwd):
+            return Decision.blocked(
+                ID, f"Cannot commit directly to the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+            )
         return None
-
-    if match_rules(command, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
-        return f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
-
+    if GIT_MERGE_PULL_RE.match(clause) and not SAFE_MERGE_RE.search(clause):
+        return Decision.ask_user(
+            ID,
+            f"Merging into the protected '{branch}' branch writes a merge commit "
+            f"directly to it. {MERGE_COMMIT_HINT}",
+        )
     return None
 
 
-def check_protected_branch(event: dict[str, Any], branch: str) -> str | None:
-    """Return a block reason if the action is forbidden on the protected branch."""
-    tool_name: str = event.get("tool_name", "")
-    tool_input: dict[str, Any] = event.get("tool_input") or {}
-    cwd: str = event.get("cwd", "")
+def _check_git_ops(command: str, cwd: str) -> Decision | None:
+    """Return a Decision for a git commit/merge/pull onto a protected branch, else None.
 
-    if tool_name in ("Edit", "Write", "NotebookEdit"):
-        return _check_file_tool(tool_input, branch)
+    Walks the command's clauses left to right, tracking the effective working
+    directory across `cd <dir> &&` and honoring `git -C <path>`, so each git op
+    is judged against the repo it actually touches -- closing the gap where a
+    `git -C <other-repo> commit` or a `cd <other-repo> && git commit` was judged
+    against (or skipped because of) the shell's own branch.
+    """
+    eff_cwd = cwd
+    for raw_clause in bash.split_clauses(command):
+        clause = raw_clause.strip()
+        if not clause:
+            continue
+        if _is_git_command(clause):
+            repo_dir = _git_clause_dir(clause, eff_cwd)
+            branch = (
+                get_branch_at_path(repo_dir) if repo_dir else _run_git("branch", "--show-current")
+            )
+            if branch in PROTECTED_BRANCHES:
+                decision = _git_op_decision(command, clause, repo_dir, branch)
+                if decision is not None:
+                    return decision
+        else:
+            moved = _cd_target(clause, eff_cwd)
+            if moved is not None:
+                eff_cwd = moved
+    return None
 
-    if tool_name != "Bash":
+
+def _check_file_mods(command: str, cwd: str) -> Decision | None:
+    """Return a Decision for a file-modifying Bash command on a protected branch, else None.
+
+    Each confinable write target is judged by the branch of its own resolved
+    location, so a write into a repo on main is denied wherever the shell sits
+    and a write to /tmp, a gitignored path, or a feature branch passes. A write
+    whose target this cannot read positionally (`sed -i`, `perl -i`, `curl -o`,
+    `wget`) is attributed to the shell's cwd branch -- the best available signal
+    when the target path is not recoverable.
+    """
+    targets = _write_targets(command)
+    if targets is None:
+        cwd_branch = get_branch_at_path(cwd) if cwd else ""
+        if (
+            cwd_branch in PROTECTED_BRANCHES
+            and match_rules(command, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None
+        ):
+            return Decision.blocked(
+                ID, f"Cannot modify files on the '{cwd_branch}' branch. {PROTECTED_BRANCH_HINT}"
+            )
         return None
+    for target in targets:
+        branch = _target_protected_branch(target, cwd)
+        if branch:
+            return Decision.blocked(
+                ID, f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+            )
+    return None
 
-    return _check_protected_bash(tool_input.get("command", ""), cwd, branch)
+
+def _evaluate_bash(command: str, cwd: str) -> Decision | None:
+    """Return a Decision for a Bash command's protected-branch impact, else None.
+
+    Precedence is deny > ask: a denying git op (a direct commit) wins outright;
+    otherwise a file-modification deny outranks a merge *ask*, so a command that
+    both merges and deletes a tracked file is denied rather than merely prompted
+    (approving the prompt would otherwise let the unconditional file write
+    through); a lone merge ask, or nothing, falls through last.
+    """
+    git_decision = _check_git_ops(command, cwd)
+    if git_decision is not None and git_decision.block:
+        return git_decision
+    file_decision = _check_file_mods(command, cwd)  # file-mods only ever deny
+    if file_decision is not None:
+        return file_decision
+    return git_decision
 
 
 def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
-    """Return a block/advisory Decision for branch protection, else None."""
+    """Return a deny/ask/advisory Decision for branch protection, else None."""
     tool_name: str = event.get("tool_name", "")
     # Self-filter: only file-mod tools and Bash can write to a protected branch.
     # Skip others (notably Read) so the branch lookup's git call is not run per read.
-    if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
+    if tool_name in ("Edit", "Write", "NotebookEdit"):
+        return _evaluate_file_tool(event)
+    if tool_name != "Bash":
         return None
-    command: str = (event.get("tool_input") or {}).get("command", "") if tool_name == "Bash" else ""
 
-    if tool_name == "Bash":
-        reason = check_destructive(command)
-        if reason:
-            return Decision.blocked(
-                ID, f"{reason}. Run this command outside Claude Code if you must."
-            )
+    command: str = (event.get("tool_input") or {}).get("command", "")
+    cwd: str = event.get("cwd", "")
 
-    branch = get_effective_branch(event)
-    if branch in PROTECTED_BRANCHES:
-        reason = check_protected_branch(event, branch)
-        if reason:
-            return Decision.blocked(ID, reason)
+    reason = check_destructive(command)
+    if reason:
+        return Decision.blocked(ID, f"{reason}. Run this command outside Claude Code if you must.")
 
-    if tool_name == "Bash" and GIT_C_RE.search(command):
+    decision = _evaluate_bash(command, cwd)
+    if decision is not None:
+        return decision
+
+    if GIT_C_RE.search(command):
         return Decision(block=False, context=GIT_C_ADVISORY)
     return None

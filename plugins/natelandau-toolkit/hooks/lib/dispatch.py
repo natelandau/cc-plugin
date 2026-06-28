@@ -86,12 +86,15 @@ def _load_plugins(stage_dir: Path) -> list[tuple[str, frozenset[str]]]:
 def collect(
     stage_dir: Path, event: dict[str, Any], cfg: Config
 ) -> tuple[Decision | None, list[str]]:
-    """Run the stage's enabled plugins in order; return (blocking, contexts).
+    """Run the stage's enabled plugins in order; return (decision, contexts).
 
-    The first plugin whose Decision blocks wins and short-circuits; advisory
-    contexts from non-blocking plugins accumulate. Pure: never exits.
+    Decision precedence is deny > ask > none: the first plugin that denies
+    short-circuits and wins; the first plugin that asks is held but later
+    plugins may still upgrade to a deny; advisory contexts accumulate
+    regardless. Pure: never exits.
     """
     contexts: list[str] = []
+    pending_ask: Decision | None = None
     for module_name, profiles in _load_plugins(stage_dir):
         if cfg.profile not in profiles:
             continue
@@ -114,9 +117,11 @@ def collect(
             continue
         if decision.block:
             return decision, contexts
+        if decision.ask and pending_ask is None:
+            pending_ask = decision
         if decision.context:
             contexts.append(decision.context)
-    return None, contexts
+    return pending_ask, contexts
 
 
 def run_stage(
