@@ -1,3 +1,9 @@
+## v0.15.0 (2026-06-28)
+
+### Feat
+
+- **recall**: route misfiled deferred work from learnings to backlog
+
 ## v0.14.2 (2026-06-28)
 
 ### Fix
