@@ -8,27 +8,20 @@ and an "allow silently" decision is expressed as no stdout at all.
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import pytest
+
+from tests._helpers import bash_payload as _bash
+from tests._helpers import load_hook_module
 
 if TYPE_CHECKING:
     import subprocess
     from collections.abc import Callable
     from pathlib import Path
     from types import ModuleType
-
-
-def _bash(cmd: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": cmd},
-    }
 
 
 @dataclass(frozen=True)
@@ -166,19 +159,7 @@ def test_use_uv(
 
 def _load_use_uv(hooks_dir: Path) -> ModuleType:
     """Import pretooluse/use_uv.py in-process with the hooks dir on sys.path."""
-    sys.path.insert(0, str(hooks_dir))
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "_use_uv_under_test", hooks_dir / "pretooluse" / "use_uv.py"
-        )
-        assert spec is not None
-        assert spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        sys.path.pop(0)
+    return load_hook_module(hooks_dir, "pretooluse/use_uv.py", "_use_uv_under_test")
 
 
 def test_use_uv_debounce_suppresses_second_dispatch(

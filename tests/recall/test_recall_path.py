@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
 import pytest
 from recall.store import Store  # ty: ignore[unresolved-import]
+
+from tests._env import clean_environ
 
 RESOLVER = (
     Path(__file__).resolve().parent.parent.parent
@@ -17,31 +18,16 @@ RESOLVER = (
     / "recall-path.py"
 )
 
-# Git env vars that point at a specific repo must be cleared so a tmp non-git
-# project falls through to CLAUDE_PROJECT_DIR rather than resolving the outer
-# checkout (the resolver tries git rev-parse first, like the engine does).
-_GIT_REPO_VARS = frozenset(
-    {
-        "GIT_DIR",
-        "GIT_COMMON_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_WORK_TREE",
-    }
-)
-
 
 def _run(
     flag: str, *, cwd: Path, env_overrides: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    base = {k: v for k, v in os.environ.items() if k not in _GIT_REPO_VARS}
     return subprocess.run(
         [str(RESOLVER), flag],
         cwd=str(cwd),
         capture_output=True,
         text=True,
-        env={**base, **env_overrides},
+        env={**clean_environ(), **env_overrides},
         check=False,
         timeout=30,
     )
@@ -62,7 +48,7 @@ def test_resolver_prints_store_path(flag: str, attr: str, tmp_path: Path) -> Non
     proj = tmp_path / "proj"
     proj.mkdir()
     env = {"XDG_DATA_HOME": str(tmp_path / "data"), "CLAUDE_PROJECT_DIR": str(proj)}
-    expected = getattr(Store.for_cwd(cwd=proj, env={**os.environ, **env}), attr)
+    expected = getattr(Store.for_cwd(cwd=proj, env={**clean_environ(), **env}), attr)
 
     # When the resolver runs in that project
     proc = _run(flag, cwd=proj, env_overrides=env)
@@ -78,13 +64,12 @@ def test_resolver_no_flag_is_usage_error(tmp_path: Path) -> None:
     proj = tmp_path / "proj"
     proj.mkdir()
     # When the resolver runs with no flag
-    base = {k: v for k, v in os.environ.items() if k not in _GIT_REPO_VARS}
     proc = subprocess.run(
         [str(RESOLVER)],
         cwd=str(proj),
         capture_output=True,
         text=True,
-        env={**base, "CLAUDE_PROJECT_DIR": str(proj)},
+        env={**clean_environ(), "CLAUDE_PROJECT_DIR": str(proj)},
         check=False,
         timeout=30,
     )

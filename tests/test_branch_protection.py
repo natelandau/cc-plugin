@@ -2,60 +2,66 @@
 
 Pipes representative JSON payloads through the hook (as a subprocess)
 against ephemeral git repos and asserts on exit code plus
-stdout/stderr substrings.
+stdout/stderr substrings. Every block carries the canonical
+`BLOCKED [branch-protection]:` stderr prefix.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
-import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
+
+from tests._env import GIT_REPO_VARS, clean_environ
+from tests._helpers import load_hook_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from types import ModuleType
 
 
-def _bash(cmd: str, *, cwd: str) -> dict[str, Any]:
+class Payload(TypedDict):
+    """A PreToolUse hook event payload in the shape the dispatcher delivers."""
+
+    hook_event_name: str
+    tool_name: str
+    tool_input: dict[str, str]
+    cwd: str
+
+
+def _payload(tool_name: str, tool_input: dict[str, str], cwd: str) -> Payload:
+    """Build a PreToolUse payload for any tool -- the one place the envelope is spelled out."""
     return {
         "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": cmd},
+        "tool_name": tool_name,
+        "tool_input": tool_input,
         "cwd": cwd,
     }
 
 
-def _edit(path: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Edit",
-        "tool_input": {"file_path": path},
-        "cwd": str(Path(path).parent),
-    }
+def _bash(cmd: str, *, cwd: str) -> Payload:
+    return _payload("Bash", {"command": cmd}, cwd)
 
 
-def _write(path: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Write",
-        "tool_input": {"file_path": path},
-        "cwd": str(Path(path).parent),
-    }
+def _file_payload(tool_name: str, path: str, *, key: str = "file_path") -> Payload:
+    """Build an Edit/Write/NotebookEdit payload, keying cwd off the target's parent dir."""
+    return _payload(tool_name, {key: path}, str(Path(path).parent))
 
 
-def _notebook(path: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "NotebookEdit",
-        "tool_input": {"notebook_path": path},
-        "cwd": str(Path(path).parent),
-    }
+def _edit(path: str) -> Payload:
+    return _file_payload("Edit", path)
+
+
+def _write(path: str) -> Payload:
+    return _file_payload("Write", path)
+
+
+def _notebook(path: str) -> Payload:
+    return _file_payload("NotebookEdit", path, key="notebook_path")
 
 
 @dataclass(frozen=True)
@@ -68,10 +74,19 @@ class Case:
     """
 
     id: str
-    make_payload: Callable[[Mapping[str, str]], dict[str, Any]]
+    make_payload: Callable[[Mapping[str, str]], Payload]
     expect_exit: int
     stderr_contains: tuple[str, ...] = ()
-    output_contains: tuple[str, ...] = field(default=())
+    output_contains: tuple[str, ...] = ()
+    # When set, the command must route to a permission ASK for this branch,
+    # asserted by parsing the hook's JSON stdout rather than substring-matching it.
+    asks: str | None = None
+
+
+# Canonical hook messages asserted verbatim across many cases. Naming them once
+# keeps a single typo from silently weakening a test.
+BLOCK_FILE_MOD = "Cannot modify files on the 'master' branch"
+BLOCK_COMMIT = "Cannot commit directly to the 'master' branch"
 
 
 CASES: tuple[Case, ...] = (
@@ -80,23 +95,19 @@ CASES: tuple[Case, ...] = (
         id="edit on master blocked",
         make_payload=lambda r: _edit(f"{r['master']}/foo.py"),
         expect_exit=2,
-        # Protected-branch blocks carry the canonical `BLOCKED [<id>]:` prefix.
-        stderr_contains=(
-            "BLOCKED [branch-protection]",
-            "Cannot modify files on the 'master' branch",
-        ),
+        stderr_contains=("BLOCKED [branch-protection]", BLOCK_FILE_MOD),
     ),
     Case(
         id="write on master blocked",
         make_payload=lambda r: _write(f"{r['master']}/foo.py"),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="notebook on master blocked",
         make_payload=lambda r: _notebook(f"{r['master']}/foo.ipynb"),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="edit on feat allowed",
@@ -125,7 +136,6 @@ CASES: tuple[Case, ...] = (
         id="git push --force blocked on feat",
         make_payload=lambda r: _bash("git push --force origin feat", cwd=r["feat"]),
         expect_exit=2,
-        # Destructive blocks carry the canonical `BLOCKED [<id>]:` prefix.
         stderr_contains=("Force push", "BLOCKED [branch-protection]"),
     ),
     Case(
@@ -220,7 +230,7 @@ CASES: tuple[Case, ...] = (
         id="rm on master blocked",
         make_payload=lambda r: _bash("rm foo.py", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="rm on feat allowed",
@@ -442,7 +452,7 @@ CASES: tuple[Case, ...] = (
         id="git commit on master blocked",
         make_payload=lambda r: _bash("git commit -m x", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     Case(
         id="squash chain commit on master allowed",
@@ -459,13 +469,13 @@ CASES: tuple[Case, ...] = (
         id="git merge --no-ff on master asks",
         make_payload=lambda r: _bash("git merge --no-ff feat", cwd=r["master"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     Case(
         id="bare git merge on master asks",
         make_payload=lambda r: _bash("git merge feat", cwd=r["master"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     Case(
         id="git merge --ff-only on master allowed",
@@ -491,7 +501,7 @@ CASES: tuple[Case, ...] = (
         id="git pull on master asks",
         make_payload=lambda r: _bash("git pull", cwd=r["master"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     Case(
         id="git pull --ff-only on master allowed",
@@ -524,22 +534,14 @@ CASES: tuple[Case, ...] = (
     # Non-Bash, non-file tools pass through
     Case(
         id="Read tool passes",
-        make_payload=lambda r: {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Read",
-            "tool_input": {"file_path": f"{r['master']}/foo.py"},
-            "cwd": r["master"],
-        },
+        make_payload=lambda r: _payload(
+            "Read", {"file_path": f"{r['master']}/foo.py"}, r["master"]
+        ),
         expect_exit=0,
     ),
     Case(
         id="Grep tool passes",
-        make_payload=lambda r: {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Grep",
-            "tool_input": {"pattern": "x"},
-            "cwd": r["master"],
-        },
+        make_payload=lambda r: _payload("Grep", {"pattern": "x"}, r["master"]),
         expect_exit=0,
     ),
     # Outside git repo: no protection applies
@@ -563,7 +565,7 @@ CASES: tuple[Case, ...] = (
         id="rm tracked file on master blocked",
         make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # === Reverse asymmetry: a file-modifying Bash command is keyed off the
     # branch of the file it TOUCHES, not the shell's cwd. A write into a repo on
@@ -573,13 +575,13 @@ CASES: tuple[Case, ...] = (
         id="rm into protected repo from feat cwd blocked",
         make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="redirect into protected repo from feat cwd blocked",
         make_payload=lambda r: _bash(f"echo x > {r['master']}/out.txt", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # A gitignored target in a protected repo is still exempt, even reached from
     # a feature-branch cwd: gitignored paths are never tracked history.
@@ -594,7 +596,7 @@ CASES: tuple[Case, ...] = (
         id="relative .. traversal into protected repo blocked",
         make_payload=lambda r: _bash("echo x > sub/../out.txt", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # === Target-keyed git commit/merge: the operated-on repo is read from
     # `git -C <path>` and `cd <path> &&`, not assumed to be the shell's cwd. ===
@@ -602,13 +604,13 @@ CASES: tuple[Case, ...] = (
         id="git -C protected repo commit from feat cwd blocked",
         make_payload=lambda r: _bash(f"git -C {r['master']} commit -m x", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     Case(
         id="cd into protected repo then commit blocked",
         make_payload=lambda r: _bash(f"cd {r['master']} && git commit -m x", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     # No false positive in the other direction: committing into a feature-branch
     # repo is fine even when the shell sits on a protected branch.
@@ -623,7 +625,7 @@ CASES: tuple[Case, ...] = (
         id="git -C protected repo merge from feat cwd asks",
         make_payload=lambda r: _bash(f"git -C {r['master']} merge topic", cwd=r["feat"]),
         expect_exit=0,
-        output_contains=('"permissionDecision": "ask"', "'master'"),
+        asks="master",
     ),
     # A safe merge form (--ff-only) onto a protected repo passes silently.
     Case(
@@ -638,7 +640,7 @@ CASES: tuple[Case, ...] = (
         id="merge plus tracked-file delete on master denied not asked",
         make_payload=lambda r: _bash("git merge feat && rm foo.py", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # Precedence across git clauses: a later direct-commit DENY outranks an
     # earlier merge/pull ASK in the same command, so prepending `git pull` cannot
@@ -647,7 +649,7 @@ CASES: tuple[Case, ...] = (
         id="pull then commit on master denied not asked",
         make_payload=lambda r: _bash("git pull && git commit -m x", cwd=r["master"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     # cd-tracking applies to file mods too: a relative write after `cd <protected>`
     # is judged against the cd'd-into repo, not the original shell cwd.
@@ -655,13 +657,13 @@ CASES: tuple[Case, ...] = (
         id="cd into protected repo then rm relative file blocked",
         make_payload=lambda r: _bash(f"cd {r['master']} && rm foo.py", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     Case(
         id="cd into protected repo then redirect blocked",
         make_payload=lambda r: _bash(f"cd {r['master']} && echo x > out.txt", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # An unconfinable write (sed -i) in an earlier clause must not mask a later
     # confinable write into a protected repo: each clause is judged on its own.
@@ -671,7 +673,7 @@ CASES: tuple[Case, ...] = (
             f"sed -i s/a/b/ bar.py && rm {r['master']}/foo.py", cwd=r["feat"]
         ),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # A squash chain written with `git -C <repo>` is recognized, so the follow-up
     # commit is allowed rather than wrongly blocked by the commit guard.
@@ -689,13 +691,13 @@ CASES: tuple[Case, ...] = (
         id="git -C quoted protected repo commit blocked",
         make_payload=lambda r: _bash(f"git -C '{r['master']}' commit -m x", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot commit directly to the 'master' branch",),
+        stderr_contains=(BLOCK_COMMIT,),
     ),
     Case(
         id="rm quoted tracked file in protected repo blocked",
         make_payload=lambda r: _bash(f"rm '{r['master']}/foo.py'", cwd=r["feat"]),
         expect_exit=2,
-        stderr_contains=("Cannot modify files on the 'master' branch",),
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
 )
 
@@ -719,6 +721,10 @@ def test_enforce_branch_protection(
         text=True,
         timeout=10,
         check=False,
+        # Strip leaked git-location vars (GIT_DIR, ...) so the hook resolves the
+        # ephemeral test repos, not the checkout the suite runs from (pre-commit
+        # / worktree set these, which would otherwise hijack branch detection).
+        env=clean_environ(),
     )
 
     # Then exit code and stream content match expectations
@@ -728,34 +734,30 @@ def test_enforce_branch_protection(
         assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
     for s in case.output_contains:
         assert s in proc.stdout or s in proc.stderr, f"missing {s!r} in output{diag}"
+    if case.asks is not None:
+        # An ASK is a structured permission decision on stdout, not a substring:
+        # parse it so the assertion survives any reformatting of the JSON.
+        assert proc.stdout, f"expected an ask decision on stdout{diag}"
+        decision = json.loads(proc.stdout)["hookSpecificOutput"]
+        assert decision["permissionDecision"] == "ask", f"not an ask{diag}"
+        # Match the quoted branch (`'master'`) so a name that merely contains it
+        # (e.g. 'master-backup') can't satisfy the check.
+        assert f"'{case.asks}'" in decision["permissionDecisionReason"], f"wrong branch{diag}"
 
 
 def _load_hook(hooks_dir: Path) -> ModuleType:
     """Import pretooluse/enforce_branch_protection.py in-process for unit tests."""
-    sys.path.insert(0, str(hooks_dir))
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "_branch_protection_under_test",
-            hooks_dir / "pretooluse" / "enforce_branch_protection.py",
-        )
-        assert spec is not None
-        assert spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        sys.path.pop(0)
+    return load_hook_module(
+        hooks_dir, "pretooluse/enforce_branch_protection.py", "_branch_protection_under_test"
+    )
 
 
 def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _target_protected_branch flags only tracked targets in a protected repo.
-
-    Returns the offending branch name when a write is NOT exempt, else None.
-    Calls the predicate directly because the empty-cwd case can't be reached
-    through the dispatcher: an empty event cwd also defeats branch detection, so
-    the protected-branch check never runs.
-    """
+    """Verify _target_protected_branch flags only tracked targets in a protected repo."""
+    # The predicate returns the offending branch name when a write is NOT exempt,
+    # else None. We call it directly because the empty-cwd case can't be reached
+    # through the dispatcher: an empty event cwd also defeats branch detection, so
+    # the protected-branch check never runs.
     # Given the module with branch + check-ignore stubbed. Only the synthetic
     # /repo tree is a protected working tree; /tmp, /external, and anything else
     # sit outside any repo, so their branch lookup yields "" (the realistic
@@ -795,11 +797,15 @@ def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_target_protected_branch_follows_symlink_into_protected_repo(
-    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path
+    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify a symlink resolving into a protected repo is judged by its real path."""
     # Given a symlink that lives outside any repo but points at a tracked path
-    # inside the master repo, which is on a protected branch
+    # inside the master repo, which is on a protected branch. The predicate runs
+    # git in-process, so any leaked git-location vars (pre-commit / worktree) must
+    # be cleared or they would hijack branch detection to the outer checkout.
+    for var in GIT_REPO_VARS:
+        monkeypatch.delenv(var, raising=False)
     m = _load_hook(hooks_dir)
     link = tmp_path / "sneaky.py"
     link.symlink_to(Path(repos["master"]) / "app.py")
@@ -808,3 +814,18 @@ def test_target_protected_branch_follows_symlink_into_protected_repo(
     # Then the branch lookup follows the link to the in-repo path and blocks it,
     # rather than reading the link's own (repo-less) parent directory as exempt
     assert m._target_protected_branch(str(link), "") == "master"
+
+
+def test_get_branch_at_path_ignores_ambient_git_dir(
+    repos: Mapping[str, str], hooks_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify branch detection honors the -C path over an inherited GIT_DIR."""
+    # Given an ambient GIT_DIR naming a different repo (master). Git exports it
+    # when running a hook or from a linked worktree; an absolute GIT_DIR overrides
+    # `git -C`, so without sanitizing it every lookup would report master's branch.
+    m = _load_hook(hooks_dir)
+    monkeypatch.setenv("GIT_DIR", str(Path(repos["master"]) / ".git"))
+    # When resolving the feat repo's branch
+    branch = m.get_branch_at_path(repos["feat"])
+    # Then the -C path wins: feat's own branch, not the leaked master
+    assert branch == "feat"

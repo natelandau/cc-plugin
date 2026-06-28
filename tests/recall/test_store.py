@@ -9,24 +9,14 @@ from pathlib import Path
 
 from recall.store import Store, encode_project_key, project_root  # ty: ignore[unresolved-import]
 
+from tests._env import clean_environ
 from tests.recall._store_factory import store_at
 
 _CLEAN = {"PATH": os.environ.get("PATH", "")}
 
-# Git env vars that refer to a specific repository location; must be cleared so
-# test-spawned git commands target the tmp repo, not the outer checkout.
-_GIT_REPO_VARS = frozenset(
-    {
-        "GIT_DIR",
-        "GIT_COMMON_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_WORK_TREE",
-    }
-)
-
-_GIT_ENV = {k: v for k, v in os.environ.items() if k not in _GIT_REPO_VARS}
+# Strip the git location vars so test-spawned git commands target the tmp repo,
+# not whatever checkout the suite runs from.
+_GIT_ENV = clean_environ()
 
 
 def _git(path: Path, *args: str) -> None:
@@ -101,6 +91,26 @@ def test_project_root_non_git_uses_claude_project_dir(tmp_path: Path) -> None:
 
     # Then the configured project root wins over raw cwd
     assert root == proj.resolve()
+
+
+def test_project_root_ignores_ambient_git_dir(tmp_path: Path) -> None:
+    """Verify project_root resolves cwd's repo, not a leaked ambient GIT_DIR."""
+    # Given two separate repos and an env whose GIT_DIR names the other one. Git
+    # exports GIT_DIR under a hook or worktree; if honored it would key the store
+    # to the wrong project.
+    here = tmp_path / "here"
+    here.mkdir()
+    _git(here, "init", "-q")
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q")
+    env = {**_CLEAN, "GIT_DIR": str(other / ".git")}
+
+    # When resolving the root of `here` with the leaked GIT_DIR present
+    root = project_root(cwd=here, env=env)
+
+    # Then the cwd's own repo wins over the leaked GIT_DIR
+    assert root == here.resolve()
 
 
 # ---------------------------------------------------------------------------

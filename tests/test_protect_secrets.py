@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests._helpers import bash_payload as _bash
+
 if TYPE_CHECKING:
     import subprocess
     from collections.abc import Callable
@@ -39,14 +41,6 @@ def _write(path: str) -> dict[str, Any]:
         "hook_event_name": "PreToolUse",
         "tool_name": "Write",
         "tool_input": {"file_path": path},
-    }
-
-
-def _bash(cmd: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": cmd},
     }
 
 
