@@ -1,3 +1,17 @@
+## v0.14.0 (2026-06-27)
+
+### Feat
+
+- **recall**: backfill project memory from past session transcripts (#13)
+- **recall**: hand off working context to the next session
+- **recall**: add memory reviewer agents and backlog triage skill
+- **recall**: capture fewer, higher-value project memories
+
+### Refactor
+
+- **hooks**: remove the stop-phrase guard Stop hook
+- **recall**: drop architecture.md memory tier
+
 ## v0.13.0 (2026-06-27)
 
 ### Feat
