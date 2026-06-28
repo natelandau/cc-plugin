@@ -1,3 +1,9 @@
+## v0.14.1 (2026-06-27)
+
+### Fix
+
+- **build**: track recall plugin version with commitizen
+
 ## v0.14.0 (2026-06-27)
 
 ### Feat

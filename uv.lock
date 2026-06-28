@@ -188,7 +188,7 @@ wheels = [
 
 [[package]]
 name = "natelandau-toolkit"
-version = "0.14.0"
+version = "0.14.1"
 source = { virtual = "." }
 
 [package.dev-dependencies]
