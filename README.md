@@ -149,6 +149,12 @@ The automated sweep only adds and refines. It never deletes. Two skills let you 
 
 Both skills delegate the judging to read-only reviewer subagents, so the per-entry analysis stays out of your main conversation. By default they apply the safe corrections directly and propose each deletion for your approval first. Pass `--fix` to apply the high-confidence deletions automatically too. Because the store isn't under version control, `--fix` still confirms any low-confidence deletion before removing it, since a wrong delete can't be undone.
 
+### Backfilling memory from past sessions
+
+The sweep only captures memory going forward, so a project that adopts recall after it already has history starts with an empty store. Run `/recall-bootstrap [count]` (default 20, or `--all`) to seed it from the project's past Claude Code transcripts.
+
+The skill reads each past transcript the same way the sweep does, only your prompts and the agent's replies, never tool calls or internal reasoning, and mines them in parallel for durable learnings and deferred work. It then shows you a single proposed set of additions and writes only what you approve. Because the store isn't under version control, those writes can't be undone, so nothing is written without your confirmation.
+
 ## Configuration
 
 Both plugins read optional TOML config files. Settings cascade: a global file applies everywhere, and a project file overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.

@@ -91,9 +91,10 @@ wire a flat engine package `hooks/recall/`:
 
 - `Store` (XDG paths + per-project key, plus consume-once `HANDOFF.md` baton IO via
   `read_handoff`/`delete_handoff`), `Injector` (the SessionStart memory block),
-  `Sweep`/`Lock`/`ClaudeRunner` (the headless `claude -p` sweep), `RecallConfig`, plus
-  pure `transcript`/`frontmatter`/`paths`/`io`/`headless`. Deep behavior is in each
-  module's docstring.
+  `Sweep`/`Lock`/`ClaudeRunner` (the headless `claude -p` sweep), `Bootstrap` (the
+  backfill engine behind `recall-bootstrap.py`), `RecallConfig`, plus pure
+  `transcript`/`frontmatter`/`paths`/`io`/`headless`/`safety` (shared secret-scrub).
+  Deep behavior is in each module's docstring.
 - **Store paths have one source of truth: `paths.py`** (the dash-encoded project key).
   Python reaches it through `Store`; **skills MUST call the `hooks/recall-path.py`
   facade** (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) to resolve a path,
