@@ -550,6 +550,23 @@ CASES: tuple[Case, ...] = (
         make_payload=lambda r: _edit(f"{r['outside']}/notarepo.txt"),
         expect_exit=0,
     ),
+    # A file-mod Bash command keys off the TARGET's branch, not the shell's:
+    # deleting a file outside any repo is harmless even while the shell sits on
+    # a protected branch (e.g. curating an external store while the repo is on
+    # main). This mirrors the Edit/Write exemption above.
+    Case(
+        id="rm file outside repo on master allowed",
+        make_payload=lambda r: _bash(f"rm {r['outside']}/notes.txt", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # Safety mirror: a file-mod whose target IS on the protected branch stays
+    # blocked, so the per-target check can't be used to delete tracked files.
+    Case(
+        id="rm tracked file on master blocked",
+        make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
 )
 
 
@@ -602,7 +619,7 @@ def _load_hook(hooks_dir: Path) -> ModuleType:
 
 
 def test_is_target_exempt(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _is_target_exempt confines writes to /tmp or gitignored paths only.
+    """Verify _is_target_exempt exempts /tmp, off-protected-branch, and gitignored targets.
 
     Calls the predicate directly because the empty-cwd and traversal branches
     can't be reached through the dispatcher: an empty event cwd also defeats
@@ -619,7 +636,13 @@ def test_is_target_exempt(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> N
         parts = Path(path)
         return parts.suffix == ".ignored" or "ignored_dir" in parts.parts
 
+    # The /repo tree is the protected (master) working tree; anything under
+    # /external sits outside any repo, so its branch lookup yields "".
+    def fake_branch_at_path(path: str) -> str:
+        return "" if "/external" in path else "master"
+
     monkeypatch.setattr(m, "_is_git_ignored", fake_is_git_ignored)
+    monkeypatch.setattr(m, "get_branch_at_path", fake_branch_at_path)
     # A synthetic absolute base outside /tmp; git lookups are stubbed, so it
     # needs no real directory and must not trip the /tmp carve-out.
     base = "/repo"
@@ -628,11 +651,38 @@ def test_is_target_exempt(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert m._is_target_exempt("/tmp/x", "") is True  # noqa: S108
     assert m._is_target_exempt("/tmp/../tracked.txt", "") is False  # noqa: S108
 
-    # Then an absolute gitignored target is exempt with no cwd, while an
-    # absolute tracked one is not (cwd is only needed to resolve relative paths)
+    # Then a target that is not on a protected branch (here, outside any repo)
+    # is exempt even though it is not gitignored -- the key is the target's own
+    # branch, not the shell's cwd
+    assert m._is_target_exempt("/external/store/x.md", "") is True
+    assert m._is_target_exempt("x.md", "/external/store") is True
+
+    # Then on a protected branch only gitignored targets are exempt: an absolute
+    # gitignored target passes with no cwd, an absolute tracked one does not
+    # (cwd is only needed to resolve relative paths)
     assert m._is_target_exempt(f"{base}/ignored_dir/x", "") is True
     assert m._is_target_exempt(f"{base}/foo.py", "") is False
 
     # Then a relative target needs a cwd to resolve: exempt with it, declined without
     assert m._is_target_exempt("ignored_dir/x", base) is True
     assert m._is_target_exempt("ignored_dir/x", "") is False
+
+
+def test_is_target_exempt_follows_symlink_into_protected_repo(
+    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path
+) -> None:
+    """Verify a symlink resolving into a protected repo is judged by its real path."""
+    # Given a symlink that lives outside any repo but points at a tracked path
+    # inside the master repo, which is on a protected branch
+    m = _load_hook(hooks_dir)
+    link = tmp_path / "sneaky.py"
+    link.symlink_to(Path(repos["master"]) / "app.py")
+    if str(link).startswith("/tmp/"):  # noqa: S108
+        # The /tmp carve-out short-circuits before the resolve; this branch is
+        # exercised on platforms (e.g. macOS) whose tmp root is not under /tmp.
+        pytest.skip("pytest tmp dir is under /tmp; /tmp carve-out pre-empts the check")
+
+    # When checking the symlink target while the repo is on a protected branch
+    # Then the branch lookup follows the link to the in-repo path and blocks it,
+    # rather than reading the link's own (repo-less) parent directory as exempt
+    assert m._is_target_exempt(str(link), "") is False

@@ -413,10 +413,14 @@ def _is_target_exempt(target: str, cwd: str) -> bool:
     """Return whether writing `target` on a protected branch is harmless.
 
     A target is exempt when it lives under /tmp (cannot affect tracked
-    history) or is gitignored (never committed, so the same reasoning as the
-    Edit/Write exemption applies). An absolute target is judged on its own; a
-    relative one resolves against the command's `cwd`, and without a cwd it
-    can't be resolved to a repo, so it is not treated as exempt.
+    history), is not itself on a protected branch, or is gitignored. The
+    branch is keyed off the target's own location, not the shell's cwd, so a
+    write to a different branch, a different repo, or no repo at all (e.g. an
+    external XDG store path while the repo sits on main) is exempt -- the
+    mirror of the Edit/Write exemption, which already checks the file's branch.
+    An absolute target is judged on its own; a relative one resolves against
+    the command's `cwd`, and without a cwd it can't be resolved, so it is not
+    treated as exempt.
     """
     # A `..` segment can smuggle a write out of an exempt prefix, e.g.
     # `/tmp/../tracked.txt` starts with "/tmp/" yet lands outside it, so never
@@ -426,10 +430,21 @@ def _is_target_exempt(target: str, cwd: str) -> bool:
     if target.startswith("/tmp/"):  # noqa: S108
         return True
     if Path(target).is_absolute():
-        return _is_git_ignored(target)
-    if not cwd:
+        abs_target: str = target
+    elif cwd:
+        abs_target = str(Path(cwd) / target)
+    else:
         return False
-    abs_target: str = str(Path(cwd) / target)
+    # Resolve symlinks so the branch lookup and the gitignore check below judge
+    # the same physical path. A symlinked target could otherwise be branch-checked
+    # at the link's own location yet land on a tracked file inside the repo, the
+    # same path `_is_git_ignored` already canonicalizes with `.resolve()`.
+    abs_target = str(Path(abs_target).resolve())
+    # Branch protection guards the protected branch's tracked history; a target
+    # not on a protected branch cannot dirty it. Falling back to the gitignore
+    # check covers a target that IS on a protected branch but is never tracked.
+    if get_branch_at_path(abs_target) not in PROTECTED_BRANCHES:
+        return True
     return _is_git_ignored(abs_target)
 
 
