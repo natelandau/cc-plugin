@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io as _io
 import json
 import subprocess
-import sys
 from typing import TYPE_CHECKING
+
+from tests._helpers import load_hook_module
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,14 +30,7 @@ def pytest_raises_systemexit(code: int):
 
 def _load_io(hooks_dir: Path) -> ModuleType:
     """Import hooks/lib/io.py as a module for in-process unit tests."""
-    spec = importlib.util.spec_from_file_location("_io_under_test", hooks_dir / "lib" / "io.py")
-    assert spec
-    assert spec.loader
-    module = importlib.util.module_from_spec(spec)
-    # Register before exec so dataclass string-annotation resolution finds the module in sys.modules.
-    sys.modules["_io_under_test"] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_hook_module(hooks_dir, "lib/io.py", "_io_under_test")
 
 
 def test_decision_defaults(hooks_dir: Path) -> None:

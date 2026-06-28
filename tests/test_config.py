@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import importlib.util
 from typing import TYPE_CHECKING
+
+from tests._helpers import load_hook_module
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -13,14 +14,7 @@ if TYPE_CHECKING:
 
 
 def _load_config_mod(hooks_dir: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "_config_under_test", hooks_dir / "lib" / "config.py"
-    )
-    assert spec
-    assert spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_hook_module(hooks_dir, "lib/config.py", "_config_under_test")
 
 
 def _write(path: Path, text: str) -> None:

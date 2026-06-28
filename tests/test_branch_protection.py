@@ -8,10 +8,8 @@ stdout/stderr substrings. Every block carries the canonical
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
@@ -19,6 +17,7 @@ from typing import TYPE_CHECKING, TypedDict
 import pytest
 
 from tests._env import GIT_REPO_VARS, clean_environ
+from tests._helpers import load_hook_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -745,20 +744,9 @@ def test_enforce_branch_protection(
 
 def _load_hook(hooks_dir: Path) -> ModuleType:
     """Import pretooluse/enforce_branch_protection.py in-process for unit tests."""
-    sys.path.insert(0, str(hooks_dir))
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "_branch_protection_under_test",
-            hooks_dir / "pretooluse" / "enforce_branch_protection.py",
-        )
-        assert spec is not None
-        assert spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        sys.path.pop(0)
+    return load_hook_module(
+        hooks_dir, "pretooluse/enforce_branch_protection.py", "_branch_protection_under_test"
+    )
 
 
 def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

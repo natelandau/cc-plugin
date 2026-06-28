@@ -14,18 +14,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests._helpers import bash_payload as _bash
+
 if TYPE_CHECKING:
     import subprocess
     from collections.abc import Callable
     from pathlib import Path
-
-
-def _bash(cmd: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": cmd},
-    }
 
 
 @dataclass(frozen=True)
