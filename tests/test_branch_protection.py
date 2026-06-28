@@ -14,7 +14,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
@@ -25,40 +25,44 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-def _bash(cmd: str, *, cwd: str) -> dict[str, Any]:
+class Payload(TypedDict):
+    """A PreToolUse hook event payload in the shape the dispatcher delivers."""
+
+    hook_event_name: str
+    tool_name: str
+    tool_input: dict[str, str]
+    cwd: str
+
+
+def _payload(tool_name: str, tool_input: dict[str, str], cwd: str) -> Payload:
+    """Build a PreToolUse payload for any tool -- the one place the envelope is spelled out."""
     return {
         "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": cmd},
+        "tool_name": tool_name,
+        "tool_input": tool_input,
         "cwd": cwd,
     }
 
 
-def _edit(path: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Edit",
-        "tool_input": {"file_path": path},
-        "cwd": str(Path(path).parent),
-    }
+def _bash(cmd: str, *, cwd: str) -> Payload:
+    return _payload("Bash", {"command": cmd}, cwd)
 
 
-def _write(path: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Write",
-        "tool_input": {"file_path": path},
-        "cwd": str(Path(path).parent),
-    }
+def _file_payload(tool_name: str, path: str, *, key: str = "file_path") -> Payload:
+    """Build an Edit/Write/NotebookEdit payload, keying cwd off the target's parent dir."""
+    return _payload(tool_name, {key: path}, str(Path(path).parent))
 
 
-def _notebook(path: str) -> dict[str, Any]:
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "NotebookEdit",
-        "tool_input": {"notebook_path": path},
-        "cwd": str(Path(path).parent),
-    }
+def _edit(path: str) -> Payload:
+    return _file_payload("Edit", path)
+
+
+def _write(path: str) -> Payload:
+    return _file_payload("Write", path)
+
+
+def _notebook(path: str) -> Payload:
+    return _file_payload("NotebookEdit", path, key="notebook_path")
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,7 @@ class Case:
     """
 
     id: str
-    make_payload: Callable[[Mapping[str, str]], dict[str, Any]]
+    make_payload: Callable[[Mapping[str, str]], Payload]
     expect_exit: int
     stderr_contains: tuple[str, ...] = ()
     output_contains: tuple[str, ...] = ()
@@ -525,22 +529,14 @@ CASES: tuple[Case, ...] = (
     # Non-Bash, non-file tools pass through
     Case(
         id="Read tool passes",
-        make_payload=lambda r: {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Read",
-            "tool_input": {"file_path": f"{r['master']}/foo.py"},
-            "cwd": r["master"],
-        },
+        make_payload=lambda r: _payload(
+            "Read", {"file_path": f"{r['master']}/foo.py"}, r["master"]
+        ),
         expect_exit=0,
     ),
     Case(
         id="Grep tool passes",
-        make_payload=lambda r: {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Grep",
-            "tool_input": {"pattern": "x"},
-            "cwd": r["master"],
-        },
+        make_payload=lambda r: _payload("Grep", {"pattern": "x"}, r["master"]),
         expect_exit=0,
     ),
     # Outside git repo: no protection applies
