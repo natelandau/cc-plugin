@@ -1,4 +1,4 @@
-"""Verify the SessionStart injector: learnings index and backlog summary."""
+"""Verify the SessionStart injector: learnings index and backlog pointer."""
 
 from __future__ import annotations
 
@@ -43,11 +43,11 @@ def test_build_wraps_seeded_memory(tmp_path: Path) -> None:
     _seed(store)
     # When building the injection
     out = Injector(store, RecallConfig()).build()
-    # Then the block is wrapped and carries learnings and backlog
+    # Then the block is wrapped and carries the learning and the backlog pointer
     assert out.startswith("<recall-memory>")
     assert out.endswith("</recall-memory>")
     assert "The X gotcha" in out
-    assert "tiny thing" in out
+    assert "Run /recall-backlog to triage" in out
 
 
 def test_learnings_index_omits_body(tmp_path: Path) -> None:
@@ -62,31 +62,59 @@ def test_learnings_index_omits_body(tmp_path: Path) -> None:
     assert "body" not in out
 
 
-def test_backlog_summary_counts_and_quick_wins(tmp_path: Path) -> None:
-    """Verify the backlog summary counts per type and surfaces only [S] quick-wins."""
-    # Given a seeded backlog with fix/feat sections
+def test_backlog_pointer_counts_open_items_without_body(tmp_path: Path) -> None:
+    """Verify the pointer counts open items and never inlines any item body."""
+    # Given a seeded backlog with three open items across two sections
     store = store_at(tmp_path)
     _seed(store)
     out = Injector(store, RecallConfig()).build()
-    # Then totals, per-type counts, and the [S] item appear; [L]/[M] are not inlined
-    assert "3 deferred" in out
-    assert "2 fix" in out
-    assert "1 feat" in out
-    assert "tiny thing" in out
+    # Then the count and the triage nudge appear, but no item text leaks
+    assert "3 items in the deferred backlog" in out
+    assert "Run /recall-backlog to triage" in out
+    assert "tiny thing" not in out
     assert "big thing" not in out
 
 
-def test_backlog_ignores_blank_header(tmp_path: Path) -> None:
-    """Verify a header with no type word does not produce an empty-type count."""
-    # Given a backlog whose first section header has no type word
+def test_backlog_pointer_counts_all_sections_singular(tmp_path: Path) -> None:
+    """Verify the count spans every section (no header gating) and reads singular at one."""
+    # Given a single open item that lives under a blank header
     store = store_at(tmp_path)
     store.data_dir.mkdir(parents=True)
     store.backlog_path.write_text(
-        "## \n- [ ] [S] orphan — 2026-06-26\n## fix\n- [ ] [M] real — 2026-06-26\n",
+        "## \n- [ ] [S] orphan — 2026-06-26\n",
         encoding="utf-8",
     )
     out = Injector(store, RecallConfig()).build()
-    # Then only the well-formed section is counted; no blank/orphan artifacts
-    assert "1 deferred" in out
-    assert "1 fix" in out
-    assert "orphan" not in out
+    # Then it is counted regardless of header, with singular "item"
+    assert "1 item in the deferred backlog" in out
+
+
+def test_backlog_pointer_skips_when_all_done(tmp_path: Path) -> None:
+    """Verify a backlog with no open items injects no pointer."""
+    # Given a backlog whose every item is checked off
+    store = store_at(tmp_path)
+    store.data_dir.mkdir(parents=True)
+    store.backlog_path.write_text(
+        "## fix\n- [x] done thing — 2026-06-26\n",
+        encoding="utf-8",
+    )
+    # When building with no learnings to carry the block
+    out = Injector(store, RecallConfig()).build()
+    # Then nothing is injected
+    assert out == ""
+
+
+def test_backlog_only_store_injects_pointer(tmp_path: Path) -> None:
+    """Verify a store with a backlog but no learnings still injects the pointer."""
+    # Given a store with open backlog items and no learnings
+    store = store_at(tmp_path)
+    store.data_dir.mkdir(parents=True)
+    store.backlog_path.write_text(
+        "## fix\n- [ ] [M] real — 2026-06-26\n",
+        encoding="utf-8",
+    )
+    out = Injector(store, RecallConfig()).build()
+    # Then the wrapped block carries the pointer without a learnings index
+    assert out.startswith("<recall-memory>")
+    assert "1 item in the deferred backlog" in out
+    assert "## Learnings Index" not in out

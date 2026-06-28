@@ -9,7 +9,8 @@
 
 The sole shell-facing facade over `Store`: skills call this to locate the store
 instead of re-deriving the dash-encoded project key in prose, so the encoding
-lives in exactly one place (`recall/paths.py`). The project is resolved the same
+lives in exactly one place (`recall/store.py`'s `encode_project_key`). The
+project is resolved the same
 way every hook resolves it (git common-dir -> CLAUDE_PROJECT_DIR -> cwd).
 
 Read-only and pure: it computes a path and prints it, never creating or touching

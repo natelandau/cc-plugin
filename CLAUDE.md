@@ -97,7 +97,7 @@ wire a flat engine package `hooks/recall/`:
   backfill engine behind `recall-bootstrap.py`), `RecallConfig`, plus pure
   `transcript`/`frontmatter`/`paths`/`io`/`headless`/`safety` (shared secret-scrub).
   Deep behavior is in each module's docstring.
-- **Store paths have one source of truth: `paths.py`** (the dash-encoded project key).
+- **Store paths have one source of truth: `store.py`'s `encode_project_key`** (the dash-encoded project key).
   Python reaches it through `Store`; **skills MUST call the `hooks/recall-path.py`
   facade** (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) to resolve a path,
   never re-derive the encoding in prose. A skill references it via

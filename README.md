@@ -106,7 +106,7 @@ This plugin gives every project a small, persistent memory. It learns from your 
 
 It works through three automatic hooks:
 
-- When a session starts, it injects a compact summary of the project's memory: an index of learnings and a backlog overview, plus any handoff left for the next session (see [Handing off to the next session](#handing-off-to-the-next-session)).
+- When a session starts, it injects a compact summary of the project's memory: an index of learnings and a one-line pointer to the deferred backlog (a count of open items plus a nudge to run `/recall-backlog` to triage them), plus any handoff left for the next session (see [Handing off to the next session](#handing-off-to-the-next-session)).
 - When a session ends, or just before the context is compacted, it spawns a background agent that reads the transcript and updates the memory store.
 
 The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items as self-contained files in `learnings/`. It applies a strict bar: a fact earns a place only if it would help work on a *different* part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.

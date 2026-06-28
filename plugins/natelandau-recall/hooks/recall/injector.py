@@ -1,10 +1,12 @@
 """Render the SessionStart memory injection from a project's store.
 
 Read side only: assembles the learnings index (one line per file, bodies
-omitted) and the backlog summary (counts per type plus inline `[S]` quick-wins),
-wraps them under a fixed preamble in `<recall-memory>…</recall-memory>`, and
-returns "" when the store is empty. Every file read fails open so one unreadable
-artifact never wedges the whole injection.
+omitted) and a one-line backlog pointer (a count of open items plus a nudge to
+run the triage skill), wraps them under a fixed preamble in
+`<recall-memory>…</recall-memory>`, and returns "" when the store is empty. The
+backlog body is never injected: triaging it is the `/recall-backlog` skill's job,
+so the session only needs to know it exists. Every file read fails open so one
+unreadable artifact never wedges the whole injection.
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ class Injector:
     def build(self) -> str:
         """Assemble the full wrapped injection, or "" when the store has nothing to show."""
         index = self._learnings_index()
-        backlog = self._backlog_summary()
+        backlog = self._backlog_pointer()
         if not any([index, backlog]):
             return ""
 
@@ -42,7 +44,7 @@ class Injector:
         if index:
             parts.append(f"## Learnings Index\n{index}")
         if backlog:
-            parts.append(f"## Backlog\n{backlog}")
+            parts.append(backlog)
         return f"<recall-memory>\n{'\n\n'.join(parts)}\n</recall-memory>"
 
     def _learnings_index(self) -> str:
@@ -59,8 +61,14 @@ class Injector:
             lines.append(line)
         return "\n".join(lines)
 
-    def _backlog_summary(self) -> str:
-        """Return a count-per-type summary plus inline open `[S]` quick-win lines."""
+    def _backlog_pointer(self) -> str:
+        """Return a one-line "N open items, run the triage skill" pointer, or "".
+
+        Counts every open (`- [ ]`) item regardless of section so the count
+        matches what `/recall-backlog` would actually collect, and surfaces only
+        the count and the skill nudge. The body stays out of context: it is the
+        skill's to triage, not the session's to carry.
+        """
         backlog = self.store.backlog_path
         if not backlog.exists():
             return ""
@@ -69,27 +77,8 @@ class Injector:
         except OSError:
             return ""  # fail open: skip just this block
 
-        current_section: str | None = None
-        counts: dict[str, int] = {}
-        quick_wins: list[str] = []
-        for line in text.splitlines():
-            if line.startswith("## "):
-                # A blank header ("## ") leaves current_section None so orphans are ignored.
-                current_section = line[3:].strip() or None
-            elif line.startswith("- [ ]") and current_section is not None:
-                counts[current_section] = counts.get(current_section, 0) + 1
-                if "[S]" in line:
-                    # Strip "- [ ] [S] " prefix and trailing date (" — YYYY-MM-DD").
-                    item_text = line[len("- [ ]") :].strip().replace("[S]", "", 1).strip()
-                    if " — " in item_text:
-                        item_text = item_text[: item_text.rfind(" — ")].strip()
-                    quick_wins.append(item_text)
-
-        if not counts:
+        open_items = sum(1 for line in text.splitlines() if line.startswith("- [ ]"))
+        if not open_items:
             return ""
-        total = sum(counts.values())
-        count_parts = " / ".join(f"{v} {k}" for k, v in counts.items())
-        result = f"{total} deferred: {count_parts}"
-        for qw in quick_wins:
-            result += f"\n  [S] {qw}"
-        return result
+        noun = "item" if open_items == 1 else "items"
+        return f"{open_items} {noun} in the deferred backlog. Run /recall-backlog to triage."
