@@ -66,6 +66,7 @@ SAFE_MERGE_RE = re.compile(r"--ff-only\b|--squash\b|--abort\b|--quit\b|--rebase\
 _GIT_OPTS = r"(?:-[cC]\s+\S+\s+)*"
 GIT_COMMIT_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}commit\b")
 GIT_MERGE_PULL_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}(?:merge|pull)\b")
+GIT_MERGE_SQUASH_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}merge\s+--squash\b")
 # Pulls the `-C <path>` target out of a git clause so the op is judged against
 # the repo it touches, not the shell's cwd.
 _GIT_C_DIR_RE = re.compile(r"\bgit\s+(?:-c\s+\S+\s+)*-C\s+(\S+)")
@@ -314,15 +315,31 @@ def is_squash_merge_in_progress(command: str, git_dir: Path | None) -> bool:
     squash_seen = False
     for raw_part in bash.split_clauses(command):
         stripped = raw_part.strip()
-        if re.match(r"^\s*git\s+merge\s+--squash\b", stripped):
+        # Reuse the shared, option-tolerant matchers so a squash chain written
+        # with `git -C <repo> merge --squash X && git -C <repo> commit` is still
+        # recognized; a bare `git\s+commit` anchor would miss the `-C` form and
+        # the commit guard would wrongly fire.
+        if GIT_MERGE_SQUASH_RE.match(stripped):
             squash_seen = True
-        if re.match(r"^\s*git\s+commit\b", stripped) and squash_seen:
+        if GIT_COMMIT_RE.match(stripped) and squash_seen:
             return True
     return False
 
 
+def _strip_quotes(token: str) -> str:
+    """Strip surrounding single/double quotes from a path token captured from a command.
+
+    Command-extracted paths (`git -C '/repo'`, `rm "/repo/f"`) keep their shell
+    quotes; without stripping them the path lookup would miss and the guard would
+    not see the real target. Paths containing spaces are not recovered (the regex
+    captures stop at the first space); those remain a known gap.
+    """
+    return token.strip("'\"")
+
+
 def _resolve_against(path: str, cwd: str) -> str:
-    """Resolve `path` to an absolute string against `cwd` (returned as-is if absolute)."""
+    """Resolve a command-extracted `path` to an absolute string against `cwd` (absolute as-is)."""
+    path = _strip_quotes(path)
     if Path(path).is_absolute():
         return path
     return str(Path(cwd) / path) if cwd else path
@@ -365,91 +382,92 @@ _REDIRECT_TARGET_RE = re.compile(r"(?:\d*|&)>>?\|?\s*([^\s|;&<>]+)")
 # only its redirects do. This set is deliberately the subset whose write targets
 # are plain positional paths -- in-place/output writers like `sed -i`, `perl -i`,
 # `curl -o`, and `wget` are NOT here because their targets can't be read off
-# positionally; `_write_targets` returns None for those (see below) so the
+# positionally; `_clause_write_targets` returns None for those (see below) so the
 # PROTECTED_FILE_MOD_RULES still block them.
 _FILE_MOD_CMDS = frozenset(
     {"rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "ln", "install", "tee"}
 )
 
+# Filesystem roots whose writes never touch tracked history. macOS resolves /tmp
+# to /private/tmp, so both are listed; a resolved target under either is exempt.
+_TMP_ROOTS = (Path("/tmp"), Path("/private/tmp"))  # noqa: S108
 
-def _write_targets(command: str) -> list[str] | None:
-    """Return the file paths a Bash command writes, or None if it can't be confined.
 
-    Walks each compound clause and collects the paths it would create or
-    modify: redirect targets (`> path`) and the positional args of a
-    `_FILE_MOD_CMDS` write (`rm a b`, `touch x`). Returns None to mean "this
-    clause performs a write whose target this cannot positively identify" -- a
-    `sed -i`, `perl -i`, `curl -o`, `wget`, or any other shape the
-    PROTECTED_FILE_MOD_RULES still flag. Callers treat None as "do not
-    carve out", so an unmodeled file-mod can never slip past the guard by
-    pointing one of its targets at an exempt path. An empty list means the
-    command writes nothing this function can see (pure reads, git-only parts).
+def _under_tmp(path: Path) -> bool:
+    """Return whether a resolved path lives under a temp root (so writing it is harmless)."""
+    return any(path == root or root in path.parents for root in _TMP_ROOTS)
+
+
+def _clause_write_targets(clause: str) -> list[str] | None:
+    """Return the file paths a single Bash clause writes, or None if it can't be confined.
+
+    Collects the paths the clause would create or modify: redirect targets
+    (`> path`) and the positional args of a `_FILE_MOD_CMDS` write (`rm a b`,
+    `touch x`). Returns None to mean "this clause performs a write whose target
+    cannot be positively identified" -- a `sed -i`, `perl -i`, `curl -o`,
+    `wget`, or any other shape the PROTECTED_FILE_MOD_RULES still flag. The
+    caller treats None as "fall back to the effective-cwd branch", so an
+    unmodeled file-mod can never slip past the guard by pointing a target at an
+    exempt path. An empty list means the clause writes nothing this can see.
     """
-    targets: list[str] = []
-    for part in bash.split_clauses(command):
-        stripped = part.strip()
-        if not stripped or _is_git_command(stripped):
-            continue
-        targets.extend(_REDIRECT_TARGET_RE.findall(stripped))
-        # Inspect the clause with its redirects removed: what remains must be a
-        # non-file-writing command or a `_FILE_MOD_CMDS` write whose targets are
-        # its positional args. Anything the block rules would still flag is a
-        # write we cannot confine, so decline the carve-out.
-        remainder: str = _REDIRECT_TARGET_RE.sub(" ", stripped).strip()
-        tokens: list[str] = remainder.split()
-        if tokens and tokens[0] in _FILE_MOD_CMDS:
-            targets.extend(t for t in tokens[1:] if not t.startswith("-"))
-        elif match_rules(remainder, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
-            return None
+    targets: list[str] = list(_REDIRECT_TARGET_RE.findall(clause))
+    # Inspect the clause with its redirects removed: what remains must be a
+    # non-file-writing command or a `_FILE_MOD_CMDS` write whose targets are its
+    # positional args. Anything the block rules would still flag is a write that
+    # cannot be confined, so decline the carve-out.
+    remainder = _REDIRECT_TARGET_RE.sub(" ", clause).strip()
+    tokens = remainder.split()
+    if tokens and tokens[0] in _FILE_MOD_CMDS:
+        targets.extend(t for t in tokens[1:] if not t.startswith("-"))
+    elif match_rules(remainder, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
+        return None
     return targets
 
 
 def _target_protected_branch(target: str, cwd: str) -> str | None:
     """Return the protected branch a write to `target` would dirty, or None if harmless.
 
-    A write is harmless when its target lives under /tmp (never tracked
-    history), resolves to a location not on a protected branch, or is
-    gitignored. The branch is keyed off the target's own resolved location, not
-    the shell's cwd: a write into a feature branch, a different repo, or no repo
-    at all is harmless even from a main cwd, while a write into a repo on main
-    is caught wherever the shell sits -- the mirror of the Edit/Write exemption.
-    A relative target with no cwd can't be located, so it is treated as harmless
-    (the fail-open default; real payloads always carry a cwd).
+    A write is harmless when its resolved target lives under a temp root (never
+    tracked history), is not on a protected branch, or is gitignored. The branch
+    is keyed off the target's own resolved location, not the shell's cwd: a write
+    into a feature branch, a different repo, or no repo at all is harmless even
+    from a main cwd, while a write into a repo on main is caught wherever the
+    shell sits -- the mirror of the Edit/Write exemption. A relative target with
+    no cwd can't be located, so it is treated as harmless (the fail-open default;
+    real payloads always carry a cwd).
     """
+    target = _strip_quotes(target)
     if Path(target).is_absolute():
         abs_target = target
     elif cwd:
         abs_target = str(Path(cwd) / target)
     else:
         return None
-    # The /tmp carve-out tests the UNRESOLVED path: on macOS /tmp is a symlink
-    # to /private/tmp, so resolving first would defeat the prefix match. A `..`
-    # segment can smuggle a write out of /tmp, so skip the shortcut then and let
-    # the resolution below judge the real destination's branch instead.
-    no_traversal = ".." not in Path(target).parts
-    if no_traversal and (abs_target == "/tmp" or abs_target.startswith("/tmp/")):  # noqa: S108
+    # Resolve symlinks and any `..` first, then test the temp-root carve-out on
+    # the real destination. Checking before resolution would let a `/tmp` symlink
+    # (or `/tmp/../`) that escapes into a repo masquerade as exempt; checking
+    # after still matches macOS's /tmp -> /private/tmp because both roots are
+    # listed in `_TMP_ROOTS`.
+    resolved = Path(abs_target).resolve()
+    if _under_tmp(resolved):
         return None
-    # Resolve symlinks (and any `..`) so the branch lookup and gitignore check
-    # judge the same physical path a symlinked or traversal target really lands on.
-    abs_target = str(Path(abs_target).resolve())
-    branch = get_branch_at_path(abs_target)
+    abs_resolved = str(resolved)
+    branch = get_branch_at_path(abs_resolved)
     if branch not in PROTECTED_BRANCHES:
         return None
-    if _is_git_ignored(abs_target):
+    if _is_git_ignored(abs_resolved):
         return None
     return branch
 
 
-def _is_target_exempt(target: str, cwd: str) -> bool:
-    """Return whether writing `target` on a protected branch is harmless.
-
-    The boolean view of `_target_protected_branch` (which carries the offending
-    branch name when a write is NOT exempt). See that function for the rules.
-    """
-    return _target_protected_branch(target, cwd) is None
-
-
 # === Checks: target-keyed evaluators ===
+
+
+def _deny_file_mod(branch: str) -> Decision:
+    """Build the canonical "cannot modify files on a protected branch" deny Decision."""
+    return Decision.blocked(
+        ID, f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
+    )
 
 
 def _evaluate_file_tool(event: dict[str, Any]) -> Decision | None:
@@ -469,13 +487,11 @@ def _evaluate_file_tool(event: dict[str, Any]) -> Decision | None:
         return None
     if _is_git_ignored(file_path):
         return None
-    return Decision.blocked(
-        ID, f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
-    )
+    return _deny_file_mod(branch)
 
 
-def _git_op_decision(command: str, clause: str, repo_dir: str, branch: str) -> Decision | None:
-    """Return a Decision for one git clause whose repo is on a protected branch, else None.
+def _git_op_decision(*, command: str, clause: str, repo_dir: str, branch: str) -> Decision | None:
+    """Return a Decision for one git commit/merge clause on a protected branch, else None.
 
     A direct commit is denied unless carved out for a linked worktree or an
     in-progress squash merge (its follow-up `git commit` is expected). A
@@ -486,14 +502,15 @@ def _git_op_decision(command: str, clause: str, repo_dir: str, branch: str) -> D
     """
     if GIT_COMMIT_RE.match(clause):
         git_dir = _git_dir(repo_dir) if repo_dir else None
-        in_worktree = is_in_linked_worktree(repo_dir, git_dir) if (repo_dir and git_dir) else False
+        # git_dir is non-None only when repo_dir was truthy, so guard on git_dir alone.
+        in_worktree = is_in_linked_worktree(cwd=repo_dir, git_dir=git_dir) if git_dir else False
         is_squash = is_squash_merge_in_progress(command, git_dir)
         if not in_worktree and not is_squash:
             return Decision.blocked(
                 ID, f"Cannot commit directly to the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
             )
         return None
-    if GIT_MERGE_PULL_RE.match(clause) and not SAFE_MERGE_RE.search(clause):
+    if not SAFE_MERGE_RE.search(clause):
         return Decision.ask_user(
             ID,
             f"Merging into the protected '{branch}' branch writes a merge commit "
@@ -502,82 +519,72 @@ def _git_op_decision(command: str, clause: str, repo_dir: str, branch: str) -> D
     return None
 
 
-def _check_git_ops(command: str, cwd: str) -> Decision | None:
-    """Return a Decision for a git commit/merge/pull onto a protected branch, else None.
+def _git_clause_decision(command: str, clause: str, eff_cwd: str) -> Decision | None:
+    """Return a Decision for one git clause, judged against the repo it operates on, else None.
 
-    Walks the command's clauses left to right, tracking the effective working
-    directory across `cd <dir> &&` and honoring `git -C <path>`, so each git op
-    is judged against the repo it actually touches -- closing the gap where a
-    `git -C <other-repo> commit` or a `cd <other-repo> && git commit` was judged
-    against (or skipped because of) the shell's own branch.
+    Only commit/merge/pull can write history, so read-only git clauses
+    (`status`, `log`, `diff`, ...) short-circuit before the branch lookup --
+    that lookup spawns a `git` subprocess, so skipping it keeps the common case
+    off the hot path.
     """
-    eff_cwd = cwd
-    for raw_clause in bash.split_clauses(command):
-        clause = raw_clause.strip()
-        if not clause:
-            continue
-        if _is_git_command(clause):
-            repo_dir = _git_clause_dir(clause, eff_cwd)
-            branch = (
-                get_branch_at_path(repo_dir) if repo_dir else _run_git("branch", "--show-current")
-            )
-            if branch in PROTECTED_BRANCHES:
-                decision = _git_op_decision(command, clause, repo_dir, branch)
-                if decision is not None:
-                    return decision
-        else:
-            moved = _cd_target(clause, eff_cwd)
-            if moved is not None:
-                eff_cwd = moved
-    return None
+    if not (GIT_COMMIT_RE.match(clause) or GIT_MERGE_PULL_RE.match(clause)):
+        return None
+    repo_dir = _git_clause_dir(clause, eff_cwd)
+    branch = get_branch_at_path(repo_dir) if repo_dir else _run_git("branch", "--show-current")
+    if branch not in PROTECTED_BRANCHES:
+        return None
+    return _git_op_decision(command=command, clause=clause, repo_dir=repo_dir, branch=branch)
 
 
-def _check_file_mods(command: str, cwd: str) -> Decision | None:
-    """Return a Decision for a file-modifying Bash command on a protected branch, else None.
+def _file_clause_decision(clause: str, eff_cwd: str) -> Decision | None:
+    """Return a deny Decision for a file-modifying clause on a protected branch, else None.
 
     Each confinable write target is judged by the branch of its own resolved
-    location, so a write into a repo on main is denied wherever the shell sits
-    and a write to /tmp, a gitignored path, or a feature branch passes. A write
-    whose target this cannot read positionally (`sed -i`, `perl -i`, `curl -o`,
-    `wget`) is attributed to the shell's cwd branch -- the best available signal
-    when the target path is not recoverable.
+    location (relative paths resolve against the effective cwd). A write whose
+    target can't be read positionally falls back to the effective-cwd branch.
     """
-    targets = _write_targets(command)
+    targets = _clause_write_targets(clause)
     if targets is None:
-        cwd_branch = get_branch_at_path(cwd) if cwd else ""
-        if (
-            cwd_branch in PROTECTED_BRANCHES
-            and match_rules(command, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None
-        ):
-            return Decision.blocked(
-                ID, f"Cannot modify files on the '{cwd_branch}' branch. {PROTECTED_BRANCH_HINT}"
-            )
-        return None
+        branch = get_branch_at_path(eff_cwd) if eff_cwd else ""
+        return _deny_file_mod(branch) if branch in PROTECTED_BRANCHES else None
     for target in targets:
-        branch = _target_protected_branch(target, cwd)
+        branch = _target_protected_branch(target, eff_cwd)
         if branch:
-            return Decision.blocked(
-                ID, f"Cannot modify files on the '{branch}' branch. {PROTECTED_BRANCH_HINT}"
-            )
+            return _deny_file_mod(branch)
     return None
 
 
 def _evaluate_bash(command: str, cwd: str) -> Decision | None:
     """Return a Decision for a Bash command's protected-branch impact, else None.
 
-    Precedence is deny > ask: a denying git op (a direct commit) wins outright;
-    otherwise a file-modification deny outranks a merge *ask*, so a command that
-    both merges and deletes a tracked file is denied rather than merely prompted
-    (approving the prompt would otherwise let the unconditional file write
-    through); a lone merge ask, or nothing, falls through last.
+    Walks the command's clauses once, left to right, tracking the effective
+    working directory across `cd <dir> &&` so every git op and every file write
+    is judged against the directory it actually touches. Precedence is deny >
+    ask: the first denying clause (a direct commit, or a write to a tracked file)
+    wins outright; a merge *ask* is held and still loses to any later deny, so a
+    command that both merges and deletes a tracked file is denied rather than
+    merely prompted; a lone ask, or nothing, falls through last.
     """
-    git_decision = _check_git_ops(command, cwd)
-    if git_decision is not None and git_decision.block:
-        return git_decision
-    file_decision = _check_file_mods(command, cwd)  # file-mods only ever deny
-    if file_decision is not None:
-        return file_decision
-    return git_decision
+    eff_cwd = cwd
+    pending_ask: Decision | None = None
+    for raw_clause in bash.split_clauses(command):
+        clause = raw_clause.strip()
+        if not clause:
+            continue
+        if _is_git_command(clause):
+            decision = _git_clause_decision(command, clause, eff_cwd)
+        else:
+            moved = _cd_target(clause, eff_cwd)
+            if moved is not None:
+                eff_cwd = moved
+                continue
+            decision = _file_clause_decision(clause, eff_cwd)
+        if decision is None:
+            continue
+        if decision.block:
+            return decision  # a deny outranks any pending ask; stop here
+        pending_ask = pending_ask or decision
+    return pending_ask
 
 
 def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001

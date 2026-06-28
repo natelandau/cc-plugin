@@ -128,21 +128,28 @@ def emit_pretooluse(decision: Decision | None, contexts: list[str]) -> NoReturn:
     if decision is not None and decision.block:
         emit_block(decision.reason)  # exits 2
     if decision is not None and decision.ask:
-        payload = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "ask",
-                "permissionDecisionReason": decision.reason,
-            }
+        hook_output: dict[str, str] = {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": decision.reason,
         }
-        print(json.dumps(payload))  # noqa: T201
+        # An ask is not terminal (the user may approve), so carry any advisory
+        # context from other plugins alongside it rather than dropping it.
+        if contexts:
+            hook_output["additionalContext"] = "\n".join(contexts)
+        print(json.dumps({"hookSpecificOutput": hook_output}))  # noqa: T201
         sys.exit(0)
     _emit_advisory(contexts, "PreToolUse")
 
 
 def emit_posttooluse(blocking: Decision | None, contexts: list[str]) -> NoReturn:
-    """Translate a PostToolUse outcome: the tool already ran, so block is JSON."""
-    if blocking is not None:
+    """Translate a PostToolUse outcome: the tool already ran, so block is JSON.
+
+    Only a deny (`block`) maps to a PostToolUse block; an ask Decision is
+    PreToolUse-only and is ignored here so it can never be mistranslated into a
+    block the user can't approve.
+    """
+    if blocking is not None and blocking.block:
         payload = {
             "hookSpecificOutput": {"hookEventName": "PostToolUse", "decision": "block"},
             "reason": blocking.reason,
@@ -153,8 +160,12 @@ def emit_posttooluse(blocking: Decision | None, contexts: list[str]) -> NoReturn
 
 
 def emit_stop(blocking: Decision | None, contexts: list[str]) -> NoReturn:  # noqa: ARG001
-    """Translate a Stop outcome: block prevents stopping via decision JSON."""
-    if blocking is not None:
+    """Translate a Stop outcome: a deny prevents stopping via decision JSON.
+
+    Only a deny (`block`) maps to a Stop block; an ask Decision is
+    PreToolUse-only and is ignored here.
+    """
+    if blocking is not None and blocking.block:
         print(json.dumps({"decision": "block", "reason": blocking.reason}))  # noqa: T201
     sys.exit(0)
 

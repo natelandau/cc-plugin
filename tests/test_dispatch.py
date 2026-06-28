@@ -90,3 +90,35 @@ def test_plugin_exception_is_swallowed(tmp_path):
     blocking, contexts = dispatch.collect(d, {}, _Cfg())
     assert blocking is None
     assert contexts == ["hi"]
+
+
+def test_ask_is_held_but_later_block_wins(tmp_path):
+    """Verify precedence is deny > ask: a later blocking plugin outranks an earlier ask."""
+    d = _stage(
+        tmp_path,
+        {
+            "a": "from lib.io import Decision\nID='a'\ndef evaluate(e,c): return Decision.ask_user('a','prompt')",
+            "b": "from lib.io import Decision\nID='b'\ndef evaluate(e,c): return Decision(block=True, reason='B')",
+        },
+        "from lib.profiles import ALL\nPLUGINS=[('a',ALL),('b',ALL)]",
+    )
+    decision, _contexts = dispatch.collect(d, {}, _Cfg())
+    assert decision.block is True
+    assert decision.reason == "B"
+
+
+def test_first_ask_wins_when_no_block(tmp_path):
+    """Verify the first ask is returned (with accumulated contexts) when nothing denies."""
+    d = _stage(
+        tmp_path,
+        {
+            "ctx": "from lib.io import Decision\nID='ctx'\ndef evaluate(e,c): return Decision(block=False, context='nudge')",
+            "a": "from lib.io import Decision\nID='a'\ndef evaluate(e,c): return Decision.ask_user('a','first')",
+            "b": "from lib.io import Decision\nID='b'\ndef evaluate(e,c): return Decision.ask_user('b','second')",
+        },
+        "from lib.profiles import ALL\nPLUGINS=[('ctx',ALL),('a',ALL),('b',ALL)]",
+    )
+    decision, contexts = dispatch.collect(d, {}, _Cfg())
+    assert decision.ask is True
+    assert decision.reason == "ASK [a]: first"
+    assert contexts == ["nudge"]
