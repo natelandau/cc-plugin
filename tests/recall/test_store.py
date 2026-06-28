@@ -9,24 +9,14 @@ from pathlib import Path
 
 from recall.store import Store, encode_project_key, project_root  # ty: ignore[unresolved-import]
 
+from tests._env import clean_environ
 from tests.recall._store_factory import store_at
 
 _CLEAN = {"PATH": os.environ.get("PATH", "")}
 
-# Git env vars that refer to a specific repository location; must be cleared so
-# test-spawned git commands target the tmp repo, not the outer checkout.
-_GIT_REPO_VARS = frozenset(
-    {
-        "GIT_DIR",
-        "GIT_COMMON_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_WORK_TREE",
-    }
-)
-
-_GIT_ENV = {k: v for k, v in os.environ.items() if k not in _GIT_REPO_VARS}
+# Strip the git location vars so test-spawned git commands target the tmp repo,
+# not whatever checkout the suite runs from.
+_GIT_ENV = clean_environ()
 
 
 def _git(path: Path, *args: str) -> None:

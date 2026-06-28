@@ -7,6 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from tests._env import clean_environ
 from tests.recall._store_factory import write_transcript
 
 SCRIPT = (
@@ -17,28 +18,16 @@ SCRIPT = (
     / "recall-bootstrap.py"
 )
 
-_GIT_REPO_VARS = frozenset(
-    {
-        "GIT_DIR",
-        "GIT_COMMON_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_WORK_TREE",
-    }
-)
-
 
 def _run(
     args: list[str], *, cwd: Path, env_overrides: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    base = {k: v for k, v in os.environ.items() if k not in _GIT_REPO_VARS}
     return subprocess.run(
         [str(SCRIPT), *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
-        env={**base, **env_overrides},
+        env={**clean_environ(), **env_overrides},
         check=False,
         timeout=60,
     )

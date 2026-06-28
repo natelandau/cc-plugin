@@ -16,20 +16,22 @@ from pathlib import Path
 import pytest
 from recall.store import Store  # ty: ignore[unresolved-import]
 
+from tests._env import clean_environ
+
 HOOKS = Path(__file__).resolve().parent.parent.parent / "plugins" / "natelandau-recall" / "hooks"
+
+# The recursion guard, dropped so a NL_RECALL_HEADLESS leaking from the test
+# runner can never change a case's intent; a case that needs it sets it via
+# env_overrides. (clean_environ also drops the git location vars so a hook
+# resolves the tmp project, not the checkout the suite runs from.)
+_RECURSION_GUARD = frozenset({"NL_RECALL_HEADLESS"})
 
 
 def _run(
     stage: str, payload: dict, env_overrides: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    """Pipe a JSON payload through a real hook script with an isolated environment.
-
-    The recursion guard is stripped from the inherited environment first, so a
-    NL_RECALL_HEADLESS leaking from the test runner can never change a case's
-    intent; a case that needs it sets it explicitly via env_overrides.
-    """
-    base = {k: v for k, v in os.environ.items() if k != "NL_RECALL_HEADLESS"}
-    env = {**base, **env_overrides}
+    """Pipe a JSON payload through a real hook script with an isolated environment."""
+    env = {**clean_environ(also_drop=_RECURSION_GUARD), **env_overrides}
     return subprocess.run(
         [str(HOOKS / f"{stage}.py")],
         input=json.dumps(payload),
@@ -240,7 +242,7 @@ def test_sessionstart_keeps_handoff_when_emit_fails(tmp_path: Path) -> None:
     proj.mkdir()
     store = _seed_handoff(tmp_path, proj)
     read_fd, write_fd = os.pipe()
-    base = {k: v for k, v in os.environ.items() if k != "NL_RECALL_HEADLESS"}
+    base = clean_environ(also_drop=_RECURSION_GUARD)
     try:
         # When SessionStart tries to emit to an unwritable fd, the flush raises
         proc = subprocess.run(

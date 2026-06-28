@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests._env import GIT_REPO_VARS, clean_environ
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from types import ModuleType
@@ -719,6 +721,10 @@ def test_enforce_branch_protection(
         text=True,
         timeout=10,
         check=False,
+        # Strip leaked git-location vars (GIT_DIR, ...) so the hook resolves the
+        # ephemeral test repos, not the checkout the suite runs from (pre-commit
+        # / worktree set these, which would otherwise hijack branch detection).
+        env=clean_environ(),
     )
 
     # Then exit code and stream content match expectations
@@ -795,11 +801,15 @@ def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_target_protected_branch_follows_symlink_into_protected_repo(
-    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path
+    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify a symlink resolving into a protected repo is judged by its real path."""
     # Given a symlink that lives outside any repo but points at a tracked path
-    # inside the master repo, which is on a protected branch
+    # inside the master repo, which is on a protected branch. The predicate runs
+    # git in-process, so any leaked git-location vars (pre-commit / worktree) must
+    # be cleared or they would hijack branch detection to the outer checkout.
+    for var in GIT_REPO_VARS:
+        monkeypatch.delenv(var, raising=False)
     m = _load_hook(hooks_dir)
     link = tmp_path / "sneaky.py"
     link.symlink_to(Path(repos["master"]) / "app.py")
