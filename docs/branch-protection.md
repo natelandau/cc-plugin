@@ -70,14 +70,15 @@ The hook reads the write targets from the command and checks each one:
 
 A write is allowed, even on a protected branch, when its target is harmless:
 
-- The target is under `/tmp`.
+- The target resolves to a path that is not inside a repository on a protected
+  branch. This covers scratch paths under `/tmp`, `/dev/null`, and anything
+  outside a repo, because the branch lookup returns nothing for them.
 - The target is gitignored (never part of tracked history).
-- The target resolves to a path that is not on a protected branch, including
-  `/dev/null` and any path outside a repository.
 
-A `..` segment is resolved to its real destination before the check. A path that
-escapes to a non-repo location is allowed; one that resolves back into a repo on
-a protected branch is blocked.
+A `..` segment, and any symlink, is resolved to its real destination before the
+check. A path that resolves to a non-repo location is allowed; one that resolves
+back into a repo on a protected branch is blocked, even a repo that happens to
+live under `/tmp`.
 
 `Edit`, `Write`, and `NotebookEdit` follow the same logic: blocked on a protected
 branch unless the target file is gitignored.

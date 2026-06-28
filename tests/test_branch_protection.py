@@ -416,11 +416,11 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
-    # Safety: a `..` segment must not let a write masquerade as /tmp-exempt by
-    # prefixing /tmp. The target is resolved to its real destination and judged
-    # there: a `..` that lands back inside the protected repo is blocked (see the
-    # "relative .. traversal into protected repo blocked" case below); one that
-    # resolves outside any repo is harmless. Unit coverage in `test_target_protected_branch`.
+    # Safety: a `..` segment is resolved to its real destination and judged
+    # there, so a traversal that lands back inside the protected repo is blocked
+    # (see the "relative .. traversal into protected repo blocked" case below)
+    # while one that resolves outside any repo is harmless. Unit coverage in
+    # `test_target_protected_branch`.
     # Protected branch: pure git read commands allowed
     Case(
         id="git status on master allowed",
@@ -749,43 +749,35 @@ def _load_hook(hooks_dir: Path) -> ModuleType:
 
 
 def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _target_protected_branch exempts /tmp, off-protected-branch, and gitignored targets.
+    """Verify _target_protected_branch flags only tracked targets in a protected repo.
 
     Returns the offending branch name when a write is NOT exempt, else None.
-    Calls the predicate directly because the empty-cwd and traversal cases can't
-    be reached through the dispatcher: an empty event cwd also defeats branch
-    detection, so the protected-branch check never runs.
+    Calls the predicate directly because the empty-cwd case can't be reached
+    through the dispatcher: an empty event cwd also defeats branch detection, so
+    the protected-branch check never runs.
     """
-    # Given the module with check-ignore stubbed to the master repo's patterns
-    # (*.ignored, ignored_dir/). Stubbing keeps the absolute-path assertions off
-    # the real filesystem: pytest's tmp root is under /tmp on Linux, so a real
-    # repo path would hit the /tmp carve-out before the gitignore branch ever
-    # runs. End-to-end check-ignore behavior is covered by the dispatcher cases.
+    # Given the module with branch + check-ignore stubbed. Only the synthetic
+    # /repo tree is a protected working tree; /tmp, /external, and anything else
+    # sit outside any repo, so their branch lookup yields "" (the realistic
+    # result, since /tmp is not a git repo). Stubbing keeps the assertions off the
+    # real filesystem; end-to-end behavior is covered by the dispatcher cases.
     m = _load_hook(hooks_dir)
 
     def fake_is_git_ignored(path: str) -> bool:
         parts = Path(path)
         return parts.suffix == ".ignored" or "ignored_dir" in parts.parts
 
-    # The /repo tree is the protected (master) working tree; anything under
-    # /external sits outside any repo, so its branch lookup yields "".
     def fake_branch_at_path(path: str) -> str:
-        return "" if "/external" in path else "master"
+        return "master" if path.startswith("/repo") else ""
 
     monkeypatch.setattr(m, "_is_git_ignored", fake_is_git_ignored)
     monkeypatch.setattr(m, "get_branch_at_path", fake_branch_at_path)
-    # A synthetic absolute base outside /tmp; git lookups are stubbed, so it
-    # needs no real directory and must not trip the /tmp carve-out.
     base = "/repo"
 
-    # Then /tmp paths are exempt, but a `..` traversal that resolves out of /tmp
-    # onto a protected branch is not (it is judged at its real destination)
+    # Then a target outside any repo is exempt -- a /tmp scratch path or a `..`
+    # that resolves out of every repo both yield "" from the branch lookup
     assert m._target_protected_branch("/tmp/x", "") is None  # noqa: S108
-    assert m._target_protected_branch("/tmp/../tracked.txt", "") == "master"  # noqa: S108
-
-    # Then a target that is not on a protected branch (here, outside any repo)
-    # is exempt even though it is not gitignored -- the key is the target's own
-    # branch, not the shell's cwd
+    assert m._target_protected_branch("/tmp/../tracked.txt", "") is None  # noqa: S108
     assert m._target_protected_branch("/external/store/x.md", "") is None
     assert m._target_protected_branch("x.md", "/external/store") is None
 
@@ -811,12 +803,6 @@ def test_target_protected_branch_follows_symlink_into_protected_repo(
     m = _load_hook(hooks_dir)
     link = tmp_path / "sneaky.py"
     link.symlink_to(Path(repos["master"]) / "app.py")
-    if m._under_tmp(link.resolve()):
-        # When the ephemeral repo itself lives under /tmp (pytest's tmp root on
-        # Linux), the temp-root carve-out legitimately exempts the resolved path,
-        # so the in-repo block can't be exercised here. On a real checkout the
-        # repo is not under /tmp and the symlink resolves to a blocked path.
-        pytest.skip("ephemeral repo is under /tmp; temp-root carve-out applies")
 
     # When checking the symlink target while the repo is on a protected branch
     # Then the branch lookup follows the link to the in-repo path and blocks it,

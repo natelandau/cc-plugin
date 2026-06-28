@@ -388,15 +388,6 @@ _FILE_MOD_CMDS = frozenset(
     {"rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "ln", "install", "tee"}
 )
 
-# Filesystem roots whose writes never touch tracked history. macOS resolves /tmp
-# to /private/tmp, so both are listed; a resolved target under either is exempt.
-_TMP_ROOTS = (Path("/tmp"), Path("/private/tmp"))  # noqa: S108
-
-
-def _under_tmp(path: Path) -> bool:
-    """Return whether a resolved path lives under a temp root (so writing it is harmless)."""
-    return any(path == root or root in path.parents for root in _TMP_ROOTS)
-
 
 def _clause_write_targets(clause: str) -> list[str] | None:
     """Return the file paths a single Bash clause writes, or None if it can't be confined.
@@ -427,14 +418,19 @@ def _clause_write_targets(clause: str) -> list[str] | None:
 def _target_protected_branch(target: str, cwd: str) -> str | None:
     """Return the protected branch a write to `target` would dirty, or None if harmless.
 
-    A write is harmless when its resolved target lives under a temp root (never
-    tracked history), is not on a protected branch, or is gitignored. The branch
-    is keyed off the target's own resolved location, not the shell's cwd: a write
-    into a feature branch, a different repo, or no repo at all is harmless even
-    from a main cwd, while a write into a repo on main is caught wherever the
-    shell sits -- the mirror of the Edit/Write exemption. A relative target with
-    no cwd can't be located, so it is treated as harmless (the fail-open default;
-    real payloads always carry a cwd).
+    A write is harmless when its resolved target is not inside a repo on a
+    protected branch, or is gitignored. The branch is keyed off the target's own
+    resolved location, not the shell's cwd: a write into a feature branch, a
+    different repo, or no repo at all (a scratch path under /tmp, /dev/null, ...)
+    is harmless even from a main cwd, while a write into a repo on main is caught
+    wherever the shell sits -- the mirror of the Edit/Write exemption. A relative
+    target with no cwd can't be located, so it is treated as harmless (the
+    fail-open default; real payloads always carry a cwd).
+
+    There is deliberately no /tmp shortcut: exempting every path under /tmp would
+    also exempt a real repo that happens to live there (e.g. a worktree, or
+    pytest's ephemeral repos on Linux), silently dropping protection. A /tmp
+    scratch path is not in a repo, so the branch lookup already returns "" for it.
     """
     target = _strip_quotes(target)
     if Path(target).is_absolute():
@@ -443,15 +439,9 @@ def _target_protected_branch(target: str, cwd: str) -> str | None:
         abs_target = str(Path(cwd) / target)
     else:
         return None
-    # Resolve symlinks and any `..` first, then test the temp-root carve-out on
-    # the real destination. Checking before resolution would let a `/tmp` symlink
-    # (or `/tmp/../`) that escapes into a repo masquerade as exempt; checking
-    # after still matches macOS's /tmp -> /private/tmp because both roots are
-    # listed in `_TMP_ROOTS`.
-    resolved = Path(abs_target).resolve()
-    if _under_tmp(resolved):
-        return None
-    abs_resolved = str(resolved)
+    # Resolve symlinks and any `..` so a link or traversal is judged by the real
+    # path it lands on, the same path the gitignore check canonicalizes.
+    abs_resolved = str(Path(abs_target).resolve())
     branch = get_branch_at_path(abs_resolved)
     if branch not in PROTECTED_BRANCHES:
         return None
