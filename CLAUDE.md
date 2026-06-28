@@ -91,16 +91,21 @@ wire a flat engine package `hooks/recall/`:
 
 - `Store` (XDG paths + per-project key, plus consume-once `HANDOFF.md` baton IO via
   `read_handoff`/`delete_handoff`), `Injector` (the SessionStart memory block),
-  `Sweep`/`Lock`/`ClaudeRunner` (the headless `claude -p` sweep), `RecallConfig`, plus
-  pure `transcript`/`frontmatter`/`paths`/`io`/`headless`. Deep behavior is in each
-  module's docstring.
+  `Sweep`/`Lock`/`ClaudeRunner` (the headless `claude -p` sweep), `Bootstrap` (the
+  backfill engine behind `recall-bootstrap.py`), `RecallConfig`, plus pure
+  `transcript`/`frontmatter`/`paths`/`io`/`headless`/`safety` (shared secret-scrub).
+  Deep behavior is in each module's docstring.
 - **Store paths have one source of truth: `paths.py`** (the dash-encoded project key).
   Python reaches it through `Store`; **skills MUST call the `hooks/recall-path.py`
   facade** (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) to resolve a path,
   never re-derive the encoding in prose. A skill references it via
   `${CLAUDE_SKILL_DIR}/../../hooks/recall-path.py` (`${CLAUDE_PLUGIN_ROOT}` is a hook
   var, not a skill var). The script is executable (`100755`); the engine modules it
-  imports stay `100644`.
+  imports stay `100644`. The companion **`hooks/recall-bootstrap.py`** facade (also
+  `100755`) is the skill-facing entry for transcript discovery, staging, and backfill
+  plan application; its engine is `hooks/recall/bootstrap.py` (`100644`).
+- The **`recall-bootstrap` skill** (user-invoked) backfills the memory store from past
+  session transcripts via parallel extractor subagents and a single user-approved merge.
 - **Config is flat** `[inject]`/`[sweep]` TOML (`hooks/natelandau-recall.toml.example`),
   no profiles or `disabled_hooks`.
 - The sweep runs **detached** (double-fork) so it outlives session teardown, with an

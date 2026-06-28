@@ -261,3 +261,43 @@ def test_is_empty_false_with_a_learning(tmp_path: Path) -> None:
     (store.learnings_dir / "x.md").write_text("body", encoding="utf-8")
     # Then the store is not empty
     assert store.is_empty() is False
+
+
+def test_processed_round_trip(tmp_path: Path) -> None:
+    """Verify processed session IDs round-trip and deduplicate on re-add."""
+    # Given a fresh store
+    store = store_at(tmp_path)
+    # When two session ids are recorded
+    store.add_processed("aaa")
+    store.add_processed("bbb")
+    # Then both read back and the set is deduped on re-add
+    store.add_processed("aaa")
+    assert store.read_processed() == {"aaa", "bbb"}
+
+
+def test_read_processed_missing_is_empty(tmp_path: Path) -> None:
+    """Verify reading the ledger yields an empty set when no ledger exists."""
+    # Given a store with no ledger written yet
+    store = store_at(tmp_path)
+    # Then reading the ledger yields an empty set, not an error
+    assert store.read_processed() == set()
+
+
+def test_bootstrap_dir_under_state(tmp_path: Path) -> None:
+    """Verify the bootstrap scratch dir lives under state_dir."""
+    # Given a store
+    store = store_at(tmp_path)
+    # Then the bootstrap scratch dir lives under state_dir
+    assert store.bootstrap_dir == store.state_dir / "bootstrap"
+
+
+def test_add_processed_many_batches_and_dedups(tmp_path: Path) -> None:
+    """Verify add_processed_many records only genuinely new ids and returns that count."""
+    # Given a store with one id already recorded
+    store = store_at(tmp_path)
+    store.add_processed("a")
+    # When a batch overlapping the existing id (and carrying a duplicate) is added
+    added = store.add_processed_many(["a", "b", "b", "c"])
+    # Then only the new ids are recorded, each once, and the new count is returned
+    assert added == 2
+    assert store.read_processed() == {"a", "b", "c"}

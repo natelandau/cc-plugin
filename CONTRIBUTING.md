@@ -111,9 +111,10 @@ plugins/natelandau-recall/
     hooks.json                                SessionStart, SessionEnd, PreCompact registration
     sessionstart.py sessionend.py precompact.py   Thin hook entry scripts
     recall-path.py                            Store-path resolver the skills call
-    recall/                                   Flat engine package (Store, Injector, Sweep, etc.)
-    prompts/sweep.md                          Prompt template for the headless sweep
-  skills/recall-*/SKILL.md                    Memory-curation and handoff skills
+    recall-bootstrap.py                       Backfill facade the recall-bootstrap skill calls
+    recall/                                   Flat engine package (Store, Injector, Sweep, Bootstrap, etc.)
+    prompts/                                  Sweep and bootstrap prompt templates (incl. shared _capture-criteria.md)
+  skills/recall-*/SKILL.md                    Memory-curation, handoff, and backfill skills
 
 tests/                                        Toolkit characterization tests
 tests/recall/                                 Recall tests (import the engine directly)
@@ -285,14 +286,16 @@ Recall is standalone. It does not use the toolkit's dispatcher, registry, or pro
 - `hooks/sessionstart.py` builds the SessionStart memory block and injects it. It also injects a pending `HANDOFF.md` handoff ahead of that block on any start except `resume`, deleting it only after a confirmed write and independent of `inject_enabled`.
 - `hooks/sessionend.py` and `hooks/precompact.py` trigger the sweep that distills the session into memory.
 - `hooks/recall-path.py` resolves store paths (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) over `Store`. The recall skills call it instead of re-deriving the dash-encoded project key, so the encoding lives in one place (`paths.py`).
+- `hooks/recall-bootstrap.py` is the facade the `recall-bootstrap` skill drives (`discover`/`apply`/`clean`) over `Bootstrap`.
 
 The engine lives in `hooks/recall/`. The main pieces are:
 
 - `Store`: resolves the XDG data and state roots and the per-project key, and owns small fail-open IO helpers, including the consume-once handoff (`read_handoff`/`delete_handoff`).
 - `Injector`: assembles the SessionStart block (learnings index, backlog summary).
 - `Sweep`, with `Lock` and `ClaudeRunner`: gates, detaches, runs, and validates the headless `claude -p` pass.
+- `Bootstrap`: discovers, stages, and applies a backfill of the store from past transcripts.
 - `RecallConfig`: the flat config object.
-- Pure helpers: `transcript`, `frontmatter`, `paths`, `io`, `headless`.
+- Pure helpers: `transcript`, `frontmatter`, `paths`, `io`, `headless`, `safety` (the shared secret-scrub).
 
 Each module's docstring carries its detailed behavior.
 

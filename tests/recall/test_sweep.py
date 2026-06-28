@@ -307,7 +307,7 @@ def test_run_job_prompt_carries_only_user_and_agent_text(tmp_path: Path) -> None
             },
         },
     ]
-    job = SweepJob(window=window, cwd=str(tmp_path))
+    job = SweepJob(window=window, cwd=str(tmp_path), session_id="")
 
     # When running the job
     sweep._run_job(job)
@@ -327,7 +327,7 @@ def test_run_job_clean_write_logs_and_releases_lock(tmp_path: Path) -> None:
     target = store.data_dir / "memory.md"
     target.write_text("clean memory content", encoding="utf-8")
     sweep = Sweep(store, RecallConfig(), _FakeRunner([str(target)]))
-    job = SweepJob(window=[], cwd=str(tmp_path))
+    job = SweepJob(window=[], cwd=str(tmp_path), session_id="")
     # When running the job
     notes = sweep._run_job(job)
     # Then the clean file yields no notes, the log is written, and the lock is freed
@@ -343,7 +343,7 @@ def test_run_job_escaped_write_reverted_and_lock_released(tmp_path: Path) -> Non
     outside = tmp_path / "outside.md"
     outside.write_text("nope", encoding="utf-8")
     sweep = Sweep(store, RecallConfig(), _FakeRunner([str(outside)]))
-    job = SweepJob(window=[], cwd=str(tmp_path))
+    job = SweepJob(window=[], cwd=str(tmp_path), session_id="")
     # When running the job
     notes = sweep._run_job(job)
     # Then the escaped file is gone, noted, and the lock is released
@@ -363,9 +363,61 @@ def test_run_job_releases_lock_on_runner_failure(tmp_path: Path) -> None:
 
     store = _job_store(tmp_path)
     sweep = Sweep(store, RecallConfig(), _Exploding())
-    job = SweepJob(window=[], cwd=str(tmp_path))
+    job = SweepJob(window=[], cwd=str(tmp_path), session_id="")
     # When running the job
     notes = sweep._run_job(job)
     # Then it returns no notes and the lock is still released
     assert notes == []
     assert not store.lock_path.exists()
+
+
+def test_render_inlines_capture_criteria() -> None:
+    # Given the sweep template and its criteria fragment
+    from recall import sweep as sweep_mod  # ty: ignore[unresolved-import]
+
+    # When the prompt is rendered
+    rendered = sweep_mod._render_template(
+        sweep_mod.PROMPT_PATH,
+        transcript="[]",
+        existing_memory="",
+        git_context="",
+        capture_criteria=sweep_mod.CRITERIA_PATH.read_text(encoding="utf-8"),
+    )
+    # Then the criteria text is present and no placeholder remains
+    assert "The two-gate test" in rendered
+    assert "{{capture_criteria}}" not in rendered
+
+
+def test_run_job_records_session_in_ledger(tmp_path: Path) -> None:
+    """Verify a successful run records the session id in the processed ledger."""
+    # Given a store and a sweep whose fake runner reports success
+    store = store_at(tmp_path)
+    # _FakeRunner(changed_files: list[str]) is defined at the top of this file and
+    # always returns RunResult(success=True, ...); pass [] for no writes.
+    sweep = Sweep(store, RecallConfig(), _FakeRunner([]))
+    job = SweepJob(window=[], cwd=str(tmp_path), session_id="sess-123")
+
+    # When the job runs
+    sweep._run_job(job)
+
+    # Then the session id is recorded in the ledger
+    assert "sess-123" in store.read_processed()
+
+
+def test_run_job_failure_does_not_record_session(tmp_path: Path) -> None:
+    """Verify a failed run does not ledger the session, so a later sweep can retry it."""
+    # Given a runner that completes but reports failure (non-zero exit)
+
+    class _FailingRunner:
+        def run(self, prompt: str, *, cwd: str) -> RunResult:
+            return RunResult(success=False, exit_code=1, changed_files=[], text="", stderr="fail")
+
+    store = store_at(tmp_path)
+    sweep = Sweep(store, RecallConfig(), _FailingRunner())
+    job = SweepJob(window=[], cwd=str(tmp_path), session_id="sess-fail")
+
+    # When the job runs
+    sweep._run_job(job)
+
+    # Then the session is NOT recorded, leaving it eligible for a future sweep
+    assert "sess-fail" not in store.read_processed()
