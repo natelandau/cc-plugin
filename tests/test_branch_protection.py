@@ -2,7 +2,8 @@
 
 Pipes representative JSON payloads through the hook (as a subprocess)
 against ephemeral git repos and asserts on exit code plus
-stdout/stderr substrings.
+stdout/stderr substrings. Every block carries the canonical
+`BLOCKED [branch-protection]:` stderr prefix.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import importlib.util
 import json
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -73,7 +74,7 @@ class Case:
     make_payload: Callable[[Mapping[str, str]], dict[str, Any]]
     expect_exit: int
     stderr_contains: tuple[str, ...] = ()
-    output_contains: tuple[str, ...] = field(default=())
+    output_contains: tuple[str, ...] = ()
 
 
 CASES: tuple[Case, ...] = (
@@ -82,7 +83,6 @@ CASES: tuple[Case, ...] = (
         id="edit on master blocked",
         make_payload=lambda r: _edit(f"{r['master']}/foo.py"),
         expect_exit=2,
-        # Protected-branch blocks carry the canonical `BLOCKED [<id>]:` prefix.
         stderr_contains=(
             "BLOCKED [branch-protection]",
             "Cannot modify files on the 'master' branch",
@@ -127,7 +127,6 @@ CASES: tuple[Case, ...] = (
         id="git push --force blocked on feat",
         make_payload=lambda r: _bash("git push --force origin feat", cwd=r["feat"]),
         expect_exit=2,
-        # Destructive blocks carry the canonical `BLOCKED [<id>]:` prefix.
         stderr_contains=("Force push", "BLOCKED [branch-protection]"),
     ),
     Case(
@@ -755,13 +754,11 @@ def _load_hook(hooks_dir: Path) -> ModuleType:
 
 
 def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _target_protected_branch flags only tracked targets in a protected repo.
-
-    Returns the offending branch name when a write is NOT exempt, else None.
-    Calls the predicate directly because the empty-cwd case can't be reached
-    through the dispatcher: an empty event cwd also defeats branch detection, so
-    the protected-branch check never runs.
-    """
+    """Verify _target_protected_branch flags only tracked targets in a protected repo."""
+    # The predicate returns the offending branch name when a write is NOT exempt,
+    # else None. We call it directly because the empty-cwd case can't be reached
+    # through the dispatcher: an empty event cwd also defeats branch detection, so
+    # the protected-branch check never runs.
     # Given the module with branch + check-ignore stubbed. Only the synthetic
     # /repo tree is a protected working tree; /tmp, /external, and anything else
     # sit outside any repo, so their branch lookup yields "" (the realistic
