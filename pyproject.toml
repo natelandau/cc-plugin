@@ -26,7 +26,10 @@
     changelog_merge_prerelease = true
     tag_format                 = "v$version"
     update_changelog_on_bump   = true
-    version_files              = ["plugins/natelandau-toolkit/.claude-plugin/plugin.json:\"version\""]
+    version_files              = [
+        "plugins/natelandau-toolkit/.claude-plugin/plugin.json:\"version\"",
+        "plugins/natelandau-recall/.claude-plugin/plugin.json:\"version\"",
+    ]
     version_provider           = "uv"
 
 [tool.pytest.ini_options]
