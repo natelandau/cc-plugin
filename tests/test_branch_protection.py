@@ -416,14 +416,11 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
-    # Safety: a `..` segment must not let a non-/tmp write masquerade as exempt
-    # by prefixing /tmp -- the traversal target is judged by the block rules.
-    Case(
-        id="tmp traversal redirect to tracked file on master blocked",
-        make_payload=lambda r: _bash("echo x > /tmp/../tracked.txt", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot modify files",),
-    ),
+    # Safety: a `..` segment is resolved to its real destination and judged
+    # there, so a traversal that lands back inside the protected repo is blocked
+    # (see the "relative .. traversal into protected repo blocked" case below)
+    # while one that resolves outside any repo is harmless. Unit coverage in
+    # `test_target_protected_branch`.
     # Protected branch: pure git read commands allowed
     Case(
         id="git status on master allowed",
@@ -455,19 +452,20 @@ CASES: tuple[Case, ...] = (
         ),
         expect_exit=0,
     ),
-    # Protected branch: merge commits blocked (they write to the branch
-    # directly, bypassing the git commit guard), safe forms allowed.
+    # Protected branch: merge commits are an ASK (a merge onto trunk is
+    # sometimes a deliberate, human-approved integration), routed to the
+    # permission prompt via exit 0 + permissionDecision; safe forms pass.
     Case(
-        id="git merge --no-ff on master blocked",
+        id="git merge --no-ff on master asks",
         make_payload=lambda r: _bash("git merge --no-ff feat", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot merge into the 'master' branch",),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
     ),
     Case(
-        id="bare git merge on master blocked",
+        id="bare git merge on master asks",
         make_payload=lambda r: _bash("git merge feat", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot merge into the 'master' branch",),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
     ),
     Case(
         id="git merge --ff-only on master allowed",
@@ -490,10 +488,10 @@ CASES: tuple[Case, ...] = (
         expect_exit=0,
     ),
     Case(
-        id="git pull on master blocked",
+        id="git pull on master asks",
         make_payload=lambda r: _bash("git pull", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=("Cannot merge into the 'master' branch",),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
     ),
     Case(
         id="git pull --ff-only on master allowed",
@@ -567,6 +565,138 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files on the 'master' branch",),
     ),
+    # === Reverse asymmetry: a file-modifying Bash command is keyed off the
+    # branch of the file it TOUCHES, not the shell's cwd. A write into a repo on
+    # a protected branch is caught no matter where the shell sits -- mirroring
+    # Edit/Write, which already keys off the target file's branch. ===
+    Case(
+        id="rm into protected repo from feat cwd blocked",
+        make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    Case(
+        id="redirect into protected repo from feat cwd blocked",
+        make_payload=lambda r: _bash(f"echo x > {r['master']}/out.txt", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # A gitignored target in a protected repo is still exempt, even reached from
+    # a feature-branch cwd: gitignored paths are never tracked history.
+    Case(
+        id="touch gitignored path in protected repo from feat cwd allowed",
+        make_payload=lambda r: _bash(f"touch {r['master']}/ignored_dir/x", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    # A `..` segment is resolved to its real destination and judged there: a
+    # relative traversal that lands back inside the protected repo is blocked.
+    Case(
+        id="relative .. traversal into protected repo blocked",
+        make_payload=lambda r: _bash("echo x > sub/../out.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # === Target-keyed git commit/merge: the operated-on repo is read from
+    # `git -C <path>` and `cd <path> &&`, not assumed to be the shell's cwd. ===
+    Case(
+        id="git -C protected repo commit from feat cwd blocked",
+        make_payload=lambda r: _bash(f"git -C {r['master']} commit -m x", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot commit directly to the 'master' branch",),
+    ),
+    Case(
+        id="cd into protected repo then commit blocked",
+        make_payload=lambda r: _bash(f"cd {r['master']} && git commit -m x", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot commit directly to the 'master' branch",),
+    ),
+    # No false positive in the other direction: committing into a feature-branch
+    # repo is fine even when the shell sits on a protected branch.
+    Case(
+        id="git -C feat repo commit from master cwd allowed",
+        make_payload=lambda r: _bash(f"git -C {r['feat']} commit -m x", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # A merge commit onto a protected branch is an ASK (permission prompt), not a
+    # hard DENY: it is sometimes a deliberate, human-approved integration.
+    Case(
+        id="git -C protected repo merge from feat cwd asks",
+        make_payload=lambda r: _bash(f"git -C {r['master']} merge topic", cwd=r["feat"]),
+        expect_exit=0,
+        output_contains=('"permissionDecision": "ask"', "'master'"),
+    ),
+    # A safe merge form (--ff-only) onto a protected repo passes silently.
+    Case(
+        id="git -C protected repo merge --ff-only from feat cwd allowed",
+        make_payload=lambda r: _bash(f"git -C {r['master']} merge --ff-only topic", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    # Precedence: a command that both merges (an ASK) and deletes a tracked file
+    # (a DENY) is denied, not merely prompted -- approving the prompt would
+    # otherwise let the unconditional file deletion through.
+    Case(
+        id="merge plus tracked-file delete on master denied not asked",
+        make_payload=lambda r: _bash("git merge feat && rm foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # Precedence across git clauses: a later direct-commit DENY outranks an
+    # earlier merge/pull ASK in the same command, so prepending `git pull` cannot
+    # downgrade a hard-blocked commit on master to an approvable prompt.
+    Case(
+        id="pull then commit on master denied not asked",
+        make_payload=lambda r: _bash("git pull && git commit -m x", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot commit directly to the 'master' branch",),
+    ),
+    # cd-tracking applies to file mods too: a relative write after `cd <protected>`
+    # is judged against the cd'd-into repo, not the original shell cwd.
+    Case(
+        id="cd into protected repo then rm relative file blocked",
+        make_payload=lambda r: _bash(f"cd {r['master']} && rm foo.py", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    Case(
+        id="cd into protected repo then redirect blocked",
+        make_payload=lambda r: _bash(f"cd {r['master']} && echo x > out.txt", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # An unconfinable write (sed -i) in an earlier clause must not mask a later
+    # confinable write into a protected repo: each clause is judged on its own.
+    Case(
+        id="unconfinable clause then protected-repo write still blocked",
+        make_payload=lambda r: _bash(
+            f"sed -i s/a/b/ bar.py && rm {r['master']}/foo.py", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
+    # A squash chain written with `git -C <repo>` is recognized, so the follow-up
+    # commit is allowed rather than wrongly blocked by the commit guard.
+    Case(
+        id="git -C squash chain commit allowed",
+        make_payload=lambda r: _bash(
+            f"git -C {r['master']} merge --squash topic && git -C {r['master']} commit -m x",
+            cwd=r["feat"],
+        ),
+        expect_exit=0,
+    ),
+    # Quoted command paths are unquoted before the lookup, so quoting cannot hide
+    # the real repo/target from the guard.
+    Case(
+        id="git -C quoted protected repo commit blocked",
+        make_payload=lambda r: _bash(f"git -C '{r['master']}' commit -m x", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot commit directly to the 'master' branch",),
+    ),
+    Case(
+        id="rm quoted tracked file in protected repo blocked",
+        make_payload=lambda r: _bash(f"rm '{r['master']}/foo.py'", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files on the 'master' branch",),
+    ),
 )
 
 
@@ -618,57 +748,53 @@ def _load_hook(hooks_dir: Path) -> ModuleType:
         sys.path.pop(0)
 
 
-def test_is_target_exempt(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _is_target_exempt exempts /tmp, off-protected-branch, and gitignored targets.
+def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _target_protected_branch flags only tracked targets in a protected repo.
 
-    Calls the predicate directly because the empty-cwd and traversal branches
-    can't be reached through the dispatcher: an empty event cwd also defeats
-    branch detection, so the protected-branch check never runs.
+    Returns the offending branch name when a write is NOT exempt, else None.
+    Calls the predicate directly because the empty-cwd case can't be reached
+    through the dispatcher: an empty event cwd also defeats branch detection, so
+    the protected-branch check never runs.
     """
-    # Given the module with check-ignore stubbed to the master repo's patterns
-    # (*.ignored, ignored_dir/). Stubbing keeps the absolute-path assertions off
-    # the real filesystem: pytest's tmp root is under /tmp on Linux, so a real
-    # repo path would hit the /tmp carve-out before the gitignore branch ever
-    # runs. End-to-end check-ignore behavior is covered by the dispatcher cases.
+    # Given the module with branch + check-ignore stubbed. Only the synthetic
+    # /repo tree is a protected working tree; /tmp, /external, and anything else
+    # sit outside any repo, so their branch lookup yields "" (the realistic
+    # result, since /tmp is not a git repo). Stubbing keeps the assertions off the
+    # real filesystem; end-to-end behavior is covered by the dispatcher cases.
     m = _load_hook(hooks_dir)
 
     def fake_is_git_ignored(path: str) -> bool:
         parts = Path(path)
         return parts.suffix == ".ignored" or "ignored_dir" in parts.parts
 
-    # The /repo tree is the protected (master) working tree; anything under
-    # /external sits outside any repo, so its branch lookup yields "".
     def fake_branch_at_path(path: str) -> str:
-        return "" if "/external" in path else "master"
+        return "master" if path.startswith("/repo") else ""
 
     monkeypatch.setattr(m, "_is_git_ignored", fake_is_git_ignored)
     monkeypatch.setattr(m, "get_branch_at_path", fake_branch_at_path)
-    # A synthetic absolute base outside /tmp; git lookups are stubbed, so it
-    # needs no real directory and must not trip the /tmp carve-out.
     base = "/repo"
 
-    # Then /tmp paths are exempt, but a `..` traversal out of /tmp is not
-    assert m._is_target_exempt("/tmp/x", "") is True  # noqa: S108
-    assert m._is_target_exempt("/tmp/../tracked.txt", "") is False  # noqa: S108
-
-    # Then a target that is not on a protected branch (here, outside any repo)
-    # is exempt even though it is not gitignored -- the key is the target's own
-    # branch, not the shell's cwd
-    assert m._is_target_exempt("/external/store/x.md", "") is True
-    assert m._is_target_exempt("x.md", "/external/store") is True
+    # Then a target outside any repo is exempt -- a /tmp scratch path or a `..`
+    # that resolves out of every repo both yield "" from the branch lookup
+    assert m._target_protected_branch("/tmp/x", "") is None  # noqa: S108
+    assert m._target_protected_branch("/tmp/../tracked.txt", "") is None  # noqa: S108
+    assert m._target_protected_branch("/external/store/x.md", "") is None
+    assert m._target_protected_branch("x.md", "/external/store") is None
 
     # Then on a protected branch only gitignored targets are exempt: an absolute
     # gitignored target passes with no cwd, an absolute tracked one does not
     # (cwd is only needed to resolve relative paths)
-    assert m._is_target_exempt(f"{base}/ignored_dir/x", "") is True
-    assert m._is_target_exempt(f"{base}/foo.py", "") is False
+    assert m._target_protected_branch(f"{base}/ignored_dir/x", "") is None
+    assert m._target_protected_branch(f"{base}/foo.py", "") == "master"
 
-    # Then a relative target needs a cwd to resolve: exempt with it, declined without
-    assert m._is_target_exempt("ignored_dir/x", base) is True
-    assert m._is_target_exempt("ignored_dir/x", "") is False
+    # Then a relative target with a cwd resolves and is judged (gitignored here,
+    # so exempt). With no cwd it can't be located, so it can't be attributed to a
+    # protected branch and is treated as harmless (the fail-open default).
+    assert m._target_protected_branch("ignored_dir/x", base) is None
+    assert m._target_protected_branch("ignored_dir/x", "") is None
 
 
-def test_is_target_exempt_follows_symlink_into_protected_repo(
+def test_target_protected_branch_follows_symlink_into_protected_repo(
     repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path
 ) -> None:
     """Verify a symlink resolving into a protected repo is judged by its real path."""
@@ -677,12 +803,8 @@ def test_is_target_exempt_follows_symlink_into_protected_repo(
     m = _load_hook(hooks_dir)
     link = tmp_path / "sneaky.py"
     link.symlink_to(Path(repos["master"]) / "app.py")
-    if str(link).startswith("/tmp/"):  # noqa: S108
-        # The /tmp carve-out short-circuits before the resolve; this branch is
-        # exercised on platforms (e.g. macOS) whose tmp root is not under /tmp.
-        pytest.skip("pytest tmp dir is under /tmp; /tmp carve-out pre-empts the check")
 
     # When checking the symlink target while the repo is on a protected branch
     # Then the branch lookup follows the link to the in-repo path and blocks it,
     # rather than reading the link's own (repo-less) parent directory as exempt
-    assert m._is_target_exempt(str(link), "") is False
+    assert m._target_protected_branch(str(link), "") == "master"
