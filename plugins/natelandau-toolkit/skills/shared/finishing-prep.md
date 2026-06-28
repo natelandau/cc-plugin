@@ -104,24 +104,44 @@ If the subagent is unavailable for any reason, run the project's gates directly
 etc. — don't assume) and proceed the same way. **Do not proceed to the terminal
 step with failing linters or tests.**
 
-## Step D — Review and update documentation
+## Step D — Fix documentation that the branch made wrong
 
-Keep the docs in sync with what the branch changed. Reviewing every doc against
-the full diff is verbose, read-only analysis, so **dispatch the
-`doc-drift-reviewer` subagent** (ships with this plugin) to compare the project's
-documentation against the branch's changes and return a prioritized list of drift
-(stale instructions, undocumented new behavior, dangling references). It is
-read-only and recommends edits without making them.
+The goal here is narrow: make sure nothing in the docs is now **out of date**, and
+that any genuinely **major** new capability isn't left **undocumented**. It is
+_not_ to document everything the branch changed. The docs are for a reader trying
+to use the project, not a changelog of the diff — so the test for every edit is
+"does this keep the reader from being misled, or tell them about something they'd
+actually need to know?" If not, leave the docs alone.
 
-Then apply the recommended updates here, in priority order. If the
-`documentation-writer` skill is available, use it for the actual writing. Commit
-any documentation changes with a conventional message:
+Reviewing every doc against the full diff is verbose, read-only analysis, so
+**dispatch the `doc-drift-reviewer` subagent** (ships with this plugin) to compare
+the project's documentation against the branch's changes and return a prioritized
+list of drift. It is read-only and recommends edits without making them.
+
+Then apply **only** the edits that clear the bar, in priority order:
+
+- **Fix what's now wrong.** A documented command, flag, path, default, or step the
+  branch renamed, moved, removed, or changed — the reader following it today would
+  hit an error or the wrong result. These are the edits that matter most; do them.
+- **Document a major new capability only if a reader would look for it** — a new
+  command, a new public option, a changed setup/install step, a new user-facing
+  feature prominent enough that its absence is a real gap. "Major" is the user's
+  bar, not the diff's: if a reader wouldn't go looking for it, it doesn't need an
+  entry.
+- **Skip the minutiae.** Do not add lines for internal refactors, new private
+  helpers, renamed internals, test changes, or minor options nobody reaching for
+  the docs would need. Adding noise to make the docs "track the diff" makes them
+  worse, not better. When unsure whether an addition earns its place, leave it out.
+
+If the `documentation-writer` skill is available, use it for the actual writing.
+Commit any documentation changes with a conventional message:
 
 ```bash
 git add -A
 git commit -m "<type>(<scope>): <subject>"
 ```
 
-If the subagent reports no drift (or is unavailable and a quick manual scan of the
-README, CONTRIBUTING, and `docs/` shows nothing stale), there's nothing to commit
-— move on.
+Most branches need **no** doc change at all. If nothing is now wrong and no major
+capability went undocumented (or the subagent is unavailable and a quick manual
+scan of the README, CONTRIBUTING, and `docs/` shows nothing stale), there's nothing
+to commit — move on. An empty diff here is the common, correct outcome.
