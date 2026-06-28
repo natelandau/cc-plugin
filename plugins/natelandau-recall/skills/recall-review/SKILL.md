@@ -61,7 +61,8 @@ its own context and returns a structured verdict.
 - **`memory-entry-reviewer`** - one per `learnings/*.md` file. Pass the store path
   and the learning filename to judge. It returns a verdict
   (`KEEP`/`UPDATE`/`DELETE`) with gate findings, a cited reason, any
-  `proposed_change`, and a `confidence`.
+  `proposed_change`, a `confidence`, and a `backlog_candidate` flagging a learning
+  that really names deferred work belonging in `backlog.md`.
 - **`backlog-validity-reviewer`** - one per **open** (`[ ]`) backlog item. Pass the
   store path and the item line verbatim. It returns `CLOSE`/`REMOVE`/`AMEND`/`KEEP`
   with cited evidence, any `proposed_change`, and a `confidence`.
@@ -86,7 +87,26 @@ Collect the verdicts into a concrete change set:
   `DELETE` removes the file; `KEEP` does nothing.
 - **Backlog** (from `backlog-validity-reviewer`): `CLOSE` checks the item off as
   `[x]`, `REMOVE` deletes the line, `AMEND` replaces it with the corrected line,
-  `KEEP` does nothing. Do not add new items.
+  `KEEP` does nothing.
+- **Backlog routing** (from each `memory-entry-reviewer`'s `backlog_candidate`): the
+  sweep sometimes files concrete deferred work as a learning, so route it to the
+  store that fits. For every learning flagged `needed: yes`:
+  1. **Dedupe first.** Read the open `- [ ]` items and skip the add if one already
+     records this fix - relocate work, never duplicate it.
+  2. **Add the item** when it is absent: append a
+     `- [ ] [S|M|L] <item> - <YYYY-MM-DD> [#area]` line (the same format the health
+     lint checks) under the candidate's conventional-commit `section`, using today's
+     date and creating the section heading if it does not exist. This is additive, so
+     it applies directly in either mode.
+  3. **Honor the learning role.** A `workaround` learning stays - its own
+     `KEEP`/`UPDATE` verdict already governs it. A `superseded` learning is now
+     redundant with the item just filed, so its verdict will be `DELETE`; remove it
+     as a destructive change, gated by confidence and mode exactly like any other
+     `DELETE` below.
+
+  This is the one case where the review adds a backlog item. It is not surfacing new
+  work - it is moving captured work to the correct store - so the
+  `backlog-opportunity-reviewer` rule above still stands.
 
 A change is **destructive** if it discards content with no undo: a `DELETE`, a
 `REMOVE`, or the deletion of the non-target files in a merge. The store is not under
@@ -110,7 +130,9 @@ After applying the changes, print a concise summary of what actually changed (an
 in `fix` mode, anything still awaiting the user's confirmation):
 
 - Number of learning files reviewed, merged, and deleted.
-- Whether `backlog.md` was updated (how many items closed, removed, or amended).
+- Whether `backlog.md` was updated (how many items closed, removed, amended, or
+  routed in from a learning - and for routed items, whether the source learning was
+  kept as a workaround or deleted as superseded).
 - Any frontmatter corrections made.
 
 Keep the report to one short paragraph or a brief bulleted list.
