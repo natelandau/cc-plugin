@@ -1,3 +1,18 @@
+## v0.16.0 (2026-06-29)
+
+### Feat
+
+- **branch-protection**: respect quoting and catch more writes
+
+### Fix
+
+- **recall**: stop the sweep from writing an unused MEMORY.md index
+- **skills**: rename recall --fix flag to --clean
+
+### Refactor
+
+- **recall**: delete completed backlog items instead of marking them done
+
 ## v0.15.0 (2026-06-28)
 
 ### Feat
