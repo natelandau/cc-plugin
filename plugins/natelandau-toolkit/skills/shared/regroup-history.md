@@ -41,6 +41,12 @@ branch does not need touching). Regroup when the log has sprawled: many tiny
 edits, `wip`/`fixup` commits, or back-and-forth corrections a reviewer would have
 to wade through.
 
+One more trigger, even on an otherwise-clean log: a **standalone doc commit that
+documents code also changed on this branch** (typically one a docs-fix prep step
+just produced) is itself a reason to regroup, so Step 2 can fold it into that
+code's commit instead of leaving it to land on its own. Don't short-circuit when
+such a commit is present.
+
 ## Step 2 — Decide the logical groups
 
 Read the whole change — the groups live in the diff, not the existing commit

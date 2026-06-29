@@ -144,10 +144,10 @@ The automated sweep only adds and refines. It never deletes. Two skills let you 
 
 | Command | What it does |
 | --- | --- |
-| `/recall-review [--fix]` | Reviews the whole store. Re-judges each learning by altitude and value, deleting entries that describe a single subsystem rather than a cross-cutting concern. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
-| `/recall-backlog [--fix]` | Triages the backlog. Validates each open item against the current repo, closes finished work, removes obsolete items, and corrects drifted ones, then ranks what remains by impact and effort to recommend what to work on next. |
+| `/recall-review [--clean]` | Reviews the whole store. Re-judges each learning by altitude and value, deleting entries that describe a single subsystem rather than a cross-cutting concern. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
+| `/recall-backlog [--clean]` | Triages the backlog. Validates each open item against the current repo, closes finished work, removes obsolete items, and corrects drifted ones, then ranks what remains by impact and effort to recommend what to work on next. |
 
-Both skills delegate the judging to read-only reviewer subagents, so the per-entry analysis stays out of your main conversation. By default they apply the safe corrections directly and propose each deletion for your approval first. Pass `--fix` to apply the high-confidence deletions automatically too. Because the store isn't under version control, `--fix` still confirms any low-confidence deletion before removing it, since a wrong delete can't be undone.
+Both skills delegate the judging to read-only reviewer subagents, so the per-entry analysis stays out of your main conversation. By default they apply the safe corrections directly and propose each deletion for your approval first. Pass `--clean` to apply the high-confidence deletions automatically too. Because the store isn't under version control, `--clean` still confirms any low-confidence deletion before removing it, since a wrong delete can't be undone.
 
 ### Backfilling memory from past sessions
 

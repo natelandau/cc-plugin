@@ -1,8 +1,8 @@
 ---
 name: recall-backlog
-description: Triage and curate this project's persisted recall backlog - validate the open items against the current repo, apply the resulting fixes (close finished work, remove obsolete items, correct drifted ones), then rank what remains by impact and effort to recommend what to do next. Pass --fix to apply removals automatically instead of confirming them.
+description: Triage and curate this project's persisted recall backlog - validate the open items against the current repo, apply the resulting fixes (close finished work, remove obsolete items, correct drifted ones), then rank what remains by impact and effort to recommend what to do next. Pass --clean to apply removals automatically instead of confirming them.
 disable-model-invocation: true
-argument-hint: "[--fix]"
+argument-hint: "[--clean]"
 ---
 
 # Recall Backlog
@@ -20,12 +20,12 @@ are gated by confidence and mode.
 
 ## Mode
 
-Parse `$ARGUMENTS` for the token `--fix`:
+Parse `$ARGUMENTS` for the token `--clean`:
 
-- **FIX** - `true` if `--fix` appears anywhere, otherwise `false`.
+- **CLEAN** - `true` if `--clean` appears anywhere, otherwise `false`.
 
-Echo the mode back in one line before proceeding: `propose` when `FIX` is false,
-`fix` when true, so the user knows up front whether removals will be applied for
+Echo the mode back in one line before proceeding: `propose` when `CLEAN` is false,
+`clean` when true, so the user knows up front whether removals will be applied for
 them. The mode only changes how removals are applied (Phase 3); everything else is
 the same either way.
 
@@ -79,7 +79,7 @@ Turn the Phase 1 verdicts into edits to `backlog.md`:
   gated by mode:
   - **`propose` (default):** list every removal for the user with the reviewer's
     evidence and get approval before deleting any of them.
-  - **`fix`:** delete the **high-confidence** removals without asking, but still list
+  - **`clean`:** delete the **high-confidence** removals without asking, but still list
     and confirm each **low-confidence** removal first - those are the ones most
     likely to be wrong, and the deletion cannot be undone.
 - **`KEEP`** - leave untouched.
