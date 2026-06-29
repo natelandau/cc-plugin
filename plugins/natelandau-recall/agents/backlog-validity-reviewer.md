@@ -27,7 +27,8 @@ pruned, so it accumulates work that has since been done or abandoned.
 ## Verdict - return exactly one
 
 - **CLOSE** - the work is done. Cite the commit, file, test, or code that
-  implements it. (The caller will check the item off as `[x]`.)
+  implements it. (The caller will delete the item line; the finished work lives on
+  in the repo and its history.)
 - **REMOVE** - no longer relevant: the feature was dropped, the approach was
   abandoned or superseded, or it no longer makes sense against the current design.
   Cite why.

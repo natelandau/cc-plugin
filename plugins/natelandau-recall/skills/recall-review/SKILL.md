@@ -85,9 +85,9 @@ Collect the verdicts into a concrete change set:
   and delete the others.
 - **Learnings** (from `memory-entry-reviewer`): `UPDATE` rewrites the text in place;
   `DELETE` removes the file; `KEEP` does nothing.
-- **Backlog** (from `backlog-validity-reviewer`): `CLOSE` checks the item off as
-  `[x]`, `REMOVE` deletes the line, `AMEND` replaces it with the corrected line,
-  `KEEP` does nothing.
+- **Backlog** (from `backlog-validity-reviewer`): `CLOSE` deletes the line because
+  the work is done, `REMOVE` deletes the line because the work is obsolete, `AMEND`
+  replaces it with the corrected line, `KEEP` does nothing.
 - **Backlog routing** (from each `memory-entry-reviewer`'s `backlog_candidate`): the
   sweep sometimes files concrete deferred work as a learning, so route it to the
   store that fits. For every learning flagged `needed: yes`:
@@ -108,12 +108,17 @@ Collect the verdicts into a concrete change set:
   work - it is moving captured work to the correct store - so the
   `backlog-opportunity-reviewer` rule above still stands.
 
-A change is **destructive** if it discards content with no undo: a `DELETE`, a
-`REMOVE`, or the deletion of the non-target files in a merge. The store is not under
-version control, so a wrong destructive change cannot be rolled back - which is why
-confidence and mode gate how freely you apply them. Everything else (`UPDATE`,
-`AMEND`, `CLOSE`, and the mechanical health-lint fixes like a `name:`→`summary:`
-rename) rewrites content and applies directly in either mode.
+A change is **destructive** if it discards deferred work or knowledge with no undo:
+a `DELETE`, a `REMOVE`, or the deletion of the non-target files in a merge. The store
+is not under version control, so a wrong destructive change cannot be rolled back -
+which is why confidence and mode gate how freely you apply them. A `CLOSE` also
+deletes its line, but it discards work the reviewer verified is already done (and
+which lives on in the repo and its history), so it records nothing the store still
+needs; like `UPDATE`, `AMEND`, and the mechanical health-lint fixes such as a
+`name:`→`summary:` rename, it applies directly in either mode - except confirm a
+low-confidence `CLOSE` first, since that is the case where "already done" might be
+wrong. Name every closed item in the report, since the line is the only record and
+it is now gone.
 
 How the destructive changes are applied depends on the mode:
 

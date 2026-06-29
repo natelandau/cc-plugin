@@ -69,9 +69,13 @@ avoids spending analysis on work that is already done.
 
 Turn the Phase 1 verdicts into edits to `backlog.md`:
 
-- **`CLOSE`** - mark the item done by flipping `- [ ]` to `- [x]`. Apply directly
-  when the reviewer's confidence is high; the evidence is cited and a checked-off
-  item is easy to see and reverse.
+- **`CLOSE`** - the work is already done, so delete the line. Apply directly when
+  the reviewer's confidence is high; the evidence is cited and the finished work
+  lives on in the repo and its history, so the line records nothing the store still
+  needs. The "Changes applied" report names every closed item, so it stays visible
+  for the run even though the line is gone. Unlike a `REMOVE`, this discards work
+  that is verifiably done, not a task that was never started, which is why it applies
+  directly rather than under the removal gate.
 - **`AMEND`** - replace the line with the reviewer's corrected
   `- [ ] [S|M|L] <imperative> - <YYYY-MM-DD> [#area]` line. Apply directly; it fixes
   drift without discarding the item.
@@ -97,7 +101,8 @@ After applying the approved changes, print a compact, skimmable report.
 ### 1. Changes applied
 
 A one-line summary of what changed - how many items closed, removed, and amended -
-followed by the `REMOVE` items (with evidence) and anything still awaiting the
+followed by the `CLOSE` and `REMOVE` items (with evidence), since both delete the
+line and this report is the only record of them, plus anything still awaiting the
 user's confirmation. If nothing changed, say so in one line.
 
 ### 2. Open backlog at a glance

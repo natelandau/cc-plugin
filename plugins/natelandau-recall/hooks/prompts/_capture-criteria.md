@@ -42,7 +42,8 @@ Durable knowledge a future agent needs and can't recover from the repo, such as:
 - `backlog.md`, concrete deferred work. Sections are conventional-commit types
   (build/ci/docs/feat/fix/perf/refactor/style/test). Each item:
   `- [ ] [S|M|L] <imperative>, <YYYY-MM-DD> [#area]`. Add newly-deferred items;
-  check off `[x]` items the transcript shows were completed.
+  delete items the transcript shows were completed (the finished work lives on in
+  the repo and its history, so the line records nothing the store still needs).
 
 If a candidate is only true about the specific lines you changed, it belongs in
 NONE of these, drop it.
