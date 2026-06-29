@@ -39,6 +39,8 @@ exception; see below).
 | `git merge`, `git merge --no-ff`, `git pull` (a real merge commit) | Ask | A merge onto trunk is sometimes a deliberate, human-approved integration. You approve or reject. |
 | `git merge --ff-only`, `git merge --squash`, `git merge --abort`, `git merge --quit` | Allow | These cannot write a merge commit to the branch. |
 | `git pull --ff-only`, `git pull --rebase`, `git pull -r` | Allow | Fast-forward or rebase, no merge commit. |
+| `git apply`, `git am`, `git stash pop`, `git stash apply` | Block | These rewrite tracked files in the working tree, the same as an edit on trunk. |
+| `git apply --check`/`--stat`/`--numstat`/`--summary`, `git am --abort`/`--quit`/`--show-current-patch` | Allow | Inspection and recovery forms that apply nothing. |
 
 The hook recognizes `git -C <path>` and `-c key=val` options before the
 subcommand, so `git -C /path/to/repo commit` is judged against `/path/to/repo`,
@@ -67,6 +69,13 @@ The hook reads the write targets from the command and checks each one:
 | Positional file arguments | `rm`, `rmdir`, `mv`, `cp`, `touch`, `mkdir`, `chmod`, `chown`, `ln`, `install` |
 | Output redirects | `> file`, `>> file`, `2> file`, `2>> file` |
 | In-place and download writers | `sed -i`, `perl -i`, `curl -o`/`-O`, `wget`, `tee` |
+| Bulk and in-place writers without a positional target | `truncate`, `dd of=<path>` (except `of=/dev/null`), `find ... -delete`, `xargs rm` |
+
+The command name is read past a leading launcher (`sudo`, `env`, `command`,
+`nice`, `time`), an absolute path (`/bin/rm`), or a subshell/group opener
+(`( rm ... )`), so these do not slip the rules. Metacharacters inside quotes are
+treated as data, not syntax, so a quoted program like `awk 'c>=2'` or
+`grep 'a>b'` is not mistaken for a redirect.
 
 A write is allowed, even on a protected branch, when its target is harmless:
 
@@ -105,9 +114,9 @@ genuinely intend it.
 
 The hook attributes a write to the file's own branch only when it can read the
 target path from the command. For positional writers and redirects, it can. For
-`sed -i`, `perl -i`, `curl -o`, `wget`, and similar, the target is not
-recoverable positionally, so the hook falls back to the branch of your shell's
-working directory.
+`sed -i`, `perl -i`, `curl -o`, `wget`, `truncate`, `dd of=`, `find -delete`,
+`xargs rm`, and similar, the target is not recoverable positionally, so the hook
+falls back to the branch of your shell's working directory.
 
 The practical effect: `sed -i ... /path/to/main-repo/file.py` run from a feature
 worktree is allowed, because the hook cannot confine the target and your shell is

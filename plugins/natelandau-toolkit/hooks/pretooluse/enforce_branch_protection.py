@@ -68,6 +68,20 @@ _GIT_OPTS = r"(?:-[cC]\s+\S+\s+)*"
 GIT_COMMIT_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}commit\b")
 GIT_MERGE_PULL_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}(?:merge|pull)\b")
 GIT_MERGE_SQUASH_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}merge\s+--squash\b")
+# Git subcommands that mutate the working tree (not history): apply a patch, a
+# mailbox of patches, or pop/apply a stash. On a protected branch these dirty
+# tracked files just like an edit, so they get the file-mod deny.
+GIT_WORKTREE_WRITE_RE = re.compile(
+    rf"^\s*git\s+{_GIT_OPTS}(?:apply\b|am\b|stash\s+(?:pop|apply)\b)"
+)
+# Flags that make a working-tree-write git clause actually read-only: `git apply`
+# inspection flags (check/stat/numstat/summary) and `git am` control flags that
+# do not apply a patch (abort/quit/show-current-patch). Anchored to a flag
+# position (start or whitespace) so a patch FILENAME that merely contains the
+# text -- `git am 0001--check.patch` -- is not mistaken for the inspect flag.
+GIT_WORKTREE_READONLY_RE = re.compile(
+    r"(?:^|\s)--(?:check|stat|numstat|summary|abort|quit|show-current-patch)\b"
+)
 # Pulls the `-C <path>` target out of a git clause so the op is judged against
 # the repo it touches, not the shell's cwd.
 _GIT_C_DIR_RE = re.compile(r"\bgit\s+(?:-c\s+\S+\s+)*-C\s+(\S+)")
@@ -176,6 +190,18 @@ PROTECTED_FILE_MOD_RULES: tuple[CommandRule, ...] = (
     CommandRule(pattern=r"\bcurl\b.*\s-[oO]\b"),
     CommandRule(pattern=r"^\s*wget\b"),
     CommandRule(pattern=r"\btee\b"),
+    # truncate rewrites a file's size in place; its target can't be confined
+    # positionally (flags + a size arg precede the path), so block it outright.
+    CommandRule(pattern=r"^\s*truncate\b"),
+    # `dd of=<path>` writes the named file; /dev/null is the one harmless sink.
+    CommandRule(pattern=r"\bdd\b.*\bof=", exclude=r"\bof=/dev/null\b"),
+    # `find ... -delete` removes every matched path.
+    CommandRule(pattern=r"\bfind\b.*\s-delete\b"),
+    # `xargs rm` deletes whatever the pipeline feeds it; the leading-anchored rm
+    # rule above misses it because rm is not the clause's first word. Allow
+    # intervening xargs flags but require rm to be the command it runs, so
+    # `xargs grep rm` (searching for the text "rm") does not trip.
+    CommandRule(pattern=r"\bxargs\b\s+(?:-\S+\s+)*rm\b"),
     # Excludes /dev/null targets so noise-suppression idioms like
     # `cmd 2>/dev/null` and `cmd > /dev/null 2>&1` pass through.
     CommandRule(pattern=r"(?<![>&])\s*>(?!&)(?!\s*/dev/null\b)", match_full=True),
@@ -408,6 +434,47 @@ _FILE_MOD_CMDS = frozenset(
     {"rm", "rmdir", "mv", "cp", "touch", "mkdir", "chmod", "chown", "ln", "install", "tee"}
 )
 
+# A leading `NAME=value` environment assignment that precedes a command.
+_ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+# Command-launcher words whose real executable is the next non-flag word. The
+# guard's command-name rules anchor on the clause head, so without skipping
+# these `sudo rm`, `env rm`, `command rm`, ... would slip the rm/wget/truncate
+# rules. `xargs` is deliberately absent: it has its own rule because its command
+# can be preceded by its own flags.
+_CMD_WRAPPERS = frozenset({"sudo", "doas", "env", "command", "builtin", "exec", "nice", "time"})
+
+# Leading characters stripped off a command token to recover its real name: a
+# backslash (alias-bypass `\rm`), a subshell/group opener glued to the command
+# (`(rm`), and a directory prefix is dropped by the trailing rsplit on `/`.
+_CMD_HEAD_STRIP = "\\({"
+
+
+def _command_index(word_spans: list[re.Match[str]]) -> int:
+    """Return the word-span index of a clause's real executable, past wrappers.
+
+    Skips leading `NAME=value` env-assignments, subshell/group openers (`(`/`{`
+    as their own token), and command launchers (`sudo`, `env`, ...) plus a
+    launcher's own flags, so the executable in `( FOO=bar sudo rm )` resolves to
+    the `rm` token. Returns `len(word_spans)` when no command remains (e.g. a
+    bare `env`). A launcher flag that takes a separate value (`sudo -u bob`) is a
+    known gap: only valueless launcher flags are skipped.
+    """
+    i = 0
+    n = len(word_spans)
+    while i < n:
+        token = word_spans[i].group()
+        if _ENV_ASSIGN.match(token) or token in ("(", "{"):
+            i += 1
+            continue
+        if token.lstrip("\\").rsplit("/", 1)[-1] in _CMD_WRAPPERS:
+            i += 1
+            while i < n and word_spans[i].group().startswith("-"):
+                i += 1
+            continue
+        return i
+    return n
+
 
 def _clause_write_targets(clause: str) -> list[str] | None:
     """Return the file paths a single Bash clause writes, or None if it can't be confined.
@@ -421,16 +488,53 @@ def _clause_write_targets(clause: str) -> list[str] | None:
     unmodeled file-mod can never slip past the guard by pointing a target at an
     exempt path. An empty list means the clause writes nothing this can see.
     """
-    targets: list[str] = list(_REDIRECT_TARGET_RE.findall(clause))
+    # Scan a quote-masked view of the clause so a quoted metacharacter (the `>`
+    # in `awk 'c>=2'` or `grep 'a>b'`) is never read as a redirect; mask_quoted
+    # preserves byte offsets, so each target is sliced back out of the original.
+    # mask_comparisons additionally blanks a `>` that is an arithmetic/test
+    # comparison (`(( a > b ))`, `[[ 5 > 3 ]]`) while leaving a real redirect
+    # inside a command substitution (`$(cat x > f)`) intact.
+    masked = bash.mask_comparisons(bash.mask_quoted(clause))
+    targets: list[str] = [
+        clause[m.start(1) : m.end(1)] for m in _REDIRECT_TARGET_RE.finditer(masked)
+    ]
     # Inspect the clause with its redirects removed: what remains must be a
     # non-file-writing command or a `_FILE_MOD_CMDS` write whose targets are its
     # positional args. Anything the block rules would still flag is a write that
-    # cannot be confined, so decline the carve-out.
-    remainder = _REDIRECT_TARGET_RE.sub(" ", clause).strip()
-    tokens = remainder.split()
-    if tokens and tokens[0] in _FILE_MOD_CMDS:
-        targets.extend(t for t in tokens[1:] if not t.startswith("-"))
-    elif match_rules(remainder, PROTECTED_FILE_MOD_RULES, skip_git_parts=True) is not None:
+    # cannot be confined, so decline the carve-out. Redirect spans are blanked
+    # with equal-length filler so the remainder stays offset-aligned with the
+    # original, letting positional targets be sliced from `clause` by span.
+    remainder = _REDIRECT_TARGET_RE.sub(lambda m: " " * len(m.group()), masked)
+    word_spans = list(re.finditer(r"\S+", remainder))
+    # Resolve the real executable past any wrapper/env/subshell prefix and strip
+    # its path, so `sudo rm`, `/bin/rm`, `env rm`, and `( rm` all read as `rm`.
+    cmd_index = _command_index(word_spans)
+    has_command = cmd_index < len(word_spans)
+    head = ""
+    if has_command:
+        head = word_spans[cmd_index].group().lstrip(_CMD_HEAD_STRIP).rsplit("/", 1)[-1]
+    if head in _FILE_MOD_CMDS:
+        # Positional args are write targets, minus flags and bare shell grouping
+        # punctuation (`)`/`}`/`;` from a subshell or brace group, which are not
+        # paths -- so `( rm /tmp/x )` confines to /tmp instead of also "writing" `)`.
+        targets.extend(
+            clause[m.start() : m.end()]
+            for m in word_spans[cmd_index + 1 :]
+            if not m.group().startswith("-") and m.group().strip("(){};&") != ""
+        )
+        return targets
+    # Match the block rules on the full remainder (catches a non-anchored writer
+    # anywhere, e.g. `sed -i` even inside `x=$(sed -i ...)`), then, only when the
+    # head was actually rewritten by a wrapper/path prefix, on the de-wrapped
+    # command so an anchored rule like `^\s*wget`/`^\s*truncate` still fires.
+    # Targets above come from the original spans, so basenaming cannot move a path.
+    remainder_stripped = remainder.strip()
+    blocked = match_rules(remainder_stripped, PROTECTED_FILE_MOD_RULES, skip_git_parts=True)
+    if blocked is None and has_command:
+        dewrapped = (head + remainder[word_spans[cmd_index].end() :]).strip()
+        if dewrapped != remainder_stripped:
+            blocked = match_rules(dewrapped, PROTECTED_FILE_MOD_RULES, skip_git_parts=True)
+    if blocked is not None:
         return None
     return targets
 
@@ -532,17 +636,27 @@ def _git_op_decision(*, command: str, clause: str, repo_dir: str, branch: str) -
 def _git_clause_decision(command: str, clause: str, eff_cwd: str) -> Decision | None:
     """Return a Decision for one git clause, judged against the repo it operates on, else None.
 
-    Only commit/merge/pull can write history, so read-only git clauses
-    (`status`, `log`, `diff`, ...) short-circuit before the branch lookup --
-    that lookup spawns a `git` subprocess, so skipping it keeps the common case
-    off the hot path.
+    Only commit/merge/pull (history) and apply/am/stash-pop (working tree) can
+    write, so every other git clause (`status`, `log`, `diff`, ...) short-circuits
+    before the branch lookup -- that lookup spawns a `git` subprocess, so skipping
+    it keeps the common read-only case off the hot path.
     """
-    if not (GIT_COMMIT_RE.match(clause) or GIT_MERGE_PULL_RE.match(clause)):
+    is_history = bool(GIT_COMMIT_RE.match(clause) or GIT_MERGE_PULL_RE.match(clause))
+    is_worktree_write = (
+        GIT_WORKTREE_WRITE_RE.match(clause) is not None
+        and GIT_WORKTREE_READONLY_RE.search(clause) is None
+    )
+    if not (is_history or is_worktree_write):
         return None
     repo_dir = _git_clause_dir(clause, eff_cwd)
     branch = get_branch_at_path(repo_dir) if repo_dir else _run_git("branch", "--show-current")
     if branch not in PROTECTED_BRANCHES:
         return None
+    # A working-tree write (apply/am/stash pop) dirties tracked files exactly as
+    # an edit would, so it gets the file-mod deny. History writes keep their own
+    # commit/merge handling (direct-commit deny, merge ASK).
+    if is_worktree_write and not is_history:
+        return _deny_file_mod(branch)
     return _git_op_decision(command=command, clause=clause, repo_dir=repo_dir, branch=branch)
 
 

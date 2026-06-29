@@ -9,6 +9,7 @@ stdout/stderr substrings. Every block carries the canonical
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -426,6 +427,340 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
+    # === Quote-aware parsing: a `>`/`&&`/`;`/`|` inside quotes is DATA, not a
+    # redirect or clause operator, so a read-only command carrying one in a
+    # quoted program (awk/grep/jq/echo) passes on a protected branch. Without
+    # quote-awareness the `>` in `c>=2` reads as an output redirect and blocks. ===
+    Case(
+        id="awk with quoted >= on master allowed",
+        make_payload=lambda r: _bash("awk '/^---$/{c++} c>=2{exit}' foo.md", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="awk with quoted > comparison on master allowed",
+        make_payload=lambda r: _bash("awk '$3 > 100 {print $1}' data.txt", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="grep with quoted > on master allowed",
+        make_payload=lambda r: _bash("grep 'a > b' foo.txt", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="jq with quoted > on master allowed",
+        make_payload=lambda r: _bash("jq '.a > .b' data.json", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="echo quoted redirect literal on master allowed",
+        make_payload=lambda r: _bash("echo 'write with > inside'", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="python -c with quoted > on master allowed",
+        make_payload=lambda r: _bash('python -c "print(1 > 2)"', cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="sed read-only print on master allowed",
+        make_payload=lambda r: _bash("sed -n '/x/p' foo.txt", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # A quoted operator must not HIDE a real write spliced onto the command: the
+    # genuine redirect/operator still parses and still blocks.
+    Case(
+        id="awk quoted program with real redirect on master blocked",
+        make_payload=lambda r: _bash("awk '{print $1}' data.txt > out.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="grep quoted > with real redirect on master blocked",
+        make_payload=lambda r: _bash("grep 'a>b' foo.txt > results.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # A quoted sequence operator must not mask a real second clause: the real
+    # unquoted `;`/`&&` still splits and the trailing file mod is still caught.
+    Case(
+        id="quoted semicolon then real rm on master blocked",
+        make_payload=lambda r: _bash("echo 'a ; b' ; rm foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="quoted && then real rm on master blocked",
+        make_payload=lambda r: _bash('echo "x && y" && rm foo.py', cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # A quoted `;` keeps the whole thing one read-only clause: the literal `rm`
+    # inside the quotes is text and must NOT be treated as a delete.
+    Case(
+        id="echo with quoted rm command on master allowed",
+        make_payload=lambda r: _bash("echo 'rm foo.py'", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # === Arithmetic / test comparisons: a bare `>` in `(( ))`, `$(( ))`, or
+    # `[[ ]]` compares values, it does not redirect, so these read-only commands
+    # pass on a protected branch. ===
+    Case(
+        id="arithmetic command comparison on master allowed",
+        make_payload=lambda r: _bash("if (( 5 > 3 )); then echo big; fi", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="arithmetic expansion comparison on master allowed",
+        make_payload=lambda r: _bash("echo $((3 > 2))", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="test expression comparison on master allowed",
+        make_payload=lambda r: _bash("[[ 5 > 3 ]] && echo big", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # Safety: the arithmetic/test carve-out must NOT extend into a command
+    # substitution, whose body runs -- a real redirect inside one still blocks.
+    Case(
+        id="redirect inside command substitution on master blocked",
+        make_payload=lambda r: _bash("result=$(cat a > out.txt)", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="arith ok but command-sub redirect on master blocked",
+        make_payload=lambda r: _bash("(( a > b )) && echo $(cat a > out.txt)", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # === High-confidence filesystem writes that the redirect/positional model
+    # cannot confine: blocked on a protected branch, allowed on a feature branch
+    # (branch-keyed, like every other file mod). ===
+    Case(
+        id="truncate on master blocked",
+        make_payload=lambda r: _bash("truncate -s 0 foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="truncate on feat allowed",
+        make_payload=lambda r: _bash("truncate -s 0 foo.py", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="dd of= file on master blocked",
+        make_payload=lambda r: _bash("dd if=/dev/zero of=foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="dd of=/dev/null on master allowed",
+        make_payload=lambda r: _bash("dd if=foo.py of=/dev/null", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="find -delete on master blocked",
+        make_payload=lambda r: _bash("find . -name '*.py' -delete", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="xargs rm on master blocked",
+        make_payload=lambda r: _bash("find . -name '*.py' | xargs rm", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="xargs -0 rm on master blocked",
+        make_payload=lambda r: _bash("find . -print0 | xargs -0 rm", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # No false positive: `xargs grep rm` searches for the text "rm", it does not
+    # run rm, so it passes.
+    Case(
+        id="xargs grep for rm text on master allowed",
+        make_payload=lambda r: _bash("find . | xargs grep rm", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # === git working-tree writes (apply/am/stash pop) dirty tracked files on a
+    # protected branch, so they get the file-mod deny; read-only inspections and
+    # feature branches pass. ===
+    Case(
+        id="git apply on master blocked",
+        make_payload=lambda r: _bash("git apply patch.diff", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="git apply on feat allowed",
+        make_payload=lambda r: _bash("git apply patch.diff", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git apply --check on master allowed",
+        make_payload=lambda r: _bash("git apply --check patch.diff", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git am on master blocked",
+        make_payload=lambda r: _bash("git am patch.mbox", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="git stash pop on master blocked",
+        make_payload=lambda r: _bash("git stash pop", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="git stash pop on feat allowed",
+        make_payload=lambda r: _bash("git stash pop", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git stash list on master allowed",
+        make_payload=lambda r: _bash("git stash list", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # git am / apply read-only and recovery forms touch nothing, so they pass on a
+    # protected branch; the inspect/control flags are matched at a flag position
+    # so a patch FILENAME containing the text does not flip a real apply.
+    Case(
+        id="git am --abort on master allowed",
+        make_payload=lambda r: _bash("git am --abort", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git am --show-current-patch on master allowed",
+        make_payload=lambda r: _bash("git am --show-current-patch", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git apply --numstat on master allowed",
+        make_payload=lambda r: _bash("git apply --numstat patch.diff", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git am patch filename containing --check on master blocked",
+        make_payload=lambda r: _bash("git am 0001--check.patch", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # === Subshell / brace group: a file mod inside `( ... )` / `{ ...; }` is still
+    # the command it runs, so the leading group opener does not hide it; the
+    # exempt-path carve-out still applies to the confinable target. ===
+    Case(
+        id="rm in subshell on master blocked",
+        make_payload=lambda r: _bash("( rm foo.py )", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="rm in subshell no spaces on master blocked",
+        make_payload=lambda r: _bash("(rm foo.py)", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="rm in brace group on master blocked",
+        make_payload=lambda r: _bash("{ rm foo.py; }", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="rm under tmp in subshell on master allowed",
+        make_payload=lambda r: _bash("( rm /tmp/scratch )", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # A literal `[[` argument is not a test keyword, so a real redirect after it
+    # is still seen and blocked (regression guard for the arithmetic/test mask).
+    Case(
+        id="echo literal bracket with redirect on master blocked",
+        make_payload=lambda r: _bash("echo [[ > out.txt", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # === Command-head normalization: a file-mod whose executable hides behind a
+    # launcher (`sudo`/`env`/`command`/`nice`/`time`), an env-assignment, or a
+    # path is resolved to its basename, so these no longer slip the head-anchored
+    # rules on a protected branch. ===
+    Case(
+        id="sudo rm on master blocked",
+        make_payload=lambda r: _bash("sudo rm -rf foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="sudo rm on feat allowed",
+        make_payload=lambda r: _bash("sudo rm -rf foo.py", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="absolute-path rm on master blocked",
+        make_payload=lambda r: _bash("/bin/rm foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="command-builtin rm on master blocked",
+        make_payload=lambda r: _bash("command rm foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="env-assignment prefix rm on master blocked",
+        make_payload=lambda r: _bash("env FOO=bar rm foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # The exempt-path carve-out survives a wrapper: a wrapped delete whose only
+    # target is under /tmp is still a /tmp-only write.
+    Case(
+        id="sudo rm under tmp on master allowed",
+        make_payload=lambda r: _bash("sudo rm /tmp/scratch", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # A read-only lookup (`command -v rm`) has no target after the executable, so
+    # it is not a write and passes.
+    Case(
+        id="command -v rm lookup on master allowed",
+        make_payload=lambda r: _bash("command -v rm", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # An anchored non-FILE_MOD writer (wget/truncate) behind a wrapper is caught
+    # via the de-wrapped command, not just the bare rm-family set.
+    Case(
+        id="sudo wget on master blocked",
+        make_payload=lambda r: _bash("sudo wget http://example.com/x", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    Case(
+        id="sudo truncate on master blocked",
+        make_payload=lambda r: _bash("sudo truncate -s 0 foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # Regression guard: a `NAME=$(...)` command-substitution assignment must not
+    # be mistaken for a plain env-assignment and dropped -- the writer inside it
+    # (here `sed -i`) is still seen via the full-remainder match.
+    Case(
+        id="command-sub assignment with sed -i on master blocked",
+        make_payload=lambda r: _bash("x=$(sed -i 's/a/b/' foo.py)", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=("Cannot modify files",),
+    ),
+    # Documented boundary: a mutation hidden inside a command substitution is
+    # deliberately NOT recursed into (the hook guards a cooperating agent, not an
+    # adversarial one), so a literal `$(rm ...)` passes. Locked so a future change
+    # to this behavior is intentional.
+    Case(
+        id="command-sub hidden rm on master allowed (out of scope)",
+        make_payload=lambda r: _bash("echo $(rm foo.py)", cwd=r["master"]),
+        expect_exit=0,
+    ),
     # Safety: a `..` segment is resolved to its real destination and judged
     # there, so a traversal that lands back inside the protected repo is blocked
     # (see the "relative .. traversal into protected repo blocked" case below)
@@ -750,6 +1085,56 @@ def _load_hook(hooks_dir: Path) -> ModuleType:
     return load_hook_module(
         hooks_dir, "pretooluse/enforce_branch_protection.py", "_branch_protection_under_test"
     )
+
+
+@pytest.mark.parametrize(
+    ("clause", "expected_head"),
+    [
+        ("rm foo.py", "rm"),  # no prefix
+        ("sudo rm foo.py", "rm"),  # launcher
+        ("sudo -E rm foo.py", "rm"),  # launcher with a valueless flag
+        ("/bin/rm foo.py", "rm"),  # absolute path -> basename
+        ("/usr/bin/env rm foo.py", "rm"),  # path-launcher then command
+        ("command rm foo.py", "rm"),  # builtin launcher
+        ("FOO=bar rm foo.py", "rm"),  # env-assignment prefix
+        ("cat foo.py", "cat"),  # non-wrapper passes through
+    ],
+)
+def test_command_index_resolves_real_executable(
+    hooks_dir: Path, clause: str, expected_head: str
+) -> None:
+    """Verify the real executable is found past launchers, env-assignments, and paths."""
+    # Given the clause tokenized into whitespace word-spans
+    m = _load_hook(hooks_dir)
+    spans = list(re.finditer(r"\S+", clause))
+
+    # When resolving the command index
+    idx = m._command_index(spans)
+
+    # Then the token at that index basenames to the expected executable
+    head = spans[idx].group().lstrip("\\").rsplit("/", 1)[-1]
+    assert head == expected_head
+
+
+def test_command_index_returns_len_when_no_command(hooks_dir: Path) -> None:
+    """Verify a clause that is only launchers/assignments yields no executable index."""
+    # Given a bare launcher and a lone env-assignment
+    m = _load_hook(hooks_dir)
+    for clause in ("sudo", "FOO=bar"):
+        spans = list(re.finditer(r"\S+", clause))
+        # Then the index is past the last span (no real command found)
+        assert m._command_index(spans) == len(spans)
+
+
+def test_command_index_known_gap_launcher_flag_value(hooks_dir: Path) -> None:
+    """Verify a launcher flag that takes a separate value is a documented gap."""
+    # Given `sudo -u bob rm`: only valueless launcher flags are skipped, so the
+    # flag's value `bob` is mistaken for the command rather than `rm`.
+    m = _load_hook(hooks_dir)
+    spans = list(re.finditer(r"\S+", "sudo -u bob rm foo.py"))
+
+    # Then the resolved head is the flag value, not rm -- the known limitation
+    assert spans[m._command_index(spans)].group() == "bob"
 
 
 def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
