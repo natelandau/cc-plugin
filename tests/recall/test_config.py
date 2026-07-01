@@ -24,6 +24,23 @@ def test_load_defaults_when_no_files(tmp_path: Path) -> None:
     assert cfg.sweep_enabled is True
     assert cfg.sweep_model == "claude-sonnet-4-6"
     assert cfg.min_exchanges == 10
+    assert cfg.sweep_save_transcript is True
+
+
+def test_save_transcript_can_be_disabled(tmp_path: Path) -> None:
+    """Verify save_transcript = false is read from the [sweep] table."""
+    # Given a project config that opts out of saving the sweep transcript
+    proj = tmp_path / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    (proj / ".claude" / "natelandau-recall.toml").write_text(
+        "[sweep]\nsave_transcript = false\n", encoding="utf-8"
+    )
+
+    # When config loads
+    cfg = RecallConfig.load(home=tmp_path / "home", project_dir=str(proj))
+
+    # Then the flag reflects the opt-out
+    assert cfg.sweep_save_transcript is False
 
 
 def test_project_overrides_win(tmp_path: Path) -> None:

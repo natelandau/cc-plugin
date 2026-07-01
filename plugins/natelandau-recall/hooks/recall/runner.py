@@ -57,9 +57,16 @@ def build_env(*, base: Mapping[str, str]) -> dict[str, str]:
     return env
 
 
-def build_args(*, model: str) -> list[str]:
-    """Construct the `claude -p` CLI args: file tools only, no persistence."""
-    return [
+def build_args(*, model: str, save_transcript: bool = True) -> list[str]:
+    """Construct the `claude -p` CLI args: file tools only.
+
+    Args:
+        model: The model to run the sweep under.
+        save_transcript: When False, add --no-session-persistence so the sweep's
+            own session is not written to ~/.claude/projects. Defaults to True so
+            the sweep's API-token usage stays auditable in the transcript.
+    """
+    args = [
         "claude",
         "-p",
         "--model",
@@ -69,9 +76,11 @@ def build_args(*, model: str) -> list[str]:
         "--verbose",
         "--allowedTools",
         "Read,Write,Edit",
-        "--no-session-persistence",
         "--dangerously-skip-permissions",
     ]
+    if not save_transcript:
+        args.append("--no-session-persistence")
+    return args
 
 
 def _extract_tool_entries(content: list[object]) -> list[dict[str, str]]:
@@ -122,13 +131,20 @@ def parse_stream_json(stdout: str) -> tuple[list[dict[str, str]], str]:
 class ClaudeRunner:
     """Runs `claude -p` for the sweep and returns a structured, never-raising result."""
 
-    def __init__(self, *, model: str = DEFAULT_MODEL, timeout: int = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        *,
+        model: str = DEFAULT_MODEL,
+        timeout: int = DEFAULT_TIMEOUT,
+        save_transcript: bool = True,
+    ) -> None:
         self.model = model
         self.timeout = timeout
+        self.save_transcript = save_transcript
 
     def _build_args(self) -> list[str]:
-        """Build the CLI args for this runner's configured model."""
-        return build_args(model=self.model)
+        """Build the CLI args for this runner's configured model and persistence."""
+        return build_args(model=self.model, save_transcript=self.save_transcript)
 
     def run(self, prompt: str, *, cwd: str) -> RunResult:
         """Execute `claude -p` and return a RunResult, never raising.

@@ -53,15 +53,38 @@ def test_build_env_does_not_mutate_base() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_build_args_restricts_tools_and_persistence() -> None:
-    """Verify build_args restricts tools, disables persistence, and skips permissions."""
+def test_build_args_restricts_tools_and_skips_permissions() -> None:
+    """Verify build_args restricts tools, skips permissions, and streams json."""
     # Given a model / When building args
     args = build_args(model="claude-sonnet-4-6")
     # Then the safety-relevant flags are present
     assert args[args.index("--allowedTools") + 1] == "Read,Write,Edit"
-    assert "--no-session-persistence" in args
     assert "--dangerously-skip-permissions" in args
     assert args[args.index("--output-format") + 1] == "stream-json"
+
+
+def test_build_args_saves_transcript_by_default() -> None:
+    """Verify build_args omits --no-session-persistence so the sweep session is saved."""
+    # Given the default save_transcript / When building args
+    args = build_args(model="claude-sonnet-4-6")
+    # Then persistence is left on (the flag that disables it is absent)
+    assert "--no-session-persistence" not in args
+
+
+def test_build_args_disables_persistence_when_not_saving() -> None:
+    """Verify save_transcript=False adds --no-session-persistence to discard the session."""
+    # Given save_transcript disabled / When building args
+    args = build_args(model="claude-sonnet-4-6", save_transcript=False)
+    # Then the persistence-disabling flag is present
+    assert "--no-session-persistence" in args
+
+
+def test_runner_threads_save_transcript_into_args() -> None:
+    """Verify ClaudeRunner passes its save_transcript setting through to the built args."""
+    # Given a runner that should not save its transcript
+    args = ClaudeRunner(model="m", save_transcript=False)._build_args()
+    # Then the persistence-disabling flag is present
+    assert "--no-session-persistence" in args
 
 
 def test_build_args_model_reflects_argument() -> None:

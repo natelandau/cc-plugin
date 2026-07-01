@@ -325,5 +325,5 @@ def run_sweep(event: dict[str, Any], *, env: Mapping[str, str]) -> None:
     cwd = Path(event.get("cwd") or Path.cwd())
     store = Store.for_cwd(cwd=cwd, env=env)
     config = RecallConfig.load(project_dir=env.get("CLAUDE_PROJECT_DIR"))
-    runner = ClaudeRunner(model=config.sweep_model)
+    runner = ClaudeRunner(model=config.sweep_model, save_transcript=config.sweep_save_transcript)
     Sweep(store, config, runner).trigger(event)

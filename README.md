@@ -197,6 +197,7 @@ enabled = true                # set false to stop SessionStart memory injection
 enabled = true                # set false to stop the end-of-session sweep
 model = "claude-sonnet-4-6"   # model for the background sweep
 min_exchanges = 10            # skip the sweep below this many real messages (user + assistant)
+save_transcript = true        # save the sweep's own claude session (for API-usage auditing); false discards it
 ```
 
 ## Uninstalling

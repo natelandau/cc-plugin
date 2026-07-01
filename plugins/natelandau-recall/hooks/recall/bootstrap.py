@@ -30,7 +30,9 @@ if TYPE_CHECKING:
     from recall.store import Store
 
 # A transcript whose first user message starts like the sweep prompt is the
-# headless sweeper's own run (`claude -p` persists these); never mine them.
+# headless sweeper's own run. It persists only when [sweep] save_transcript is
+# left on (the default), but we filter on content regardless so a saved sweep is
+# never re-mined into memory.
 SWEEP_SIGNATURE = "You are the project-memory sweeper"
 
 # Claude Code names ~/.claude/projects/<dir> by replacing every character of the

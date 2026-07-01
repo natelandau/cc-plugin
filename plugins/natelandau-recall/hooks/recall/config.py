@@ -32,6 +32,9 @@ class RecallConfig:
     sweep_enabled: bool = True
     sweep_model: str = DEFAULT_SWEEP_MODEL
     min_exchanges: int = DEFAULT_MIN_EXCHANGES
+    # Persist the headless sweep's own `claude -p` session to ~/.claude/projects
+    # so its API-token usage is auditable; false re-adds --no-session-persistence.
+    sweep_save_transcript: bool = True
 
     @classmethod
     def load(cls, *, home: Path | None = None, project_dir: str | None = None) -> RecallConfig:
@@ -56,6 +59,7 @@ class RecallConfig:
             sweep_enabled=_as_bool(sweep.get("enabled"), default=True),
             sweep_model=_as_str(sweep.get("model"), default=DEFAULT_SWEEP_MODEL),
             min_exchanges=_as_int(sweep.get("min_exchanges"), default=DEFAULT_MIN_EXCHANGES),
+            sweep_save_transcript=_as_bool(sweep.get("save_transcript"), default=True),
         )
 
 
