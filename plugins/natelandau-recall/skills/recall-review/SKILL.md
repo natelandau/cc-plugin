@@ -61,8 +61,10 @@ its own context and returns a structured verdict.
 - **`memory-entry-reviewer`** - one per `learnings/*.md` file. Pass the store path
   and the learning filename to judge. It returns a verdict
   (`KEEP`/`UPDATE`/`DELETE`) with gate findings, a cited reason, any
-  `proposed_change`, a `confidence`, and a `backlog_candidate` flagging a learning
-  that really names deferred work belonging in `backlog.md`.
+  `proposed_change`, a `confidence`, a `backlog_candidate` flagging a learning
+  that really names deferred work belonging in `backlog.md`, and a
+  `claude_md_candidate` flagging a learning that would be better recorded in the
+  project's committed `CLAUDE.md`.
 - **`backlog-validity-reviewer`** - one per **open** (`[ ]`) backlog item. Pass the
   store path and the item line verbatim. It returns `CLOSE`/`REMOVE`/`AMEND`/`KEEP`
   with cited evidence, any `proposed_change`, and a `confidence`.
@@ -107,6 +109,16 @@ Collect the verdicts into a concrete change set:
   This is the one case where the review adds a backlog item. It is not surfacing new
   work - it is moving captured work to the correct store - so the
   `backlog-opportunity-reviewer` rule above still stands.
+- **CLAUDE.md promotion** (from each `memory-entry-reviewer`'s `claude_md_candidate`):
+  **recommend only, never apply.** For every learning flagged `needed: yes`, surface a
+  recommendation in the report that the point would be better recorded in the project's
+  committed `CLAUDE.md`, including the reviewer's `reason` and `suggested_entry`. Do
+  **not** edit `CLAUDE.md` yourself - that is a committed, shared file and a deliberate
+  act the user makes (the `revise-claude-md` / `claude-md-improver` skills exist for
+  it). Do **not** delete the source learning either: you cannot confirm the user
+  promoted it, and a store deletion is irreversible, so the learning keeps whatever
+  `KEEP`/`UPDATE`/`DELETE` verdict its own review earned. Once the user has promoted a
+  point, a later review (or a manual delete) can retire the now-redundant learning.
 
 A change is **destructive** if it discards deferred work or knowledge with no undo:
 a `DELETE`, a `REMOVE`, or the deletion of the non-target files in a merge. The store
@@ -138,6 +150,9 @@ in `clean` mode, anything still awaiting the user's confirmation):
 - Whether `backlog.md` was updated (how many items closed, removed, amended, or
   routed in from a learning - and for routed items, whether the source learning was
   kept as a workaround or deleted as superseded).
+- Any `CLAUDE.md` promotion recommendations - list each flagged learning with its
+  suggested entry, and state plainly that nothing was written to `CLAUDE.md` and the
+  learnings were left in place for the user to promote.
 - Any frontmatter corrections made.
 
 Keep the report to one short paragraph or a brief bulleted list.
