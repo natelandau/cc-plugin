@@ -168,6 +168,14 @@ DESTRUCTIVE_RULES: tuple[CommandRule, ...] = (
     CommandRule(
         pattern=r"^\s*git\s+restore\b.*\s\.(\s|$)",
         reason="git restore . discards all working tree changes",
+        # `git restore` rewrites the working tree by default, but `--staged`
+        # WITHOUT `--worktree` restores only the index (an unstage) and leaves
+        # the working tree intact -- non-destructive, so exempt it. The exclude
+        # fires when a staged flag is present AND no worktree flag is: staged is
+        # `--staged` or a short cluster ending in `S` (`-S`, `-SW`); worktree is
+        # `--worktree` or a cluster containing `W` (`-W`, `-SW`), whose presence
+        # means the working tree IS touched, so it must NOT be exempted.
+        exclude=r"^(?!.*(?:--worktree\b|-[A-Za-z]*W))(?=.*(?:--staged\b|-[A-Za-z]*S))",
     ),
     CommandRule(
         pattern=r"^\s*git\s+rebase\b.*--no-verify\b",

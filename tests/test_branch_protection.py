@@ -209,6 +209,45 @@ CASES: tuple[Case, ...] = (
         stderr_contains=("git restore .",),
     ),
     Case(
+        id="git restore --staged . allowed (unstage only, worktree untouched)",
+        make_payload=lambda r: _bash("git restore --staged .", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git restore -S . allowed (short staged flag)",
+        make_payload=lambda r: _bash("git restore -S .", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git restore --source=HEAD --staged . allowed (index only)",
+        make_payload=lambda r: _bash("git restore --source=HEAD --staged .", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git restore --staged --worktree . blocked (worktree restored)",
+        make_payload=lambda r: _bash("git restore --staged --worktree .", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("git restore .",),
+    ),
+    Case(
+        id="git restore -SW . blocked (combined short worktree flag)",
+        make_payload=lambda r: _bash("git restore -SW .", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("git restore .",),
+    ),
+    Case(
+        id="git restore -W . blocked (short worktree flag)",
+        make_payload=lambda r: _bash("git restore -W .", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("git restore .",),
+    ),
+    Case(
+        id="git restore --source=HEAD . blocked (worktree from source, no staged)",
+        make_payload=lambda r: _bash("git restore --source=HEAD .", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("git restore .",),
+    ),
+    Case(
         id="git rebase --no-verify blocked",
         make_payload=lambda r: _bash("git rebase --no-verify main", cwd=r["feat"]),
         expect_exit=2,
