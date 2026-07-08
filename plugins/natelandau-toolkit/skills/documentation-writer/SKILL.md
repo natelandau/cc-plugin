@@ -5,13 +5,12 @@ description: Use when writing, updating, editing, rewriting, reviewing, or impro
     setup or install guides, API references, onboarding docs, contributing guides,
     and similar prose meant to help someone understand or use a project. Trigger on
     requests like "update the docs", "rewrite the README", "fix the documentation",
-    "document this", "write a CHANGELOG entry", "add a setup guide", "polish this
-    README", "review my docs", "the docs are out of date", or any task that produces
-    or edits prose explaining how to install, configure, or use the project. Always
-    invoke this skill when documentation is being created or revised, even when the
-    user does not say "documentation" explicitly. Covers writing standards including
-    clarity, user-focused framing, and avoiding common AI writing patterns that
-    erode reader trust.
+    "document this", "add a setup guide", "polish this README", "review my docs",
+    "the docs are out of date", or any task that produces or edits prose explaining
+    how to install, configure, or use the project. Always invoke this skill when
+    documentation is being created or revised, even when the user does not say
+    "documentation" explicitly. Covers writing standards including clarity, user-focused
+    framing, and avoiding common AI writing patterns that erode reader trust.
 ---
 
 # Documentation Writer
@@ -33,6 +32,8 @@ Always read [references/tropes.md](references/tropes.md) to internalize the AI w
 - Keep sentences under 25 words
 - One main idea per paragraph
 - Define technical terms on first use
+- Omit needless words. Make every word tell, and cut fillers like "the fact that", "there is/there are", "in order to", and "who is"/"which was" ("the file that is generated" becomes "the generated file")
+- State things in positive form. Write "the build fails without a token" instead of "the build will not succeed unless a token is present." Make definite assertions rather than hedged, non-committal ones
 
 ### Show, Don't Just Tell
 
@@ -61,7 +62,7 @@ Always read [references/tropes.md](references/tropes.md) to internalize the AI w
 
 Adopt a tone that balances professionalism with a helpful, conversational approach.
 
-- Use active voice and present tense (e.g., "The API returns...")
+- Use active voice and present tense (e.g., "The API returns..."). Keep the passive only when the actor is unknown or beside the point ("the file is created on first run")
 - Use "you" for direct address
 - Use "we" when referring to shared actions
 - Avoid "I" except in opinionated guides
@@ -164,45 +165,3 @@ Perform a final quality check before considering the work complete.
 - Scan for AI writing tropes from the reference file. If any crept in, rewrite those passages
 - Confirm consistent terminology: if you called it "config file" in one place, don't call it "configuration file" or "settings file" elsewhere
 - If the project has a docs formatter or linter, run it
-
-## Structural Templates
-
-These are starting points. Adapt them to match the project's existing conventions.
-
-### Project README
-
-```markdown
-# Project Name
-
-[One-line description]
-
-## Features
-
-- [Key features as bullets]
-
-## Installation
-
-[Minimal steps to install]
-
-## Quick Start
-
-[Simplest possible example]
-
-## Usage
-
-[Common use cases with examples]
-
-## API Reference
-
-[If applicable]
-
-## Configuration
-
-[Optional settings]
-
-## Troubleshooting
-
-[Common issues and solutions]
-
-## License
-```

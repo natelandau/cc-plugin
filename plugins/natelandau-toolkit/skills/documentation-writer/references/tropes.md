@@ -14,7 +14,7 @@ Overuse of "quietly" and similar adverbs to convey subtle importance or understa
 
 ### "Delve" and Friends
 
-Used to be the most infamous AI tell. "Delve" went from an uncommon English word to appearing in a staggering percentage of AI-generated text. Part of a family of overused AI vocabulary including "certainly", "utilize", "leverage" (as a verb), "robust", "streamline", and "harness".
+Used to be the most infamous AI tell. "Delve" went from an uncommon English word to appearing in a staggering percentage of AI-generated text. Part of a family of overused AI vocabulary including "certainly", "utilize", "leverage" (as a verb), "robust", "streamline", "harness", "intricate", "interplay", "garner", "underscore", "showcase", "foster", "encompass", "resonate", "nestled", "boasts", and "meticulous".
 
 **Avoid patterns like:**
 
@@ -41,6 +41,26 @@ Replacing simple "is" or "are" with pompous alternatives like "serves as", "stan
 - "The building serves as a reminder of the city's heritage."
 - "Gallery 825 serves as LAAA's exhibition space for contemporary art."
 - "The station marks a pivotal moment in the evolution of regional transit."
+
+### Inflated and Decorative Modifiers
+
+Significance words that inflate a plain fact ("pivotal", "crucial", "vital", "key", "testament", "watershed", "landmark", "legacy", "groundbreaking", "captivate") and decorative adjectives that add color but no information ("vibrant", "rich", "profound", "dynamic", "seamless"). State the fact plainly and earn every modifier: if removing the word doesn't change the meaning, cut it. "The library was rewritten in 2019" beats "The pivotal 2019 rewrite cemented the library's enduring legacy."
+
+**Avoid patterns like:**
+
+- "a pivotal step in the project's journey"
+- "a rich, vibrant ecosystem of plugins"
+- "a testament to the framework's robust design"
+
+### Intensifier Filler
+
+Empty intensifiers and hedges that pad a statement without adding information: "very", "really", "quite", "pretty", "so", "just", "simply", "merely", "of course", "surely", "actually". Cut them, or replace the weak word they prop up with a precise one. Keep an intensifier only when it marks a specific, measurable degree ("the query runs twice as fast", not "the query is really fast").
+
+**Avoid patterns like:**
+
+- "This can be quite frustrating."
+- "Setup is really very simple."
+- "This is, of course, a significant improvement."
 
 ---
 
@@ -98,13 +118,13 @@ Overuse of the rule-of-three pattern, often extended to four or five. A single t
 
 ### "It's Worth Noting"
 
-Filler transitions that signal nothing. AI uses these phrases to introduce new points without actually connecting them to the previous argument. Also includes: "It bears mentioning", "Importantly", "Interestingly", "Notably".
+Filler transitions that signal nothing. AI uses these phrases to introduce new points without actually connecting them to the previous argument. Also includes: "It bears mentioning", "Importantly", "Interestingly", "Notably", and the additive connectives "Additionally", "Furthermore", and "Moreover" when they just bolt on a point. The correlative "not only ... but also" is the same tic in construction form; a plain "and" almost always reads better.
 
 **Avoid patterns like:**
 
 - "It's worth noting that this approach has limitations."
 - "Importantly, we must consider the broader implications."
-- "Interestingly, this pattern repeats across industries."
+- "Furthermore, the API not only validates input but also caches it."
 
 ### Superficial Analyses
 
@@ -353,3 +373,8 @@ The rigid formula where AI acknowledges problems only to immediately dismiss the
 Remember: any of these patterns used once might be fine. The problem is when
 multiple tropes appear together or when a single trope is used repeatedly.
 Write like a human: varied, imperfect, specific.
+
+What to do instead: state concrete facts and trust the reader to draw the
+conclusion. Acknowledge gaps plainly ("the default is unset", "this behavior is
+undocumented") rather than papering over them. Let a term repeat instead of
+forcing synonyms, and let sentence and paragraph lengths stay uneven.
