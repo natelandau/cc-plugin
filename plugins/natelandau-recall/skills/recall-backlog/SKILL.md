@@ -43,13 +43,21 @@ If the store directory or its `backlog.md` does not exist, report "No backlog fo
 this project." and stop. If `backlog.md` has no open `- [ ]` items, report "The
 backlog has no open items." and stop.
 
+Both reviewer subagents run on Sonnet, take a **batch** of items, and return one
+result per item, judged independently. Batching amortizes the repo grounding each
+agent repeats (orienting in the code, checking git history) instead of paying it
+once per item. **Group items into batches of roughly 5** - one agent per batch, run
+in parallel - preferring fewer, larger batches as the count grows, and a single
+batch when there are only a handful. Do not fall back to one agent per item.
+
 ## Phase 1 - validate the open items
 
-Collect every open (`- [ ]`) item from `backlog.md`. Dispatch one
-`backlog-validity-reviewer` subagent **per item, in parallel**, via the `Agent`
-tool. Pass each the absolute store path and the item line verbatim. Each returns
-`CLOSE` (already done), `REMOVE` (obsolete), `AMEND` (drifted but real), or `KEEP`,
-with cited evidence and a `confidence`.
+Collect every open (`- [ ]`) item from `backlog.md`. Batch them (~5 per agent) and
+dispatch the `backlog-validity-reviewer` subagents **in parallel** via the `Agent`
+tool. Pass each the absolute store path and the list of item lines verbatim. It
+returns, per item, `CLOSE` (already done), `REMOVE` (obsolete), `AMEND` (drifted but
+real), or `KEEP`, with cited evidence and a `confidence`; match each back by the
+`item` field.
 
 Do this first because an item still marked `[ ]` may already be done or no longer
 relevant - counting it as open work, or recommending it, would mislead the user.
@@ -57,10 +65,11 @@ Treat `KEEP` and `AMEND` items as **genuinely open**.
 
 ## Phase 2 - score the genuinely-open items
 
-Dispatch one `backlog-opportunity-reviewer` subagent **per genuinely-open item, in
-parallel**. Pass each the store path and the item line. Each returns `impact`
-(high/medium/low), `effort` (S/M/L grounded in the actual code), `recommend_now`
-(yes/no), and a one-line reason.
+Batch the genuinely-open items (~5 per agent) and dispatch the
+`backlog-opportunity-reviewer` subagents **in parallel**. Pass each the store path
+and its list of item lines. It returns, per item, `impact` (high/medium/low),
+`effort` (S/M/L grounded in the actual code), `recommend_now` (yes/no), and a
+one-line reason; match each back by the `item` field.
 
 Running this only on the genuinely-open set keeps the recommendations honest and
 avoids spending analysis on work that is already done.

@@ -55,25 +55,34 @@ judgment. Read each artifact and check:
 Identify the entries to review (list `learnings/*.md`, collect the open `[ ]`
 backlog items), then dispatch these read-only subagents **in parallel** via the
 `Agent` tool. **Pass each one the absolute store directory path** so it reads the
-entry itself, and name which entry to judge by filename or item line. Each runs in
-its own context and returns a structured verdict.
+entries itself, and name which entries to judge by filename or item line. Each runs
+on Sonnet in its own context and returns structured verdicts.
 
-- **`memory-entry-reviewer`** - one per `learnings/*.md` file. Pass the store path
-  and the learning filename to judge. It returns a verdict
-  (`KEEP`/`UPDATE`/`DELETE`) with gate findings, a cited reason, any
+Each per-entry reviewer takes a **batch** of entries and returns one verdict per
+entry, judged independently. Batching amortizes the repo grounding every agent
+repeats (reading `CLAUDE.md`, orienting in the code) instead of paying it once per
+entry. **Group the entries into batches of roughly 5** - one agent per batch, run in
+parallel - preferring fewer, larger batches as the counts grow, and a single batch
+when there are only a handful. Do not fall back to one agent per entry.
+
+- **`memory-entry-reviewer`** - batch the `learnings/*.md` files, ~5 per agent. Pass
+  the store path and the list of learning filenames in the batch. It returns, per
+  file, a verdict (`KEEP`/`UPDATE`/`DELETE`) with gate findings, a cited reason, any
   `proposed_change`, a `confidence`, a `backlog_candidate` flagging a learning
   that really names deferred work belonging in `backlog.md`, and a
   `claude_md_candidate` flagging a learning that would be better recorded in the
-  project's committed `CLAUDE.md`.
-- **`backlog-validity-reviewer`** - one per **open** (`[ ]`) backlog item. Pass the
-  store path and the item line verbatim. It returns `CLOSE`/`REMOVE`/`AMEND`/`KEEP`
-  with cited evidence, any `proposed_change`, and a `confidence`.
+  project's committed `CLAUDE.md`. Match each returned verdict back to its file by
+  the `target` field.
+- **`backlog-validity-reviewer`** - batch the **open** (`[ ]`) backlog items, ~5 per
+  agent. Pass the store path and the list of item lines verbatim. It returns, per
+  item, `CLOSE`/`REMOVE`/`AMEND`/`KEEP` with cited evidence, any `proposed_change`,
+  and a `confidence`; match each back by the `item` field.
 - **`redundancy-reviewer`** - once, over all learnings. Pass the store path; it reads
   every `learnings/*.md` itself. It returns clusters of overlapping entries to merge,
   each naming a `merge_target`; an empty list means none.
 
-The subagents read the store by path and the repo for grounding. A single backlog
-line is not addressable by path, so name it explicitly when you dispatch - the agent
+The subagents read the store by path and the repo for grounding. A backlog line is
+not addressable by path, so pass the lines verbatim when you dispatch - the agent
 still has the store path for surrounding context.
 
 This skill curates; it does not surface new work. The `backlog-opportunity-reviewer`

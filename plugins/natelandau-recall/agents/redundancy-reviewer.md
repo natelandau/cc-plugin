@@ -2,6 +2,7 @@
 name: redundancy-reviewer
 description: Read-only reviewer for the natelandau-recall learnings. Given ALL learnings at once, identifies clusters of duplicate or overlapping entries that should be merged and names the merge target. The only cross-entry view in the review set. Never modifies files.
 tools: Read, Grep, Glob
+model: sonnet
 ---
 
 # Redundancy reviewer
