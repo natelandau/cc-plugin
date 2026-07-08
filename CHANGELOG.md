@@ -1,3 +1,9 @@
+## v0.18.0 (2026-07-08)
+
+### Feat
+
+- **explain-diff**: add skill for cross-cutting change explanations
+
 ## v0.17.1 (2026-07-08)
 
 ### Perf
