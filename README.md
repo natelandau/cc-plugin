@@ -74,6 +74,7 @@ These skills load on demand when your task matches. You don't invoke them by nam
 | `safe-refactoring` | Behavior-preserving refactors in any language. |
 | `tortoise-orm` | Tortoise ORM v1.x models, queries, relations, and migrations. |
 | `tufte-viz` | Designing or critiquing data visualizations with Tufte's principles. |
+| `zensical` | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids. |
 
 ### Workflow commands
 
