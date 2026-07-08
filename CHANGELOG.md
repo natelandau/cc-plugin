@@ -1,3 +1,9 @@
+## v0.17.1 (2026-07-08)
+
+### Perf
+
+- **recall**: cut recall-review and recall-backlog token cost
+
 ## v0.17.0 (2026-07-08)
 
 ### Feat
