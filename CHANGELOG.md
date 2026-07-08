@@ -1,3 +1,15 @@
+## v0.17.0 (2026-07-08)
+
+### Feat
+
+- **recall-review**: recommend promoting learnings to CLAUDE.md
+- **zensical**: add Zensical documentation authoring skill
+- **recall**: save the memory sweep's session for usage auditing
+
+### Fix
+
+- **branch-protection**: allow git restore --staged (unstage only)
+
 ## v0.16.0 (2026-06-29)
 
 ### Feat
