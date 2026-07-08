@@ -67,6 +67,7 @@ These skills load on demand when your task matches. You don't invoke them by nam
 | `accessibility` | Web UI accessibility: ARIA, keyboard nav, focus, contrast, WCAG 2.2. |
 | `daisyui` | daisyUI v5 and Tailwind CSS components, forms, and theming. |
 | `documentation-writer` | READMEs, changelogs, guides, and other user-facing prose. |
+| `explain-diff` | Understanding a code change, diff, branch, or PR as concepts and features rather than lines; produces an HTML explainer. |
 | `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints. |
 | `gha` | Investigating GitHub Actions failures and finding the root cause. |
 | `htmx-expert` | htmx attributes, AJAX fragments, swaps, and hypermedia patterns. |
