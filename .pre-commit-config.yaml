@@ -65,14 +65,14 @@ repos:
         args: [--check]
 
   - repo: "https://github.com/adhtruong/mirrors-typos"
-    rev: v1.47.2
+    rev: v1.48.0
     hooks:
       - id: typos
         args: ["--force-exclude"]
         stages: [commit-msg, pre-commit]
 
   - repo: "https://github.com/python-jsonschema/check-jsonschema"
-    rev: 0.37.3
+    rev: 0.37.4
     hooks:
       - id: check-github-workflows
         args: ["--verbose"]
