@@ -85,6 +85,7 @@ These run multi-step workflows. Some are slash commands, others are skills you t
 | --- | --- |
 | `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones. |
 | `/organize [target]` | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files. |
+| `/prune-comments` | Reviews the current changes and cleans up their inline comments, keeping non-obvious why-comments and dropping redundant ones. Edits the working tree; never commits. |
 | `/create-prd` | Generates a Product Requirements Document from the conversation. |
 | `/pr` | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR with a conventional-commit title. |
 | `/cleanup-branch` | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code. |
@@ -101,6 +102,7 @@ The review commands above delegate to focused subagents that run in their own co
 | `doc-drift-reviewer` | Compares user-facing docs against the current branch and lists stale or missing coverage. |
 | `review-finder` | Applies one analysis angle to a scope and returns candidate findings. |
 | `review-verifier` | Judges a candidate finding as kept, plausible, or refuted with a cited reason. |
+| `comment-pruner` | Rewrites the inline comments in a change, keeping non-obvious why-comments and dropping the rest. Edits comments only, never code. |
 
 ## natelandau-recall
 

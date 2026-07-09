@@ -2,6 +2,7 @@
 name: review-verifier
 description: Read-only verifier for a multi-agent review (used by /refactor and /organize). Judges one candidate finding as KEEP, PLAUSIBLE, or REFUTED with a cited reason, and on request whether the change preserves behavior. Never modifies files.
 tools: Read, Grep, Glob
+model: sonnet
 ---
 
 # Review verifier

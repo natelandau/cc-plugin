@@ -2,6 +2,7 @@
 name: review-finder
 description: Read-only finder for a multi-agent review (used by /refactor and /organize). Applies one analysis angle to a caller-provided scope and returns candidate findings in the schema the caller specifies. Never modifies files.
 tools: Read, Grep, Glob
+model: sonnet
 ---
 
 # Review finder

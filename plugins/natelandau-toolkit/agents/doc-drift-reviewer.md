@@ -2,6 +2,7 @@
 name: doc-drift-reviewer
 description: Use to review a project's user-facing documentation against the changes on the current branch and return a prioritized list of drift (stale instructions, undocumented new behavior, references to removed things). Read-only and advisory; recommends edits but never makes them.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 
 # Documentation drift reviewer
