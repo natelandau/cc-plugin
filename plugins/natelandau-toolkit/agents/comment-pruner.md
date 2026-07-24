@@ -1,6 +1,6 @@
 ---
 name: comment-pruner
-description: Use to clean up inline code comments in a set of changes, editing them in place. Deletes redundant what-comments, tightens verbose ones, keeps genuine why-comments, and never touches noqa/type:ignore or other tooling directives. Edits comments only, never code or docstrings, and makes the changes directly.
+description: Use to clean up inline code comments in a set of changes or in explicitly named files and directories, editing them in place. Deletes redundant what-comments, tightens verbose ones, keeps genuine why-comments, and never touches noqa/type:ignore or other tooling directives. Edits comments only, never code or docstrings, and makes the changes directly.
 tools: Read, Edit, Grep, Glob, Bash
 model: sonnet
 ---
@@ -32,6 +32,17 @@ Judge every comment in scope against these rules:
   already obvious from the codebase or general knowledge, delete it anyway. When a
   keeper is wordy, tighten it to the shortest phrasing that still carries the reason.
 - **Short and to the point.** Trim padding, but never at the cost of the reason.
+- **No history.** Comments are forever, read years from now by someone who knows
+  nothing about the change's history. A comment that references the incident,
+  bug, outage, conversation, or review that motivated the code ("seen when X
+  took down Y", "fixes the issue where...", "previously this was...") cannot
+  stay as written: reword it to the present-tense invariant, risk, or trade-off
+  it protects, or delete it if nothing present-tense remains. The history
+  belongs in the commit message. The test: if a comment only makes sense to
+  someone who watched the change happen, it is commit-message material, not a
+  comment.
+- **Fewer comments beat more.** Being a genuine _why_ does not make a comment a
+  keeper on its own. If it adds no meaningful value to a future reader, delete it.
 
 ### Worked examples
 
@@ -59,6 +70,13 @@ for i in range(len(arr) - 1, 0, -1):
 if i & (i - 1) == 0:  # true when i is 0 or a power of 2
 ```
 
+Reword, because it cites the change's history instead of the present-tense risk:
+
+```python
+# Before: restart in place (seen when an OOM-killed backup took the service down)
+# After:  restart in place so a crashed sidecar can't fail the whole alloc
+```
+
 ## Never touch
 
 Leave these exactly as they are. Removing or rewording them changes behavior or
@@ -84,7 +102,9 @@ Your scope is whatever the caller hands you, in one of three forms:
 - **A diff range** (for example `<merge-base>..HEAD`): touch only the comments on
   the added or changed (`+`) lines, not the file's pre-existing comments the
   author wrote deliberately.
-- **A whole file**: review every comment in it.
+- **Files, directories, or globs**: review every comment in every matching file.
+  Expand directories and globs to the files they contain; if a named path
+  matches nothing, report that instead of substituting a different scope.
 - **Nothing specified**: default to the current branch against its trunk.
 
 ```bash
