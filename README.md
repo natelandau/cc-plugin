@@ -54,6 +54,7 @@ Hooks run automatically on every matching tool call. They block an action and ex
 | `branch-protection` | Destructive git operations (any branch), plus file edits and direct commits on `main` or `master`. Merge commits onto `main`/`master` (from `merge`/`pull`) prompt for approval rather than being blocked outright. Checks are keyed off the branch of the file or repo each action targets, so they hold no matter which directory the shell sits in. See [docs/branch-protection.md](docs/branch-protection.md) for the full allow/block/ask rules. |
 | `protect-secrets` | Reading, editing, writing, or exfiltrating sensitive files like `.env` and credential stores. |
 | `protect-system` | System-destructive shell commands. |
+| `protect-remote` | Remote-host commands (ssh, scp, sftp, remote rsync, ansible). Prompts for approval rather than blocking; you judge destructiveness per invocation. |
 | `commit-message` | Commits and PR titles that don't follow conventional-commit format. |
 | `config-protection` | Edits that weaken a linter, formatter, or typechecker config. |
 | `use-uv` | Nothing. It's a non-blocking nudge toward `uv run` for Python commands. |
@@ -177,7 +178,7 @@ The toolkit groups its hooks into three profiles. `profile` selects the tier; `d
 | Profile | Active hooks |
 | --- | --- |
 | `minimal` | branch-protection, protect-secrets, protect-system. |
-| `standard` (default) | minimal plus commit-message, config-protection, use-uv. |
+| `standard` (default) | minimal plus protect-remote, commit-message, config-protection, use-uv. |
 | `strict` | Same as standard, reserved for future use. |
 
 ```toml
@@ -186,7 +187,7 @@ profile = "standard"
 disabled_hooks = ["config-protection"]
 ```
 
-You can also add project-specific blocking rules without touching the built-in ones. The protect-secrets, protect-system, and config-protection hooks read an extra rules file from `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`. These rules are additive: they can add new blocks but can't weaken a built-in rule. To turn a hook off, use `disabled_hooks`. The config template documents the schema.
+You can also add project-specific rules without touching the built-in ones. The protect-secrets, protect-system, protect-remote, and config-protection hooks read an extra rules file from `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`. These rules are additive: they can add new blocks but never weaken a built-in rule. A protect-remote rule may set `action = "ask"` or `"block"` (default `block`); a project `block` takes priority over the built-in prompts, so you can hard-stop specific remote commands per project. To turn a hook off, use `disabled_hooks`. The config template documents the schema.
 
 ### Recall: injection and sweep
 

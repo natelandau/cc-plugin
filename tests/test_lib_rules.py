@@ -537,3 +537,59 @@ def test_load_all_rules_project_fails_open(
     # Then only the built-in rule survives and the project file is reported ignored
     assert [r.id for r in result] == ["builtin-block"]
     assert "ignoring project rules" in capsys.readouterr().err
+
+
+# --- per-rule action field ---
+
+
+def test_parse_rules_action_defaults_to_block(rules: ModuleType) -> None:
+    """A rule without an action key gets the block default."""
+    data = {"rule": [{"id": "x", "reason": "r", "pattern": "foo"}]}
+    (rule,) = rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))
+    assert rule.action == "block"
+
+
+def test_parse_rules_action_ask_parses(rules: ModuleType) -> None:
+    """An opted-in hook may declare action = "ask" per rule."""
+    data = {"rule": [{"id": "x", "reason": "r", "pattern": "foo", "action": "ask"}]}
+    (rule,) = rules.parse_rules(
+        data,
+        "rule",
+        required=frozenset({"id", "reason"}),
+        optional=frozenset({"action"}),
+    )
+    assert rule.action == "ask"
+
+
+def test_parse_rules_conditions_action_ask_parses(rules: ModuleType) -> None:
+    """A conditions-form rule may also opt into action = "ask"."""
+    conds = [{"field": "command", "operator": "contains", "pattern": "ssh"}]
+    data = {"rule": [{"id": "c1", "reason": "r", "conditions": conds, "action": "ask"}]}
+    (rule,) = rules.parse_rules(
+        data,
+        "rule",
+        required=frozenset({"id", "reason"}),
+        optional=frozenset({"action"}),
+    )
+    assert rule.action == "ask"
+    assert rule.patterns == ()
+    assert len(rule.conditions) == 1
+
+
+def test_parse_rules_action_rejects_unknown_value(rules: ModuleType) -> None:
+    """A typo'd action value fails at load time, like a bad regex."""
+    data = {"rule": [{"id": "x", "reason": "r", "pattern": "foo", "action": "prompt"}]}
+    with pytest.raises(ValueError, match="action"):
+        rules.parse_rules(
+            data,
+            "rule",
+            required=frozenset({"id", "reason"}),
+            optional=frozenset({"action"}),
+        )
+
+
+def test_parse_rules_action_rejected_without_opt_in(rules: ModuleType) -> None:
+    """A hook that doesn't list action in optional keeps rejecting the key."""
+    data = {"rule": [{"id": "x", "reason": "r", "pattern": "foo", "action": "ask"}]}
+    with pytest.raises(ValueError, match="unexpected"):
+        rules.parse_rules(data, "rule", required=frozenset({"id", "reason"}))

@@ -1,0 +1,71 @@
+# Rules for protect_remote.py, loaded at runtime through the shared
+# hooks/lib/rules.py engine. Each entry's `pattern` (regex, re.IGNORECASE)
+# is matched against the bash command string. First match wins; iteration
+# follows file order.
+#
+# Every built-in rule carries `action = "ask"`: the intent is not to forbid
+# remote access but to put a human in the loop, because a hook cannot judge
+# whether an arbitrary remote command is destructive. protect_system's hard
+# blocks still fire first for catastrophic substrings (deny beats ask), even
+# inside a quoted remote command.
+#
+# The engine regex-searches the whole command string, so wrapper prefixes
+# (`uv run ansible-playbook`, `sudo ssh`, `env FOO=1 scp`) match without
+# special handling.
+#
+# Pattern strings are TOML literals (single-quoted) so regex backslashes
+# pass through verbatim.
+#
+# Patterns match the tool name anywhere in the command, so a quoted mention of
+# a tool (`git commit -m "improve ssh usage notes"`) can prompt. The trade-off
+# is deliberate: matching only unquoted invocations would miss real commands
+# built by string interpolation, and the cost of the mention is a single
+# needless permission prompt the user dismisses.
+
+# rsync-remote is declared ahead of ssh-exec: rsync's -e/--rsh remote-shell
+# flag commonly reads `-e ssh`, and ssh-exec's `\bssh\s` would otherwise
+# match that argument first (first-match-wins) and misreport the rule id.
+[[rule]]
+    id      = "rsync-remote"
+    action  = "ask"
+    reason  = "syncs files with a remote host"
+    # Remote forms only: a host:path endpoint (named or bracketed IPv6), a
+    # rsync:// URI, or an explicit remote-shell flag (-e / --rsh, including
+    # bundled short forms like -avze). Local-to-local rsync never prompts.
+    # The negated class excludes newline so a later command in a multiline
+    # script cannot satisfy the endpoint match for the rsync on an earlier line.
+    pattern = [
+        '\brsync\b[^;|&\n]*\s(?:\S+@)?[\w.-]+:',
+        '\brsync\b[^;|&\n]*\s(?:\S+@)?\[[0-9A-Fa-f:.%]+\]:',
+        '\brsync\b[^;|&\n]*\brsync://',
+        '\brsync\b[^;|&\n]*\s(?:-\w*e[=\s]|--rsh\b)',
+    ]
+
+[[rule]]
+    id      = "ssh-exec"
+    action  = "ask"
+    reason  = "opens a session or runs commands on a remote host over ssh"
+    # Trailing whitespace keeps ssh-keygen/ssh-agent/ssh-add/ssh-copy-id/sshd
+    # out; ssh-copy-id is a deliberate exemption (interactive password). The
+    # optional `auto` prefix covers autossh, which reconnects an ssh session.
+    pattern = '\b(?:auto)?ssh\s'
+
+[[rule]]
+    id      = "scp"
+    action  = "ask"
+    reason  = "copies files to or from a remote host over ssh"
+    pattern = '\bscp\s'
+
+[[rule]]
+    id      = "sftp"
+    action  = "ask"
+    reason  = "transfers files to or from a remote host over ssh"
+    pattern = '\bsftp\s'
+
+[[rule]]
+    id      = "ansible-remote"
+    action  = "ask"
+    reason  = "executes tasks on remote hosts via ansible"
+    # The lookahead keeps local-only tools (ansible-vault, -galaxy, -doc,
+    # -inventory, -config, -lint) out of the match.
+    pattern = '\bansible(?:-playbook|-console|-pull)?(?=\s|$)'

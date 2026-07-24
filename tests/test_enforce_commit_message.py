@@ -508,3 +508,13 @@ def test_enforce_commit_message(
     if case.expect_exit == 2:
         assert "Conventional Commits" in proc.stderr, f"missing footer{diag}"
         assert "git-rules" in proc.stderr, f"missing skill pointer{diag}"
+
+
+def test_block_message_bracket_slug_is_hook_id(
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    """The bracket slug is the hook id; the matched rule id rides in the message."""
+    proc = run_pretooluse(_bash('git commit -m "not a conventional message"'))
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert "BLOCKED [commit-message]:" in proc.stderr
+    assert "'bad-format'" in proc.stderr

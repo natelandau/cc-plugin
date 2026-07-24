@@ -145,5 +145,9 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     # and a command rule can't match a file edit.
     matched = rules.first_match(secret_rules, fields=fields)
     if matched:
-        return Decision.blocked(matched.id, f"Cannot {ACTION_VERBS[tool_name]}: {matched.reason}")
+        # The bracket slug is the hook id a user disables (see Decision.blocked);
+        # the rule id rides in the message so the specific rule stays visible.
+        return Decision.blocked(
+            ID, f"'{matched.id}': Cannot {ACTION_VERBS[tool_name]}: {matched.reason}"
+        )
     return None

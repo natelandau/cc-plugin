@@ -442,6 +442,16 @@ allowlist = []
 """
 
 
+def test_block_message_bracket_slug_is_hook_id(
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    """The bracket slug is the hook id; the matched rule id rides in the message."""
+    proc = run_pretooluse(_read("/proj/.env"))
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert "BLOCKED [protect-secrets]:" in proc.stderr
+    assert "'env-file'" in proc.stderr
+
+
 @pytest.fixture
 def secrets_module(hooks_dir: Path) -> Any:
     """Import protect_secrets with the hooks dir importable."""

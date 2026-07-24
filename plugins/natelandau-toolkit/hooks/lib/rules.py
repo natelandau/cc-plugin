@@ -5,7 +5,9 @@ Consolidates the per-hook TOML loaders that `protect_system` and
 Every rule is an `[[<section>]]` table sharing one canonical schema:
 
 - `id` (slug shown in block messages; optional for hooks that don't use it),
-- `reason` (human-facing explanation), and
+- `reason` (human-facing explanation),
+- an optional `action` (`"block"` default, or `"ask"` for hooks that opt in
+  via the `optional` set; routes a match to the permission prompt), and
 - exactly one matcher: a `pattern` (a single regex string **or a list of
   regex strings**, OR-combined, tested against a hook-chosen string) **or** a
   `conditions` list (each entry matches a named field with an operator,
@@ -39,6 +41,11 @@ if TYPE_CHECKING:
 # protect_system): a slug and a reason. Shared so the two hooks declare one
 # vocabulary instead of two identical sets.
 BLOCK_RULE_FIELDS: frozenset[str] = frozenset({"id", "reason"})
+
+# Valid per-rule `action` values for hooks that opt in (optional field
+# "action"): "block" is the hard deny default; "ask" routes the tool call
+# to the interactive permission prompt instead.
+VALID_RULE_ACTIONS: frozenset[str] = frozenset({"block", "ask"})
 
 # Errors a rules-file read or parse can raise that the loaders treat as
 # "this file is unusable": I/O failure, malformed TOML, a schema/type error
@@ -92,6 +99,9 @@ class Rule:
     different named inputs (e.g. a file path vs a command) without per-tool
     branching in the hook. It does not apply to the `conditions` form, where
     each condition names its own field.
+
+    `action` selects the outcome for hooks that opt in: "block" (default) or
+    "ask" (route to the permission prompt).
     """
 
     id: str
@@ -99,6 +109,7 @@ class Rule:
     patterns: tuple[re.Pattern[str], ...] = ()
     conditions: tuple[Condition, ...] = ()
     match_field: str | None = None
+    action: str = "block"
 
 
 def _require_str(entry: Mapping[str, object], key: str, where: str) -> str:
@@ -198,8 +209,10 @@ def parse_rules(
     `required | optional | {pattern, conditions, field}`. A `pattern` may be
     a single regex string or a list of them (OR-combined). An optional
     `field` selects which named input a `pattern` rule matches (invalid
-    alongside `conditions`). Errors name the offending entry so a TOML typo
-    surfaces clearly instead of producing a malformed Rule.
+    alongside `conditions`). An optional `action` (`"block"` default, or
+    `"ask"` when `optional` includes it) selects the match outcome. Errors
+    name the offending entry so a TOML typo surfaces clearly instead of
+    producing a malformed Rule.
 
     Args:
         data: The parsed TOML mapping.
@@ -242,6 +255,10 @@ def parse_rules(
         if match_field is not None and "conditions" in matcher_keys:
             msg = f"{where} sets 'field' but uses 'conditions'; 'field' applies only to 'pattern'"
             raise ValueError(msg)
+        action = _require_str(entry, "action", where) if "action" in keys else "block"
+        if action not in VALID_RULE_ACTIONS:
+            msg = f"{where}.action must be one of {sorted(VALID_RULE_ACTIONS)}, got {action!r}"
+            raise ValueError(msg)
         if "conditions" in matcher_keys:
             patterns: tuple[re.Pattern[str], ...] = ()
             conditions = _parse_conditions(entry["conditions"], where)
@@ -255,6 +272,7 @@ def parse_rules(
                 patterns=patterns,
                 conditions=conditions,
                 match_field=match_field,
+                action=action,
             )
         )
     return tuple(rules)

@@ -658,6 +658,16 @@ def test_protect_system(
         assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
 
 
+def test_block_message_bracket_slug_is_hook_id(
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    """The bracket slug is the hook id; the matched rule id rides in the message."""
+    proc = run_pretooluse(_bash("rm -rf ~"))
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert "BLOCKED [protect-system]:" in proc.stderr
+    assert "'rm-home'" in proc.stderr
+
+
 @pytest.fixture
 def system_module(hooks_dir: Path) -> Any:
     """Import protect_system with the hooks dir importable."""

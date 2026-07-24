@@ -73,5 +73,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     fields = {"tool_name": "Bash", "command": command}
     matched = rules.first_match(system_rules, text=command, fields=fields)
     if matched:
-        return Decision.blocked(matched.id, f"Cannot execute: {matched.reason}")
+        # The bracket slug is the hook id a user disables (see Decision.blocked);
+        # the rule id rides in the message so the specific rule stays visible.
+        return Decision.blocked(ID, f"'{matched.id}': Cannot execute: {matched.reason}")
     return None
