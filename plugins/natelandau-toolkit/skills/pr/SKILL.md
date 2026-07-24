@@ -1,6 +1,6 @@
 ---
 name: pr
-description: Use when the user invokes /pr to open a pull request for the current branch. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch with a conventional-commit title and a factual, diff-grounded description. User-invoked only.
+description: Use when the user invokes /pr to open a pull request for the current branch. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title is the future squash commit's conventional-commit subject and the description opens with its body, with optional review-only sections below. User-invoked only.
 disable-model-invocation: true
 ---
 
@@ -16,32 +16,48 @@ a PR whose title and description match the project's conventions.
   PR requires pushing _this_ branch to the remote — that's the whole point and
   is authorized by running `/pr`. It does not push `main`/`master` and does not
   merge anything.
-- **Title is a conventional commit.** The PR is most likely squash-merged into a
-  single commit on the project, so its title becomes that commit's subject and
-  must follow the exact same rules as every commit in this repo:
-  `<type>(<scope>): <subject>`, imperative, lowercase subject, ≤70-char header,
-  type from the allowed set (`build ci docs feat fix perf refactor style test` —
-  there is no `chore`). Write it with the same care as a commit subject
-  regardless of host.
-- **The body describes only what's in the diff.** Every sentence must be
-  verifiable from the changed files. Do **not** include rationale for _why_ the
-  work was done, future or deferred work, open questions, concerns, risks, or
-  anything else not captured in the code. Describe what the change _is_ and what
-  it _does_, nothing more. This is the opposite of a commit body — there is no
-  "why" here.
+- **Title and description lead ARE the squash commit.** The PR is
+  squash-merged: the title becomes the commit subject, and the description's
+  lead block — everything above the first markdown heading — becomes the commit
+  body. Write both under the exact same rules as every commit in this repo:
+  - **Title = subject.** `<type>(<scope>): <subject>`, imperative, lowercase
+    subject, ≤70-char header, type from the allowed set
+    (`build ci docs feat fix perf refactor style test` — there is no `chore`).
+  - **Description opens with the body.** The lead block is prose paragraphs
+    explaining the motivation for the change — the _why_, not a file-by-file
+    _what_ (the diff already shows that) — separated by blank lines, wrapped at
+    ~72 characters so the squashed commit reads cleanly in `git log`. No
+    headings, checklists, or bullet changelogs inside this block.
+  - **Review sections below.** After the lead block, markdown sections
+    (`## Changes`, `## Testing`, screenshots) are welcome when they genuinely
+    help a reviewer. They stay with the PR and are not part of the commit.
+- **Breaking changes carry both markers.** A breaking change needs `!` before
+  the colon in the title **and** a `BREAKING CHANGE: <impact and migration>`
+  paragraph closing the lead block (the last paragraph before any heading).
+  Whenever you write one, write the other — a `!` title without the footer (or
+  vice versa) is malformed.
+- **Stay factual.** Every claim must be true of this branch. No future or
+  deferred work, no open questions, no concerns or speculation — the motivation
+  for what the change does belongs in the body; plans for what it doesn't do
+  don't.
 - **Honor the repo's PR template if it ships one.** When the project provides a
-  pull-request template, fill _its_ structure rather than imposing the default
-  shape below. The diff-grounded discipline still applies: populate each section
-  factually from the changes and leave a section as `N/A` rather than inventing
-  motivation, testing, or risk prose to fill it.
+  pull-request template, fill _its_ structure rather than imposing the
+  commit-body shape below. The factual discipline still applies: populate each
+  section truthfully (a motivation section gets the real why) and leave a
+  section as `N/A` rather than inventing content to fill it.
 - **Open it ready for review** (not a draft) unless the user says otherwise.
 
-## Why the title matters
+## Why the format matters
 
-The PR is most likely squash-merged into a single commit on the project, so the
-PR title becomes that commit's subject. Hold it to the same conventional-commit
-rules as a `git commit` subject and get it right the first time, regardless of
-which forge or CLI you use.
+Squash-merging replays the PR as one commit whose subject is the PR title and
+whose body is the description's lead block — the paragraphs above the first
+markdown heading. That lead block lands in `git log` byte for byte, so anything
+wrong with it — paragraphs run together without blank lines, unwrapped
+300-character lines, a `!` subject with no `BREAKING CHANGE:` footer — lands in
+the project history exactly that wrong. Sections after the first heading exist
+for reviewers and stay behind on the PR page. Write the title and lead block as
+the commit message they will become, and get them right the first time,
+regardless of which forge or CLI you use.
 
 ## Workflow
 
@@ -57,7 +73,7 @@ digraph pr {
   show     [label="Show existing PR, stop"];
   push     [label="Step 5: push the feature branch\n(git push -u)"];
   tmpl     [label="Discover repo PR template\n(use it, or default shape)"];
-  body     [label="Synthesize conventional title +\ndiff-grounded body"];
+  body     [label="Synthesize squash commit:\nconventional title + commit-body description"];
   create   [label="create PR via the forge CLI\n(gh / tea / glab) --base <default>"];
   done     [label="Report PR URL" shape=doublecircle];
 
@@ -203,7 +219,8 @@ ls .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md \
 - **Directory of templates**: multiple templates. Pick `default.md` if present,
   otherwise ask the user which to use.
 - **Single file**: read it; that's the body skeleton.
-- **None found**: use the default Summary/Changes shape below.
+- **None found**: open the description with a plain commit body, optional
+  review sections after it (shape below).
 
 Synthesize the two pieces against the full branch diff:
 
@@ -212,32 +229,36 @@ git log --oneline <default-branch>..HEAD   # the commits the PR will contain
 git diff <default-branch>...HEAD            # the actual changes — ground truth
 ```
 
-- **Title** — one conventional-commit subject summarizing the change, framed for
-  a reader of the merged history.
-- **Body** — a factual account of what changed, drawn strictly from the diff.
-  Keep it concrete; do not editorialize.
+- **Title** — the squash commit's subject: one conventional-commit header
+  summarizing the whole branch, framed for a reader of the merged history. Add
+  `!` before the colon when the branch breaks a public contract.
+- **Description** — opens with the squash commit's body; review sections may
+  follow it.
   - **If a template was found**, fill _its_ sections — preserve every heading and
-    its order. Populate each from the diff; leave any section that doesn't apply
-    as `N/A` rather than inventing content. Honor template instructions you can
-    satisfy factually (e.g. a checklist), and don't delete sections you can't.
-    The diff-grounded rule still governs: a section asking "why" or "risks" gets
-    `N/A` unless the answer is literally visible in the changes.
-  - **If no template was found**, use this shape and resist adding anything else:
+    its order. Populate each truthfully (a motivation section gets the real why);
+    leave any section that doesn't apply as `N/A` rather than inventing content.
+    Honor template instructions you can satisfy (e.g. a checklist), and don't
+    delete sections you can't.
+  - **If no template was found**, open with the commit body: a few prose
+    paragraphs explaining the motivation for the change, in the imperative
+    present tense, blank line between paragraphs, lines wrapped at ~72
+    characters, and — when the title carries `!` — the `BREAKING CHANGE:`
+    footer as the block's last paragraph. Below that lead block, add `##`
+    sections only when they earn their place for a reviewer (a change list for
+    a sprawling diff, test notes, screenshots); they stay with the PR when the
+    lead block becomes the commit body:
 
-    ```markdown
-    ## Summary
+    ```text
+    <why the change is needed and what approach it takes, as one or more
+    wrapped paragraphs separated by blank lines>
 
-    <1–3 sentences stating what this change is and what it does, all verifiable in the diff>
+    BREAKING CHANGE: <what breaks and how callers migrate — present
+    exactly when the title has `!`, absent otherwise>
 
     ## Changes
 
-    - <concrete change, traceable to specific files/behavior>
-    - <concrete change>
+    - <optional review sections from here down; PR-only, never squashed>
     ```
-
-    Do not add "Motivation"/"Why", "Future work", "Notes", "Caveats", "Concerns",
-    or "Testing" speculation. If you're tempted to write something the diff doesn't
-    show, drop it.
 
 Write the chosen body (template-filled or default) to a temp file (avoids
 shell-quoting pitfalls; `/tmp` is exempt from the file-protection hooks), then
@@ -245,11 +266,13 @@ run the **Create PR** command for your forge from the Step 0 mapping table:
 
 ```bash
 cat > /tmp/pr-body.md <<'EOF'
-## Summary
-...
+<commit-body paragraphs, blank-line separated, wrapped at ~72 chars>
+
+BREAKING CHANGE: <footer, only when the title has `!`>
 
 ## Changes
-- ...
+
+- <optional review-only sections below the lead block>
 EOF
 
 # GitHub example — substitute the row for your detected CLI:
@@ -277,6 +300,9 @@ user's call (or a reviewer's).
 | Push prompt / no upstream       | Branch not pushed yet                   | `git push -u origin HEAD` before creating the PR                  |
 | `tea`/`glab` opens an editor or hangs | Body/title not passed non-interactively | Pass `--description "$(cat <body-file>)"` (and `--yes` for `glab`); `tea` has no `--body-file` |
 | Forge CLI not found / not authed | Matching CLI missing or not logged in for the host | Stop; have the user install and authenticate it (`tea login add`, `glab auth login`, `gh auth login`) |
-| Body reads like a design doc    | Included why/future/concerns            | Cut anything not visible in the diff; keep Summary + Changes only |
-| Repo template has empty/why sections | Template asks for content the diff doesn't show | Mark those sections `N/A`; never invent prose to fill them |
+| Body reads like a design doc    | Included future work, open questions, or speculation | Cut it; keep the motivation paragraphs (plus the footer when breaking) |
+| Description starts with a heading | Commit body missing or buried below review sections | Motivation paragraphs (and footer) go above the first `##`; sections after |
+| Squashed body is one dense block | Lead paragraphs not blank-line separated, lines unwrapped | Blank line between paragraphs; wrap at ~72 chars |
+| Title has `!` but no footer (or vice versa) | Breaking marker applied in only one place | Add the missing `BREAKING CHANGE:` footer (last paragraph of the lead block) or `!` — or drop both if not breaking |
+| Repo template has sections you can't fill | Template asks for content that isn't true of this branch | Mark those sections `N/A`; never invent prose to fill them |
 | No remote                       | Nowhere to open a PR                    | Stop; tell the user to set a remote                               |
