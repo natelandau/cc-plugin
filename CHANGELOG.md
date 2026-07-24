@@ -1,3 +1,12 @@
+## v0.19.0 (2026-07-24)
+
+### Feat
+
+- **pr**: write PR title and description as the squash commit message
+- **prune-comments**: add history rule and explicit scope support
+- **toolkit**: prompt before commands that touch remote hosts
+- **prune-comments**: add on-demand inline comment cleanup skil
+
 ## v0.18.0 (2026-07-08)
 
 ### Feat
