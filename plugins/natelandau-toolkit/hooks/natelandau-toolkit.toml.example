@@ -6,8 +6,8 @@
 profile = "standard"
 
 # Hook ids to force-off regardless of profile. Ids: branch-protection,
-# protect-secrets, protect-system, protect-remote, commit-message,
-# config-protection, use-uv.
+# protect-secrets, protect-system, protect-remote, confirm-recursive-rm,
+# commit-message, config-protection, use-uv.
 # e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 

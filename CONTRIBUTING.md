@@ -98,6 +98,7 @@ plugins/natelandau-toolkit/
       protect_secrets.py
       protect_system.py
       protect_remote.py
+      confirm_recursive_rm.py
       use_uv.py
     stop/ posttooluse/ sessionstart/ sessionend/   Empty noop stages (each has a _registry.py)
     lib/                                      Shared library: dispatch, config, io, rules,

@@ -22,15 +22,15 @@
     package = false
 
 [tool.commitizen]
-    bump_message               = "bump(release): v$current_version → v$new_version"
+    bump_message = "bump(release): v$current_version → v$new_version"
     changelog_merge_prerelease = true
-    tag_format                 = "v$version"
-    update_changelog_on_bump   = true
-    version_files              = [
-        "plugins/natelandau-toolkit/.claude-plugin/plugin.json:\"version\"",
+    tag_format = "v$version"
+    update_changelog_on_bump = true
+    version_files = [
         "plugins/natelandau-recall/.claude-plugin/plugin.json:\"version\"",
+        "plugins/natelandau-toolkit/.claude-plugin/plugin.json:\"version\"",
     ]
-    version_provider           = "uv"
+    version_provider = "uv"
 
 [tool.pytest.ini_options]
     addopts   = ["--color=yes", "--dist=loadfile", "--strict-markers", "-n=auto", "-ra"]
@@ -39,6 +39,7 @@
 
 [tool.ruff]
     exclude        = [".cache", ".git", ".ruff_cache", ".venv", ".worktrees"]
+    extend-exclude = ["*.md"]
     fix            = true
     line-length    = 100
     output-format  = "grouped"

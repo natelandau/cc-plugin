@@ -55,6 +55,7 @@ Hooks run automatically on every matching tool call. They block an action and ex
 | `protect-secrets` | Reading, editing, writing, or exfiltrating sensitive files like `.env` and credential stores. |
 | `protect-system` | System-destructive shell commands, plus removal of a `.git` directory (paths inside it stay allowed). |
 | `protect-remote` | Remote-host commands (ssh, scp, sftp, remote rsync, ansible). Prompts for approval rather than blocking; you judge destructiveness per invocation. |
+| `confirm-recursive-rm` | Recursive deletes (`rm -rf` and every other flag spelling) whose targets are not all rebuildable. Prompts for approval rather than blocking. Deletes confined to a temp root (`/tmp/`, `/private/tmp/`, or the literal `$TMPDIR/`) or to a directory a toolchain regenerates (`node_modules`, `.venv`, `.tox`, `.nox`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.ipynb_checkpoints`, `htmlcov`) run without interruption; one non-exempt target prompts for the whole command. Paths are matched as written, so a macOS `$TMPDIR` already expanded to `/var/folders/...` is hard-blocked by `protect-system` instead. |
 | `commit-message` | Commits and PR titles that don't follow conventional-commit format. |
 | `config-protection` | Edits that weaken a linter, formatter, or typechecker config. |
 | `use-uv` | Nothing. It's a non-blocking nudge toward `uv run` for Python commands. |
@@ -178,7 +179,7 @@ The toolkit groups its hooks into three profiles. `profile` selects the tier; `d
 | Profile | Active hooks |
 | --- | --- |
 | `minimal` | branch-protection, protect-secrets, protect-system. |
-| `standard` (default) | minimal plus protect-remote, commit-message, config-protection, use-uv. |
+| `standard` (default) | minimal plus protect-remote, confirm-recursive-rm, commit-message, config-protection, use-uv. |
 | `strict` | Same as standard, reserved for future use. |
 
 ```toml

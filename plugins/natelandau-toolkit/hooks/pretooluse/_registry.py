@@ -9,6 +9,7 @@ PLUGINS: list[tuple[str, frozenset[str]]] = [
     ("protect_secrets", ALL),
     ("protect_system", ALL),
     ("protect_remote", STANDARD_UP),
+    ("confirm_recursive_rm", STANDARD_UP),
     ("enforce_commit_message", STANDARD_UP),
     ("config_protection", STANDARD_UP),
     ("use_uv", STANDARD_UP),
