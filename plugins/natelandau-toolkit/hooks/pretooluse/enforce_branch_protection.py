@@ -729,7 +729,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: AR
     if tool_name != "Bash":
         return None
 
-    command: str = (event.get("tool_input") or {}).get("command", "")
+    command: str = bash.join_continuations((event.get("tool_input") or {}).get("command", ""))
     cwd: str = event.get("cwd", "")
 
     reason = check_destructive(command)

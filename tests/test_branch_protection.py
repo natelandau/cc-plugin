@@ -151,6 +151,21 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Force push",),
     ),
+    # A backslash-continued newline is whitespace inside one command, not a
+    # statement separator, so a flag on the next line still belongs to the git
+    # command on the first.
+    Case(
+        id="git push --force across a line continuation blocked",
+        make_payload=lambda r: _bash("git push \\\n--force origin feat", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Force push",),
+    ),
+    Case(
+        id="git reset --hard across a line continuation blocked",
+        make_payload=lambda r: _bash("git reset \\\n--hard HEAD~1", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("reset --hard",),
+    ),
     Case(
         id="git push +refspec blocked",
         make_payload=lambda r: _bash("git push origin +master", cwd=r["feat"]),

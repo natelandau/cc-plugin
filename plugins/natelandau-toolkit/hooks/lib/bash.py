@@ -17,18 +17,41 @@ from __future__ import annotations
 
 import re
 
-# Sequence operators that end one statement and begin the next. Wrapped in
-# surrounding whitespace so each split part arrives trimmed at the boundary.
-_SEQUENCE_SPLIT = re.compile(r"\s*(?:&&|\|\||;)\s*")
+# Sequence operators that end one statement and begin the next. A bare newline
+# is one of them, so the lines of a multi-line script are separate clauses; a
+# `\`-continued or quoted newline is already filler by then and never splits.
+# Wrapped in surrounding whitespace so each split part arrives trimmed at the
+# boundary.
+_SEQUENCE_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\n)\s*")
 
 # Sequence operators plus a single pipe and a background `&`, so each pipeline
 # stage and backgrounded command is its own clause.
-_PIPELINE_SPLIT = re.compile(r"&&|\|\||[;|&]")
+_PIPELINE_SPLIT = re.compile(r"&&|\|\||[;|&\n]")
+
+# A backslash before a newline continues the same command; the shell removes
+# both before parsing. Only a *bare* newline separates statements.
+_LINE_CONTINUATION = re.compile(r"\\\r?\n")
 
 # Replaces every quoted or escaped character in mask_quoted's output. A letter
 # (never a shell metacharacter or whitespace) so a masked span reads as inert
 # word text: operator/redirect scans skip it while token boundaries are kept.
 _MASK_FILL = "x"
+
+
+def join_continuations(command: str) -> str:
+    r"""Fold `\`-continued lines into one, the way the shell does before parsing.
+
+    Call this on a command string before matching it, so a rule that scans
+    within a single statement is not defeated by splitting the command across
+    lines (`git push \<newline>--force`, `rm -rf \<newline>/etc`). Without
+    it, every such pattern silently stops at the newline.
+
+    A backslash-newline inside single quotes is literal rather than a
+    continuation, so folding it is technically wrong there. It is folded
+    anyway: the error direction is a guard matching text it otherwise would
+    not, which fails safe, and the alternative is quote-tracking every rule.
+    """
+    return _LINE_CONTINUATION.sub(" ", command)
 
 
 def mask_quoted(command: str) -> str:
