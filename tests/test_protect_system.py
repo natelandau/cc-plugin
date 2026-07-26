@@ -164,6 +164,93 @@ CASES: tuple[Case, ...] = (
         payload=_bash("rm foo.txt"),
         expect_exit=0,
     ),
+    # A fatal operand is fatal in any argument position, not just the first.
+    Case(
+        id="rm system path in trailing position blocked",
+        payload=_bash("rm -rf /tmp/x /etc"),
+        expect_exit=2,
+        stderr_contains=("rm-system",),
+    ),
+    Case(
+        id="rm system path in middle position blocked",
+        payload=_bash("rm -rf a /var/log/old.log b"),
+        expect_exit=2,
+        stderr_contains=("rm-system",),
+    ),
+    Case(
+        id="rm quoted system path blocked",
+        payload=_bash('rm -rf "/etc"'),
+        expect_exit=2,
+        stderr_contains=("rm-system",),
+    ),
+    Case(
+        id="rm root in trailing position blocked",
+        payload=_bash("rm -rf /tmp/x /"),
+        expect_exit=2,
+        stderr_contains=("rm-system",),
+    ),
+    Case(
+        id="rm home in middle position blocked",
+        payload=_bash("rm -rf a ~ b"),
+        expect_exit=2,
+        stderr_contains=("rm-home",),
+    ),
+    Case(
+        id="rm braced $HOME blocked",
+        payload=_bash("rm -rf ${HOME}"),
+        expect_exit=2,
+        stderr_contains=("rm-home",),
+    ),
+    Case(
+        id="rm '.' in trailing position blocked",
+        payload=_bash("rm -rf /tmp/x ."),
+        expect_exit=2,
+        stderr_contains=("rm-cwd",),
+    ),
+    Case(
+        id="rm '*' in trailing position blocked",
+        payload=_bash("rm -rf /tmp/x *"),
+        expect_exit=2,
+        stderr_contains=("rm-cwd",),
+    ),
+    Case(
+        id="rm does not reach across a command separator",
+        payload=_bash("rm -rf /tmp/x; ls /etc"),
+        expect_exit=0,
+    ),
+    # A newline ends the rm's argument list too, so a following line's
+    # arguments are never read as operands of the rm.
+    Case(
+        id="rm does not reach across a newline into a system path",
+        payload=_bash("rm -rf /tmp/x\nls /etc"),
+        expect_exit=0,
+    ),
+    Case(
+        id="rm does not reach across a newline into '.'",
+        payload=_bash("rm old.txt\ngit add ."),
+        expect_exit=0,
+    ),
+    Case(
+        id="rm does not reach across a newline into '~'",
+        payload=_bash("rm -rf build\ncd ~"),
+        expect_exit=0,
+    ),
+    Case(
+        id="rm on a later line is still blocked",
+        payload=_bash("echo cleaning\nrm -rf /etc"),
+        expect_exit=2,
+        stderr_contains=("rm-system",),
+    ),
+    Case(
+        id="rm -rf /tmp/etc/cache allowed (system name is not a prefix)",
+        payload=_bash("rm -rf /tmp/etc/cache"),
+        expect_exit=0,
+    ),
+    Case(
+        id="rm -rf ${HOME}/projects allowed",
+        payload=_bash("rm -rf ${HOME}/projects"),
+        expect_exit=0,
+    ),
     # CRITICAL: disk wipes
     Case(
         id="dd to /dev/sda blocked",
@@ -739,3 +826,94 @@ def test_malformed_project_file_keeps_builtins(system_module: Any, tmp_path: Pat
     # Then the built-in still blocks and the project rule is silently dropped
     assert blocked is not None and blocked.block  # noqa: PT018
     assert ignored is None
+
+
+@pytest.mark.parametrize(
+    ("command", "rule"),
+    [
+        ("rm -rf \\\n/etc", "rm-system"),
+        ("rm -rf \\\n~", "rm-home"),
+        ("rm -rf \\\n.", "rm-cwd"),
+        ("rm -rf \\\n/", "rm-system"),
+    ],
+    ids=["system", "home", "cwd", "root"],
+)
+def test_catastrophic_target_after_a_line_continuation_blocked(
+    command: str,
+    rule: str,
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    r"""Verify a backslash-continued newline does not hide a fatal operand.
+
+    A `\\`-newline is whitespace inside one command, unlike a bare newline,
+    which separates statements. A catastrophic target must not be downgraded
+    to a prompt just because it sits on the next line.
+    """
+    # Given a fatal rm operand separated from its flags by a line continuation
+    payload = _bash(command)
+
+    # When the PreToolUse dispatcher evaluates it
+    proc = run_pretooluse(payload)
+
+    # Then it is blocked outright
+    diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
+    assert proc.returncode == 2, f"exit={proc.returncode}{diag}"
+    assert rule in proc.stderr, f"wrong rule{diag}"
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["rm -rf .git", "rm -rf ./.git", "rm -rf /repos/proj/.git", "rm -rf .git/", "rm -rf src .git"],
+    ids=["bare", "dot-slash", "absolute", "trailing-slash", "trailing-position"],
+)
+def test_deleting_a_git_dir_blocked(
+    command: str,
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    """Verify removing a .git directory is blocked, not merely prompted.
+
+    Deleting .git destroys every commit, stash, and reflog with no remote-free
+    way back, which puts it with the catastrophic targets rather than with a
+    rebuildable artifact.
+    """
+    # Given a recursive delete whose target is a repository's .git directory
+    payload = _bash(command)
+
+    # When the PreToolUse dispatcher evaluates it
+    proc = run_pretooluse(payload)
+
+    # Then it is blocked outright
+    diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
+    assert proc.returncode == 2, f"exit={proc.returncode}{diag}"
+    assert "rm-git-dir" in proc.stderr, f"wrong rule{diag}"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf .gitignore",
+        "rm -rf .github",
+        "rm -f .git/index.lock",
+        "rm -rf .gitmodules",
+        "rm -rf src/.gitkeep",
+    ],
+    ids=["gitignore", "github", "index-lock", "gitmodules", "gitkeep"],
+)
+def test_git_adjacent_paths_not_blocked(
+    command: str,
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    """Verify the .git rule needs a whole segment and leaves paths inside it alone.
+
+    `rm -f .git/index.lock` is a routine unwedging step, so only the directory
+    itself is fatal.
+    """
+    # Given a delete of a git-adjacent path that is not the .git directory
+    payload = _bash(command)
+
+    # When the PreToolUse dispatcher evaluates it
+    proc = run_pretooluse(payload)
+
+    # Then protect_system does not block it
+    diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
+    assert proc.returncode != 2, f"unexpectedly blocked{diag}"

@@ -16,33 +16,49 @@
 # "Rule data" section of CLAUDE.md for the full schema.
 #
 # Pattern strings are TOML literals (single-quoted) so regex backslashes
-# pass through verbatim. The home-directory patterns include a single quote
-# inside the regex character class, so they use the multi-line literal form
-# ('''...''').
+# pass through verbatim. Patterns containing a single quote inside a regex
+# character class use the multi-line literal form ('''...''').
 
 # === Catastrophic and largely unrecoverable. ===
+
+# The rm rules share one prefix idiom:
+#
+#     \brm\b(?:[ \t]+[^\s;&|]+)*[ \t]+["']?<target>
+#
+# `rm` deletes every operand, so a fatal target is just as fatal in the last
+# argument position as the first. The argument loop excludes `;&|` so it
+# cannot reach across a command separator into an unrelated command, and it
+# steps between arguments on `[ \t]` rather than `\s` so a newline (also a
+# statement separator) ends the scan: without that, the operands of a later
+# line read as operands of the rm (`rm old.txt\ngit add .`).
 
 [[rule]]
     id      = "rm-home"
     reason  = "rm targeting home directory"
-    pattern = [
-        '''\brm\b\s+(?:-\S+\s+)*[\"']?~/?[\"']?(?:\s|$|[;&|])''',
-        '''\brm\b\s+(?:-\S+\s+)*[\"']?\$HOME/?[\"']?(?:\s|$|[;&|])''',
-        '''\brm\b\s+\S.*\s[\"']?(?:~/?|\$HOME/?)[\"']?(?:\s*$|[;&|])''',
-    ]
+    pattern = '''\brm\b(?:[ \t]+[^\s;&|]+)*[ \t]+["']?(?:~|\$\{?HOME\}?)/?["']?(?:\s|$|[;&|])'''
 
+# The root branch keeps the original "has a flag somewhere" lookahead: bare
+# `rm /` fails harmlessly without -r/-f.
 [[rule]]
     id      = "rm-system"
     reason  = "rm targeting system or root filesystem"
     pattern = [
-        '\brm\b\s+(?:-\S+\s+)+/(?:\*|\s|$|[;&|])',
-        '\brm\b\s+(?:-\S+\s+)*/(?:etc|usr|var|bin|sbin|lib|boot|dev|proc|sys)(?:/|\s|$|[;&|])',
+        '''\brm\b(?=[^\n;&|]*[ \t]-)(?:[ \t]+[^\s;&|]+)*[ \t]+["']?/\*?["']?(?:\s|$|[;&|])''',
+        '''\brm\b(?:[ \t]+[^\s;&|]+)*[ \t]+["']?/(?:etc|usr|var|bin|sbin|lib|boot|dev|proc|sys)(?:/|["']?(?:\s|$|[;&|]))''',
     ]
 
 [[rule]]
     id      = "rm-cwd"
     reason  = "rm of '.' or '*' wipes CWD contents"
-    pattern = '\brm\b\s+(?:-\S+\s+)*(?:\./?|\*|\./\*)(?:\s|$|[;&|])'
+    pattern = '''\brm\b(?:[ \t]+[^\s;&|]+)*[ \t]+["']?(?:\./?|\*|\./\*)["']?(?:\s|$|[;&|])'''
+
+# Only the directory itself. A path *inside* .git stays allowed so the routine
+# `rm -f .git/index.lock` unwedging step still works, and the whole-segment
+# match keeps .gitignore / .github / .gitmodules out of it.
+[[rule]]
+    id      = "rm-git-dir"
+    reason  = "removing .git destroys all history, stashes, and reflogs"
+    pattern = '''\brm\b(?:[ \t]+[^\s;&|]+)*[ \t]+["']?(?:[^\s;&|]*/)?\.git/?["']?(?:\s|$|[;&|])'''
 
 [[rule]]
     id      = "disk-wipe"

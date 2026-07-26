@@ -53,7 +53,7 @@ Hooks run automatically on every matching tool call. They block an action and ex
 | --- | --- |
 | `branch-protection` | Destructive git operations (any branch), plus file edits and direct commits on `main` or `master`. Merge commits onto `main`/`master` (from `merge`/`pull`) prompt for approval rather than being blocked outright. Checks are keyed off the branch of the file or repo each action targets, so they hold no matter which directory the shell sits in. See [docs/branch-protection.md](docs/branch-protection.md) for the full allow/block/ask rules. |
 | `protect-secrets` | Reading, editing, writing, or exfiltrating sensitive files like `.env` and credential stores. |
-| `protect-system` | System-destructive shell commands. |
+| `protect-system` | System-destructive shell commands, plus removal of a `.git` directory (paths inside it stay allowed). |
 | `protect-remote` | Remote-host commands (ssh, scp, sftp, remote rsync, ansible). Prompts for approval rather than blocking; you judge destructiveness per invocation. |
 | `commit-message` | Commits and PR titles that don't follow conventional-commit format. |
 | `config-protection` | Edits that weaken a linter, formatter, or typechecker config. |

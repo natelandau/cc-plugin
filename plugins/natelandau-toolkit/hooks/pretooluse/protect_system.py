@@ -5,6 +5,9 @@ irreversible:
 
 - Mass deletion of home, root, or system directories
   (`rm -rf ~`, `rm -rf /etc`).
+- Removal of a `.git` directory, which discards all history with no
+  remote-free way back. Paths inside it stay allowed so unwedging with
+  `rm -f .git/index.lock` still works.
 - Disk wipes (`dd of=/dev/sda`, `mkfs.ext4 /dev/sda`,
   `diskutil eraseDisk`).
 - Fork bombs and init/kernel-panic triggers (`kill -9 1`,
@@ -33,7 +36,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lib import rules
+from lib import bash, rules
 from lib.io import Decision
 
 if TYPE_CHECKING:
@@ -56,7 +59,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """
     if event.get("tool_name") != "Bash":
         return None
-    command: str = (event.get("tool_input") or {}).get("command", "")
+    command: str = bash.join_continuations((event.get("tool_input") or {}).get("command", ""))
     if not command:
         return None
     # Built-in rules raise on malformed TOML (caught by the driver); project
