@@ -1,6 +1,6 @@
 ---
 name: pr
-description: Use when the user invokes /pr to open a pull request for the current branch. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title is the future squash commit's conventional-commit subject and the description opens with its body, with optional review-only sections below. User-invoked only.
+description: Use when the user invokes /pr to open a pull request for the current branch. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title is the future squash commit's conventional-commit subject; the description opens with one to three plain sentences saying what the change is and what it does, wrapped at 72 characters, then a BREAKING CHANGE footer when the branch breaks a contract, then optional review sections such as Changes. User-invoked only.
 disable-model-invocation: true
 ---
 
@@ -18,46 +18,70 @@ a PR whose title and description match the project's conventions.
   merge anything.
 - **Title and description lead ARE the squash commit.** The PR is
   squash-merged: the title becomes the commit subject, and the description's
-  lead block — everything above the first markdown heading — becomes the commit
-  body. Write both under the exact same rules as every commit in this repo:
+  lead block (everything above the first markdown heading) becomes the commit
+  body. It lands in `git log` byte for byte, so anything wrong with it lands in
+  the project history exactly that wrong. Write both under the exact same rules
+  as every commit in this repo:
   - **Title = subject.** `<type>(<scope>): <subject>`, imperative, lowercase
     subject, ≤70-char header, type from the allowed set
     (`build ci docs feat fix perf refactor style test` — there is no `chore`).
-  - **Description opens with the body.** The lead block is prose paragraphs
-    explaining the motivation for the change — the _why_, not a file-by-file
-    _what_ (the diff already shows that) — separated by blank lines, wrapped at
-    ~72 characters so the squashed commit reads cleanly in `git log`. No
-    headings, checklists, or bullet changelogs inside this block.
+  - **Description opens with a plain summary: one to three sentences saying
+    what this change is and what it does.** Every sentence must be verifiable
+    from the diff.
+    - **Name the thing.** Say which feature, command, flag, or behavior this
+      is, the way someone who has never seen the branch needs it named.
+      "Adds `--dry-run` to `prune`, which reports what would be deleted and
+      exits without touching the destination" tells a reader what the change
+      is; a sentence describing the state of the world the branch leaves
+      behind makes them work it out. Concrete beats elegant.
+    - **One idea per sentence.** Plain declaratives, not three clauses deep.
+      If a sentence is accumulating detail, that detail belongs in
+      `## Changes`, which exists precisely to hold it.
+    - **Motivation is a clause, not a paragraph.** Give the why only where the
+      change reads as arbitrary without it, usually a fix, where the failure
+      mode _is_ the point. Never open with a setup paragraph establishing that
+      the feature was missing; adding it says that already.
+    - It's a synthesis of the whole branch, not a promotion of its biggest
+      commit. **Never paste a commit's body into it**, and never write a
+      paragraph per commit; `git log` and the diff carry that.
+    - Wrap at 72 characters, blank line between paragraphs if there's more
+      than one, so the squashed commit reads cleanly in `git log`. No headings,
+      checklists, or bullet lists inside this block.
   - **Review sections below.** After the lead block, markdown sections
-    (`## Changes`, `## Testing`, screenshots) are welcome when they genuinely
-    help a reviewer. They stay with the PR and are not part of the commit.
-- **Breaking changes carry both markers.** A breaking change needs `!` before
-  the colon in the title **and** a `BREAKING CHANGE: <impact and migration>`
-  paragraph closing the lead block (the last paragraph before any heading).
-  Whenever you write one, write the other — a `!` title without the footer (or
-  vice versa) is malformed.
-- **Stay factual.** Every claim must be true of this branch. No future or
-  deferred work, no open questions, no concerns or speculation — the motivation
-  for what the change does belongs in the body; plans for what it doesn't do
-  don't.
+    (`## Changes`, `## Testing`, screenshots) are welcome and `## Changes` is
+    usually worth writing. They stay with the PR and are not part of the
+    commit. They must not restate the lead block: a section that recaps the
+    summary in the same words is padding, but listing the concrete changes the
+    summary deliberately left out is exactly the point.
+- **Breaking changes carry both markers, and they're inherited, not
+  re-judged.** A breaking change needs `!` before the colon in the title **and**
+  a `BREAKING CHANGE: <impact and migration>` paragraph closing the lead block
+  (the last paragraph before any heading). Whenever you write one, write the
+  other; a `!` title without the footer (or vice versa) is malformed.
+  - **If _any_ commit on the branch is breaking, the PR is breaking.** The
+    squash collapses the branch into one commit, so a `!` or `BREAKING CHANGE:`
+    footer anywhere in `<base>..HEAD` has exactly one place left to land: the
+    PR's title and lead block. Scan the commits for both markers and carry them
+    up. A breaking commit under a non-breaking PR title silently drops the break
+    from the history the moment it merges.
+  - **Don't demote a break into a review section.** Prose describing what now
+    fails for existing callers is not a substitute for the markers. A break
+    written up under `## Behavior changes for existing users` but missing from
+    the title and footer is still an unmarked breaking change. If you're
+    describing something that breaks a public contract (a changed exit code,
+    a removed or renamed flag, a new required argument, a changed default that
+    alters output contracts), the markers are required and the section is
+    optional detail on top.
+- **Stay factual.** Every claim must be true of this branch and visible in the
+  diff. No future or deferred work, no open questions, no concerns or
+  speculation. What the change does belongs in the description; plans for what
+  it doesn't do don't.
 - **Honor the repo's PR template if it ships one.** When the project provides a
   pull-request template, fill _its_ structure rather than imposing the
-  commit-body shape below. The factual discipline still applies: populate each
+  summary-plus-sections shape below. The factual discipline still applies: populate each
   section truthfully (a motivation section gets the real why) and leave a
   section as `N/A` rather than inventing content to fill it.
 - **Open it ready for review** (not a draft) unless the user says otherwise.
-
-## Why the format matters
-
-Squash-merging replays the PR as one commit whose subject is the PR title and
-whose body is the description's lead block — the paragraphs above the first
-markdown heading. That lead block lands in `git log` byte for byte, so anything
-wrong with it — paragraphs run together without blank lines, unwrapped
-300-character lines, a `!` subject with no `BREAKING CHANGE:` footer — lands in
-the project history exactly that wrong. Sections after the first heading exist
-for reviewers and stay behind on the PR page. Write the title and lead block as
-the commit message they will become, and get them right the first time,
-regardless of which forge or CLI you use.
 
 ## Workflow
 
@@ -73,7 +97,7 @@ digraph pr {
   show     [label="Show existing PR, stop"];
   push     [label="Step 5: push the feature branch\n(git push -u)"];
   tmpl     [label="Discover repo PR template\n(use it, or default shape)"];
-  body     [label="Synthesize squash commit:\nconventional title + commit-body description"];
+  body     [label="Synthesize squash commit: conventional title\n+ plain summary + review sections"];
   create   [label="create PR via the forge CLI\n(gh / tea / glab) --base <default>"];
   done     [label="Report PR URL" shape=doublecircle];
 
@@ -176,7 +200,15 @@ and perform every step in it, with:
 That procedure judges whether the history has actually sprawled (and leaves a
 already-clean branch untouched), groups the commits, rebuilds them with a soft
 reset, and verifies the tree is byte-for-byte identical (restoring from `$orig` if
-anything drifted). Return here when it is done, then continue to Step 5.
+anything drifted). Each group commit is made with `--no-verify`, because the index
+is partial by design at that point: so the project's git `pre-commit` hooks would
+either fail on an incomplete slice or reformat files and break the byte-identical
+guarantee. The procedure closes by running the project's full gate once over the
+finished tree; that is where hook enforcement happens, not per group commit.
+
+Return here when it is done, then continue to Step 5. **If its closing gate came
+back red, do not open the PR.** The tree is unchanged from the branch you started
+with, so report the failures and stop.
 
 ### Step 5 — Push and open the PR
 
@@ -219,8 +251,8 @@ ls .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md \
 - **Directory of templates**: multiple templates. Pick `default.md` if present,
   otherwise ask the user which to use.
 - **Single file**: read it; that's the body skeleton.
-- **None found**: open the description with a plain commit body, optional
-  review sections after it (shape below).
+- **None found**: open the description with a plain summary, then `## Changes`
+  and any other review sections (shape below).
 
 Synthesize the two pieces against the full branch diff:
 
@@ -229,36 +261,94 @@ git log --oneline <default-branch>..HEAD   # the commits the PR will contain
 git diff <default-branch>...HEAD            # the actual changes — ground truth
 ```
 
+Then check whether the branch already declared a break, so the PR inherits it:
+
+```bash
+# breaking subjects (the `!` form) and breaking footers, anywhere on the branch
+git log <default-branch>..HEAD --format='%s' | grep -E '^[a-z]+(\([^)]*\))?!:'
+git log <default-branch>..HEAD --format='%B' | grep -F 'BREAKING CHANGE'
+```
+
+**A hit in either means the PR is breaking.** The title takes `!` and the lead
+block takes the footer, no re-litigating. Merge multiple breaking commits into
+one footer covering every break and its migration. No hit doesn't settle it:
+judge the diff too, since a branch can break a contract without any commit
+having said so.
+
 - **Title** — the squash commit's subject: one conventional-commit header
   summarizing the whole branch, framed for a reader of the merged history. Add
-  `!` before the colon when the branch breaks a public contract.
-- **Description** — opens with the squash commit's body; review sections may
-  follow it.
+  `!` before the colon when any commit above is breaking, or when the branch
+  breaks a public contract regardless of how its commits were worded.
+- **Description** — opens with the plain summary that becomes the squash
+  commit's body; review sections follow it.
   - **If a template was found**, fill _its_ sections — preserve every heading and
     its order. Populate each truthfully (a motivation section gets the real why);
     leave any section that doesn't apply as `N/A` rather than inventing content.
     Honor template instructions you can satisfy (e.g. a checklist), and don't
     delete sections you can't.
-  - **If no template was found**, open with the commit body: a few prose
-    paragraphs explaining the motivation for the change, in the imperative
-    present tense, blank line between paragraphs, lines wrapped at ~72
-    characters, and — when the title carries `!` — the `BREAKING CHANGE:`
-    footer as the block's last paragraph. Below that lead block, add `##`
-    sections only when they earn their place for a reviewer (a change list for
-    a sprawling diff, test notes, screenshots); they stay with the PR when the
-    lead block becomes the commit body:
+  - **If no template was found**, open with a plain summary: one to three
+    sentences saying what this change is and what it does, wrapped at 72
+    characters, plus the `BREAKING CHANGE:` footer as the block's last
+    paragraph when the title carries `!`.
+
+    **Say what it is, in the words a stranger to the branch would need.** Name
+    the feature, command, flag, or behavior outright and say what it does.
+    A reader finishing these sentences should be able to describe the change
+    to someone else. If instead they have to infer it from a description of
+    how things now stand, rewrite it.
+
+    **Keep the sentences plain and then stop.** One idea each; no three-clause
+    sentences packing in flags and API names. Detail is not lost by leaving it
+    out; `## Changes` is where it goes. Motivation appears only where the
+    change would read as arbitrary without it (typically a fix, where the
+    failure mode is the whole point), and then as a clause. Don't open with a
+    paragraph establishing that the feature was missing. This is a synthesis
+    over `<default-branch>..HEAD`, so a summary that could be lifted from a
+    single commit's message unchanged is pitched too low.
+
+    Below the lead block, add `##` sections carrying the detail the summary
+    left out:
+
+    - **`## Changes`**: a bulleted recap of the changes that matter, so a
+      reviewer doesn't have to reconstruct them from the diff. This is where
+      the flag names, API surfaces, and mechanics the summary stayed clear of
+      belong. Group by what changed for a user of the code, not by commit, and
+      skip the mechanical churn. Write it unless the branch is genuinely a
+      one-liner.
+    - **Behavior changes for existing users**: changes that alter how an
+      already-deployed or already-installed setup behaves without breaking a
+      public contract (a widened timeout, a new skip condition, a changed
+      default) are invisible in both the summary and the diff summary. List
+      them. Anything you write here that _does_ break a contract still needs
+      `!` and the footer; this section adds detail for reviewers and never
+      stands in for the markers.
+    - **`## Testing`**: only what CI output doesn't already show, manual
+      verification a reviewer can't reproduce from the pipeline, plus a
+      one-line pass/fail for the suite. Never narrate your own methodology or
+      how thoroughly you tested.
+
+    A filled example, showing the altitude of each layer:
 
     ```text
-    <why the change is needed and what approach it takes, as one or more
-    wrapped paragraphs separated by blank lines>
+    Adds S3 authentication through the host's ambient credentials, so a
+    container can authenticate with an EC2 instance profile, EKS IRSA, or
+    an ECS task role instead of an explicit key pair. Makes a destination
+    ezbak cannot read a failure rather than an empty result.
 
-    BREAKING CHANGE: <what breaks and how callers migrate — present
-    exactly when the title has `!`, absent otherwise>
+    BREAKING CHANGE: a pre-start restore that hit a transient S3 error
+    used to exit 0; it now exits 1 and blocks the job from starting.
 
     ## Changes
 
-    - <optional review sections from here down; PR-only, never squashed>
+    - Credentials are optional. Omitting both defers to boto3's provider
+      chain: instance profile, IRSA, ECS task role, `AWS_*`, `~/.aws`.
+    - `EZBak.unreadable_locations` reports which destinations could not be
+      read, so a caller can tell a partial inventory from a complete one.
+    - The bucket check uses `HeadBucket` instead of `GetBucketLocation`.
     ```
+
+    The summary states the change; the bullets carry the mechanism. The
+    footer is present exactly when the title has `!`, absent otherwise.
 
 Write the chosen body (template-filled or default) to a temp file (avoids
 shell-quoting pitfalls; `/tmp` is exempt from the file-protection hooks), then
@@ -266,13 +356,13 @@ run the **Create PR** command for your forge from the Step 0 mapping table:
 
 ```bash
 cat > /tmp/pr-body.md <<'EOF'
-<commit-body paragraphs, blank-line separated, wrapped at ~72 chars>
+<one to three sentences: what this change is and what it does, wrapped at 72 chars>
 
 BREAKING CHANGE: <footer, only when the title has `!`>
 
 ## Changes
 
-- <optional review-only sections below the lead block>
+- <the concrete changes; review-only sections from here down, never squashed>
 EOF
 
 # GitHub example — substitute the row for your detected CLI:
@@ -296,13 +386,24 @@ user's call (or a reviewer's).
 | ------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
 | Create blocked / title rejected | Title isn't a valid conventional commit | Fix the title; `chore` is not an allowed type here                |
 | Push rejected (non-fast-forward) | Branch was pushed before the Step B rebase rewrote it | Don't force (hook blocks it); have the user `! git push --force-with-lease` |
+| A git `pre-commit` hook fails or reformats during Step 4 | A group commit staged only part of the tree | Commit each group with `--no-verify`; the full gate runs once at the end |
+| Step 4's closing gate reports failures | Pre-existing breakage; the regroup left the tree unchanged | Report it and stop; don't open the PR and don't amend the group commits |
 | "a pull request already exists" | Branch already has an open PR           | Show the existing PR; update it instead of creating a duplicate   |
 | Push prompt / no upstream       | Branch not pushed yet                   | `git push -u origin HEAD` before creating the PR                  |
 | `tea`/`glab` opens an editor or hangs | Body/title not passed non-interactively | Pass `--description "$(cat <body-file>)"` (and `--yes` for `glab`); `tea` has no `--body-file` |
 | Forge CLI not found / not authed | Matching CLI missing or not logged in for the host | Stop; have the user install and authenticate it (`tea login add`, `glab auth login`, `gh auth login`) |
-| Body reads like a design doc    | Included future work, open questions, or speculation | Cut it; keep the motivation paragraphs (plus the footer when breaking) |
-| Description starts with a heading | Commit body missing or buried below review sections | Motivation paragraphs (and footer) go above the first `##`; sections after |
-| Squashed body is one dense block | Lead paragraphs not blank-line separated, lines unwrapped | Blank line between paragraphs; wrap at ~72 chars |
+| Body reads like a design doc    | Included future work, open questions, or speculation | Cut it; keep the summary (plus the footer when breaking) |
+| Reader can't tell what the change actually is | Summary describes the state of the world the branch leaves behind instead of naming the change | Name the feature, command, flag, or behavior and say what it does |
+| Description starts with a heading | Summary missing, or buried below review sections | The summary (and footer) goes above the first `##`; sections after |
+| Squashed body is one dense block | Lead paragraphs not blank-line separated, lines unwrapped | Blank line between paragraphs; wrap at 72 chars |
+| Summary opens by establishing the problem | Wrote a setup paragraph before saying what changed | Cut it; open with what the change is, since the gap is implied |
+| Summary sentences carry three clauses each | Packed flags and API names into prose instead of listing them | Move that detail to `## Changes`; leave one idea per sentence |
+| Summary matches a commit's body nearly verbatim | Promoted the dominant commit instead of synthesizing the branch | Rewrite from `git diff <base>...HEAD` at branch altitude |
+| `## Changes` missing on a branch that touched several areas | Treated the review sections as optional decoration | Add it; the summary stays short precisely because the bullets exist |
+| A `##` section repeats the summary in the same words | Same change stated twice at the same altitude | Keep the section but pitch it lower: concrete changes, not a recap |
+| `## Testing` describes how thoroughly you tested | Narrating session process instead of reviewer-relevant facts | Keep manual verification CI can't show plus one pass/fail line; cut the rest |
 | Title has `!` but no footer (or vice versa) | Breaking marker applied in only one place | Add the missing `BREAKING CHANGE:` footer (last paragraph of the lead block) or `!` — or drop both if not breaking |
+| A branch commit is breaking but the PR isn't | Judged the PR fresh instead of inheriting the commit's marker | Carry it up: `!` in the title, footer in the lead block. The squash leaves nowhere else for it |
+| Break described in prose under a `##` section | Treated a behavior-changes section as the place breaks get reported | Keep the section, but add `!` and the footer; the section never substitutes for them |
 | Repo template has sections you can't fill | Template asks for content that isn't true of this branch | Mark those sections `N/A`; never invent prose to fill them |
 | No remote                       | Nowhere to open a PR                    | Stop; tell the user to set a remote                               |

@@ -24,7 +24,9 @@ Every commit you make here must be a valid conventional commit:
 `<type>(<scope>): <subject>` — imperative, lowercase subject, ≤70-char header,
 type from the allowed set (`build ci docs feat fix perf refactor style test` —
 there is no `chore`). The `enforce_commit_message` hook validates each
-`git commit`, so a malformed subject blocks the rewrite mid-way.
+`git commit`, so a malformed subject blocks the rewrite mid-way. This holds even
+though Step 3 commits with `--no-verify`: that flag bypasses git's own hooks, not
+the `enforce_commit_message` gate.
 
 ## Step 1 — Decide whether regrouping helps
 
@@ -90,13 +92,36 @@ git reset --soft <base>   # uncommit the branch's commits; working tree untouche
 git restore --staged .    # unstage everything so each group commits on its own
 ```
 
-Then, in the intended reading order, stage just each group's paths and commit it:
+Then, in the intended reading order, stage just each group's paths and commit it.
+**Every group commit takes `--no-verify`:**
 
 ```bash
 git add <paths for group 1>
-git commit -m "<type>(<scope>): <subject>"
+git commit --no-verify -m "<type>(<scope>): <subject>"
 # repeat for each remaining group, groundwork commits first
 ```
+
+Each group stages only a slice of the tree, so a repo with git `pre-commit` hooks
+would run them against an index that is deliberately incomplete: a helper without
+its caller, an implementation without its test. That breaks the rewrite two ways:
+
+- a linter or test suite fails on the slice and aborts the commit, stranding the
+  branch mid-rewrite with its history already soft-reset away;
+- a formatting hook _succeeds_ by rewriting files, which changes the tree and
+  makes Step 4's byte-identical check fail, rolling the whole rewrite back.
+
+Neither is a real quality signal. The complete tree was already whatever it was
+before you started. Skip the hooks per commit and run the gate once, on the
+finished tree, in Step 5.
+
+Two things `--no-verify` is **not**:
+
+- **Not `git rebase --no-verify`.** That flag skips only the `pre-rebase` hook and
+  does nothing for pre-commit; the `enforce_branch_protection` hook blocks it
+  outright. Nothing in this procedure needs it.
+- **Not a license to skip hooks on whole-tree commits.** Any commit that stages the
+  full working tree (the calling skill's prep commits, a fix commit after Step 5)
+  runs the hooks normally. If one rewrites files, re-stage and re-commit.
 
 ## Step 4 — Verify the tree is unchanged
 
@@ -108,7 +133,7 @@ git diff <original-tip> HEAD --stat   # MUST be empty
 git status --porcelain                # MUST be empty (clean tree, everything committed)
 ```
 
-- **Both empty** → the regrouping is faithful. Return to the calling skill.
+- **Both empty** → the regrouping is faithful. Continue to Step 5.
 - **Either is non-empty** → content was lost or altered. **Restore and abort:**
 
   ```bash
@@ -118,3 +143,20 @@ git status --porcelain                # MUST be empty (clean tree, everything co
   Report that the rewrite was rolled back and the branch is exactly as it was.
   Do not retry blindly — re-read the diff and fix the grouping before another
   attempt.
+
+## Step 5 — Run the project's full gate once
+
+Step 3 skipped the per-commit hooks; it did not waive them. Now that the tree is
+whole again, run the project's real gate over all of it. Dispatch the
+`test-runner` subagent (it discovers the project's own tooling and returns just a
+`GREEN`/`RED` verdict), or run the gate directly (`pre-commit run --all-files`
+plus the project's test command, or whatever `pyproject.toml` / `package.json` /
+`Makefile` / CI defines).
+
+- **Green** → the rewrite is done. Return to the calling skill.
+- **Red** → **do not amend the group commits to fix it.** Step 4 just proved this
+  tree is byte-for-byte what the branch already had, so the failure is
+  pre-existing, not something the rewrite introduced; editing files now would
+  discard that proof. Stop, report the failures and the fact that the regrouped
+  history itself is sound, and let the calling skill or the user decide whether to
+  fix forward on top or reset to `<original-tip>`.

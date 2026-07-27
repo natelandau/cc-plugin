@@ -251,3 +251,4 @@ is **not pushed** — that's theirs to do.
 | `worktree remove` refuses           | Untracked/dirty files in the worktree         | Stop, show the user; don't force-discard their files                           |
 | Merge conflict on squash            | Trunk diverged from the branch's base         | Stop; let the user resolve, then resume at the commit step                     |
 | Commit rejected by hook             | Message isn't a valid conventional commit     | Fix the type/subject; `chore` is not an allowed type here                      |
+| A git `pre-commit` hook reformats files on the squash commit | Formatter rewrote the staged tree | Re-stage and re-commit; the squash is still in progress, so the commit is still permitted. Never `--no-verify` here; this commit stages the whole tree |

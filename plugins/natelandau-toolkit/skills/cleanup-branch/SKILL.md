@@ -45,7 +45,7 @@ digraph cleanup_branch {
   detect   [label="Step 0: detect branch, trunk,\nmerge-base, upstream"];
   refuse   [label="On trunk / dirty tree / <=1 commit?\nStop and explain" shape=diamond];
   backup   [label="Step 2: create backup/<branch>-<sha7>"];
-  regroup  [label="Step 3: shared regroup procedure\n(group, rewrite, verify)"];
+  regroup  [label="Step 3: shared regroup procedure\n(group, rewrite --no-verify,\nverify tree, full gate)"];
   tidy     [label="Procedure reported nothing to do?" shape=diamond];
   cleanup  [label="Delete unused backup, stop"];
   report   [label="Step 4: print commit table"];
@@ -122,13 +122,21 @@ and perform every step in it, with:
 - **`<original-tip>`** = the **backup branch** created in Step 2.
 
 The shared procedure decides whether regrouping helps, groups the commits,
-rebuilds the history, and verifies the tree is byte-for-byte identical (restoring
-from the backup if anything drifted). Return here when it is done.
+rebuilds the history (committing each group with `--no-verify`, because a
+partially-staged index would fail or reformat under the project's git hooks),
+verifies the tree is byte-for-byte identical (restoring from the backup if
+anything drifted), and finally runs the project's full gate once over the whole
+tree. Return here when it is done.
 
 - **If it reported "nothing to do"** (the history already reads cleanly), there is
   no value in the backup you created — delete it (`git branch -D backup/...`) and
   stop, telling the user the branch was already tidy.
-- **If it rebuilt the history**, continue to Step 4.
+- **If its Step 5 gate came back red**, the regrouped history is still sound. The
+  tree is what it always was, so the failures predate the cleanup. Report them,
+  **keep the backup branch** (skip the delete offer in Step 4), and let the user
+  decide whether to fix forward or reset. Do not fix the failures yourself; this
+  skill never changes the work.
+- **If it rebuilt the history and the gate passed**, continue to Step 4.
 
 ### Step 4 — Report and offer to delete the backup
 
@@ -162,6 +170,8 @@ pushes for the agent by design, so the user runs that themselves if they want it
 | ------- | ----- | ------- |
 | Refuses immediately | Dirty tree, on trunk, or ≤1 commit beyond trunk | Commit/stash, switch to a feature branch, or accept there's nothing to regroup |
 | Regroup verify failed and rolled back | A group's paths were staged wrong, dropping or altering content | The branch is unchanged; re-read the diff and regroup again |
-| A `git commit` is blocked | Subject isn't a valid conventional commit | Fix the subject; `chore` is not an allowed type here |
+| A `git commit` is blocked | Subject isn't a valid conventional commit | Fix the subject; `chore` is not an allowed type here (`--no-verify` does not bypass this gate) |
+| A git `pre-commit` hook fails or reformats during the rewrite | A group commit staged only part of the tree | Commit each group with `--no-verify`; the full gate runs once at the end |
+| The closing gate reports failures | Pre-existing breakage; the tree is unchanged | Report it, keep the backup, don't fix it here |
 | Backup name already exists | A prior cleanup left a backup on the same tip | Remove the stale backup, then re-run |
 | User wants the remote updated | History was rewritten locally | They run `git push --force-with-lease`; the agent cannot (hook blocks it) |

@@ -188,9 +188,13 @@ and perform every step in it, with:
   Step B, and the one the fast-forward lands on).
 - **`<original-tip>`** = `$orig` (the SHA recorded just above).
 
-That procedure groups the commits, rebuilds them with a soft reset, and verifies the
-tree is byte-for-byte identical (restoring from `$orig` if anything drifted). Apply
-two `/fast-forward`-specific augmentations to it:
+That procedure groups the commits, rebuilds them with a soft reset (each group
+committed with `--no-verify`, since a partially-staged index would fail or reformat
+under the project's git hooks), verifies the tree is byte-for-byte identical
+(restoring from `$orig` if anything drifted), and closes by running the project's
+full gate once over the finished tree. **If that gate comes back red, stop and
+report; do not fast-forward onto the trunk.** Apply two `/fast-forward`-specific
+augmentations to the procedure:
 
 1. **Widen its "is a rewrite worth it?" test to include message quality.** The
    procedure normally leaves a branch alone when the _grouping_ already reads
@@ -301,7 +305,9 @@ removed. Remind the user the trunk is **not pushed** — that's theirs to do.
 | `--ff-only` refuses                  | Trunk moved since the prep rebase; branch no longer linear | Stop; restart from the sync step so the feature rebases onto the current trunk. Never `--no-ff` |
 | Local trunk sync reports divergence  | Local and remote trunk both have unique commits      | Stop and report; never force the trunk to either side                             |
 | Regroup verify failed and rolled back | A group's paths were staged wrong, dropping/altering content | The branch is unchanged; re-read the diff and regroup again before landing        |
-| Commit rejected by hook              | A regrouped/prep message isn't a valid conventional commit | Fix the type/subject; `chore` is not an allowed type here                          |
+| Commit rejected by hook              | A regrouped/prep message isn't a valid conventional commit | Fix the type/subject; `chore` is not an allowed type here (`--no-verify` does not bypass this gate) |
+| A git `pre-commit` hook fails or reformats during Step 4 | A group commit staged only part of the tree | Commit each group with `--no-verify`; the full gate runs once at the end           |
+| Step 4's closing gate reports failures | Pre-existing breakage; the regroup left the tree unchanged | Report it and stop; don't land on the trunk and don't amend the group commits    |
 | Messages read like internal notes    | Commits carry inside baseball, not changelog entries | Rewrite them in Step 4 (the regroup rewrite is tree-preserving); land only worthy messages |
 | `branch -d` says "not fully merged"  | The fast-forward did not actually land               | Stop — do not `-D`; investigate why the trunk tip isn't the feature tip           |
 | `worktree remove` refuses            | Untracked/dirty files in the worktree                | Stop, show the user; don't force-discard their files                              |

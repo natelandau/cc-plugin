@@ -14,6 +14,17 @@ type from the allowed set (`build ci docs feat fix perf refactor style test` —
 note there is no `chore`). The `enforce_commit_message` hook rejects anything
 else.
 
+## Git hooks during prep
+
+Every commit in this preparation stages the **whole** working tree (`git add -A`),
+so the project's git `pre-commit` hooks see a complete, self-consistent tree. Let
+them run; a failure here is real, and that is the point of Step C. If a
+formatting hook rewrites files and aborts the commit, re-stage and re-commit.
+
+`git commit --no-verify` has no place in this preparation. It belongs only to the
+partial, one-group-at-a-time commits of a history regroup, where the index is
+incomplete by design (the calling skill's regroup step covers it).
+
 ## Step A — Commit outstanding work
 
 The terminal step only acts on _committed_ history, so any uncommitted work must
