@@ -1,3 +1,15 @@
+## v0.20.0 (2026-07-28)
+
+### Feat
+
+- **confirm-recursive-rm**: prompt for recursive deletes by target
+
+### Fix
+
+- **skills**: improve PR bodies
+- **protect-system**: catch a fatal rm target anywhere in the command
+- **hooks**: stop a line break from hiding a destructive command
+
 ## v0.19.0 (2026-07-24)
 
 ### Feat
