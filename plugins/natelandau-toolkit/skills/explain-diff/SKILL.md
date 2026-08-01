@@ -124,14 +124,14 @@ Write with the clarity and flow of Martin Kleppmann — engaging, in a classic
 plain style, with smooth transitions between sections rather than abrupt topic
 jumps.
 
-## Always pair with documentation-writer
+## Always pair with technical-writer
 
 This skill covers only the **mechanics** of the explainer: which sections to
 build, how to structure the cross-cutting view, and how to render diagrams and
-code in HTML. It does not cover **writing quality** — clear structure,
+code in HTML. It does not cover **writing quality**, meaning clear structure,
 user-focused framing, tone, and avoiding the AI writing patterns that erode
-reader trust. That lives in the `documentation-writer` skill.
+reader trust. That lives in the `technical-writer` skill.
 
-Whenever this skill is active, invoke the `documentation-writer` skill as well
-and follow it for the prose. The two compose: `documentation-writer` decides what
-to say and how to say it well; this skill decides how to structure and render it.
+Whenever this skill is active, invoke the `technical-writer` skill as well
+and follow it for the prose. The two compose: `technical-writer` decides what
+to say and how to say it well. This skill decides how to structure and render it.

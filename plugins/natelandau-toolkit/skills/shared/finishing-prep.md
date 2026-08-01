@@ -144,7 +144,7 @@ Then apply **only** the edits that clear the bar, in priority order:
   the docs would need. Adding noise to make the docs "track the diff" makes them
   worse, not better. When unsure whether an addition earns its place, leave it out.
 
-If the `documentation-writer` skill is available, use it for the actual writing.
+If the `technical-writer` skill is available, use it for the actual writing.
 Commit any documentation changes with a conventional message:
 
 ```bash

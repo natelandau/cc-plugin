@@ -15,17 +15,17 @@ Zensical tracks live docs and evolves quickly. If a detail here looks stale or a
 build errors on a setting, check the current docs at <https://zensical.org/docs>
 before guessing.
 
-## Always pair with documentation-writer
+## Always pair with technical-writer
 
 This skill covers only the **mechanics** of Zensical Markdown: which element to
-use and how to write its syntax. It does not cover **writing quality** — clear
-structure, user-focused framing, tone, and avoiding the AI writing patterns that
-erode reader trust. That lives in the `documentation-writer` skill.
+use and how to write its syntax. It does not cover **writing quality**, meaning
+clear structure, user-focused framing, tone, and avoiding the AI writing patterns
+that erode reader trust. That lives in the `technical-writer` skill.
 
-Whenever this skill is active, invoke the `documentation-writer` skill as well
-and follow it for the prose. The two compose: `documentation-writer` decides
-what to say and how to say it well; this skill decides how to render it richly.
-(The reverse is not required — editing a plain README needs `documentation-writer`
+Whenever this skill is active, invoke the `technical-writer` skill as well
+and follow it for the prose. The two compose: `technical-writer` decides
+what to say and how to say it well. This skill decides how to render it richly.
+(The reverse is not required. Editing a plain README needs `technical-writer`
 alone, with no Zensical.)
 
 ## The authoring mandate

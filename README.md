@@ -9,10 +9,10 @@ A personal [Claude Code](https://code.claude.com) marketplace containing two plu
 
 Adding the marketplace gives you access to two plugins you can install independently.
 
-| Plugin | What it does |
-| --- | --- |
-| `natelandau-toolkit` | PreToolUse and Stop hooks that block risky actions, on-demand skills, slash commands, and review subagents. |
-| `natelandau-recall` | Captures durable project learnings and a deferred backlog at session boundaries, then surfaces them when a new session starts. |
+| Plugin               | What it does                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `natelandau-toolkit` | PreToolUse and Stop hooks that block risky actions, on-demand skills, slash commands, and review subagents.                    |
+| `natelandau-recall`  | Captures durable project learnings and a deferred backlog at session boundaries, then surfaces them when a new session starts. |
 
 ## Requirements
 
@@ -28,16 +28,16 @@ You install in two steps: register the marketplace, then install whichever plugi
 
 1. Add the marketplace from GitHub:
 
-   ```
-   /plugin marketplace add natelandau/cc-plugin
-   ```
+    ```
+    /plugin marketplace add natelandau/cc-plugin
+    ```
 
 2. Install one or both plugins:
 
-   ```
-   /plugin install natelandau-toolkit@natelandau-cc-plugin
-   /plugin install natelandau-recall@natelandau-cc-plugin
-   ```
+    ```
+    /plugin install natelandau-toolkit@natelandau-cc-plugin
+    /plugin install natelandau-recall@natelandau-cc-plugin
+    ```
 
 That's it. Hooks register automatically, and skills, commands, and subagents become available right away. To confirm, run `/plugin` and check that the plugins appear as enabled.
 
@@ -49,62 +49,62 @@ This plugin combines four kinds of components: hooks that enforce rules, skills 
 
 Hooks run automatically on every matching tool call. They block an action and explain why, so a guardrail holds even when the model would rather not. The active set depends on your profile (see [Configuration](#configuration)).
 
-| Hook | Blocks |
-| --- | --- |
-| `branch-protection` | Destructive git operations (any branch), plus file edits and direct commits on `main` or `master`. Merge commits onto `main`/`master` (from `merge`/`pull`) prompt for approval rather than being blocked outright. Checks are keyed off the branch of the file or repo each action targets, so they hold no matter which directory the shell sits in. See [docs/branch-protection.md](docs/branch-protection.md) for the full allow/block/ask rules. |
-| `protect-secrets` | Reading, editing, writing, or exfiltrating sensitive files like `.env` and credential stores. |
-| `protect-system` | System-destructive shell commands, plus removal of a `.git` directory (paths inside it stay allowed). |
-| `protect-remote` | Remote-host commands (ssh, scp, sftp, remote rsync, ansible). Prompts for approval rather than blocking; you judge destructiveness per invocation. |
+| Hook                   | Blocks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `branch-protection`    | Destructive git operations (any branch), plus file edits and direct commits on `main` or `master`. Merge commits onto `main`/`master` (from `merge`/`pull`) prompt for approval rather than being blocked outright. Checks are keyed off the branch of the file or repo each action targets, so they hold no matter which directory the shell sits in. See [docs/branch-protection.md](docs/branch-protection.md) for the full allow/block/ask rules.                                                                                                                                                                                       |
+| `protect-secrets`      | Reading, editing, writing, or exfiltrating sensitive files like `.env` and credential stores.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `protect-system`       | System-destructive shell commands, plus removal of a `.git` directory (paths inside it stay allowed).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `protect-remote`       | Remote-host commands (ssh, scp, sftp, remote rsync, ansible). Prompts for approval rather than blocking; you judge destructiveness per invocation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `confirm-recursive-rm` | Recursive deletes (`rm -rf` and every other flag spelling) whose targets are not all rebuildable. Prompts for approval rather than blocking. Deletes confined to a temp root (`/tmp/`, `/private/tmp/`, or the literal `$TMPDIR/`) or to a directory a toolchain regenerates (`node_modules`, `.venv`, `.tox`, `.nox`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.ipynb_checkpoints`, `htmlcov`) run without interruption; one non-exempt target prompts for the whole command. Paths are matched as written, so a macOS `$TMPDIR` already expanded to `/var/folders/...` is hard-blocked by `protect-system` instead. |
-| `commit-message` | Commits and PR titles that don't follow conventional-commit format. |
-| `config-protection` | Edits that weaken a linter, formatter, or typechecker config. |
-| `use-uv` | Nothing. It's a non-blocking nudge toward `uv run` for Python commands. |
+| `commit-message`       | Commits and PR titles that don't follow conventional-commit format.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `config-protection`    | Edits that weaken a linter, formatter, or typechecker config.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `use-uv`               | Nothing. It's a non-blocking nudge toward `uv run` for Python commands.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### Knowledge skills
 
 These skills load on demand when your task matches. You don't invoke them by name. They give the model current, focused guidance on a tool or domain.
 
-| Skill | Use when you're working with |
-| --- | --- |
-| `accessibility` | Web UI accessibility: ARIA, keyboard nav, focus, contrast, WCAG 2.2. |
-| `daisyui` | daisyUI v5 and Tailwind CSS components, forms, and theming. |
-| `documentation-writer` | READMEs, changelogs, guides, and other user-facing prose. |
-| `explain-diff` | Understanding a code change, diff, branch, or PR as concepts and features rather than lines; produces an HTML explainer. |
-| `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints. |
-| `gha` | Investigating GitHub Actions failures and finding the root cause. |
-| `htmx-expert` | htmx attributes, AJAX fragments, swaps, and hypermedia patterns. |
-| `nclutils` | Python projects that depend on the `nclutils` package. |
-| `safe-refactoring` | Behavior-preserving refactors in any language. |
-| `tortoise-orm` | Tortoise ORM v1.x models, queries, relations, and migrations. |
-| `tufte-viz` | Designing or critiquing data visualizations with Tufte's principles. |
-| `zensical` | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids. |
+| Skill               | Use when you're working with                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `accessibility`     | Web UI accessibility: ARIA, keyboard nav, focus, contrast, WCAG 2.2.                                                                                        |
+| `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and theming.                                                                                                 |
+| `explain-diff`      | Understanding a code change, diff, branch, or PR as concepts and features rather than lines; produces an HTML explainer.                                    |
+| `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints.                                                                                                 |
+| `gha`               | Investigating GitHub Actions failures and finding the root cause.                                                                                           |
+| `htmx-expert`       | htmx attributes, AJAX fragments, swaps, and hypermedia patterns.                                                                                            |
+| `nclutils`          | Python projects that depend on the `nclutils` package.                                                                                                      |
+| `safe-refactoring`  | Behavior-preserving refactors in any language.                                                                                                              |
+| `technical-writer`  | READMEs, changelogs, guides, and other user-facing prose. Governs document structure and applies ASD-STE100 Simplified Technical English to every sentence. |
+| `tortoise-orm`      | Tortoise ORM v1.x models, queries, relations, and migrations.                                                                                               |
+| `tufte-viz`         | Designing or critiquing data visualizations with Tufte's principles.                                                                                        |
+| `zensical`          | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids.                                                             |
 
 ### Workflow commands
 
 These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. You invoke them deliberately; they never fire on their own. The git workflows are local-only and never push unless they say so.
 
-| Command | What it does |
-| --- | --- |
-| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones. |
-| `/organize [target]` | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files. |
-| `/prune-comments` | Reviews the current changes and cleans up their inline comments, keeping non-obvious why-comments and dropping redundant ones. Edits the working tree; never commits. |
-| `/create-prd` | Generates a Product Requirements Document from the conversation. |
-| `/pr` | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR with a conventional-commit title. |
-| `/cleanup-branch` | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code. |
-| `/squash` | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible. |
-| `/fast-forward` | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible. |
+| Command                                | What it does                                                                                                                                                          |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones.                                                           |
+| `/organize [target]`                   | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files.                                                           |
+| `/prune-comments`                      | Reviews the current changes and cleans up their inline comments, keeping non-obvious why-comments and dropping redundant ones. Edits the working tree; never commits. |
+| `/create-prd`                          | Generates a Product Requirements Document from the conversation.                                                                                                      |
+| `/pr`                                  | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR with a conventional-commit title.                                                 |
+| `/cleanup-branch`                      | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code.                                                              |
+| `/squash`                              | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible.                                                                     |
+| `/fast-forward`                        | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible.                                                       |
 
 ### Subagents
 
 The review commands above delegate to focused subagents that run in their own context and return a short summary. You can also call them directly when you want their narrow job done without filling the main conversation.
 
-| Subagent | Job |
-| --- | --- |
-| `test-runner` | Runs the project's linters and test suite, returns a pass/fail summary. |
-| `doc-drift-reviewer` | Compares user-facing docs against the current branch and lists stale or missing coverage. |
-| `review-finder` | Applies one analysis angle to a scope and returns candidate findings. |
-| `review-verifier` | Judges a candidate finding as kept, plausible, or refuted with a cited reason. |
-| `comment-pruner` | Rewrites the inline comments in a change, keeping non-obvious why-comments and dropping the rest. Edits comments only, never code. |
+| Subagent             | Job                                                                                                                                |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `test-runner`        | Runs the project's linters and test suite, returns a pass/fail summary.                                                            |
+| `doc-drift-reviewer` | Compares user-facing docs against the current branch and lists stale or missing coverage.                                          |
+| `review-finder`      | Applies one analysis angle to a scope and returns candidate findings.                                                              |
+| `review-verifier`    | Judges a candidate finding as kept, plausible, or refuted with a cited reason.                                                     |
+| `comment-pruner`     | Rewrites the inline comments in a change, keeping non-obvious why-comments and dropping the rest. Edits comments only, never code. |
 
 ## natelandau-recall
 
@@ -115,7 +115,7 @@ It works through three automatic hooks:
 - When a session starts, it injects a compact summary of the project's memory: an index of learnings and a one-line pointer to the deferred backlog (a count of open items plus a nudge to run `/recall-backlog` to triage them), plus any handoff left for the next session (see [Handing off to the next session](#handing-off-to-the-next-session)).
 - When a session ends, or just before the context is compacted, it spawns a background agent that reads the transcript and updates the memory store.
 
-The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items as self-contained files in `learnings/`. It applies a strict bar: a fact earns a place only if it would help work on a *different* part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
+The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items as self-contained files in `learnings/`. It applies a strict bar: a fact earns a place only if it would help work on a _different_ part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
 
 ### Where memory lives
 
@@ -148,10 +148,10 @@ The handoff lives alongside the rest of your memory in the store directory:
 
 The automated sweep only adds and refines. It never deletes. Two skills let you curate the store by hand, and they are where deletion happens.
 
-| Command | What it does |
-| --- | --- |
-| `/recall-review [--clean]` | Reviews the whole store. Re-judges each learning by altitude and value, deleting entries that describe a single subsystem rather than a cross-cutting concern. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
-| `/recall-backlog [--clean]` | Triages the backlog. Validates each open item against the current repo, closes finished work, removes obsolete items, and corrects drifted ones, then ranks what remains by impact and effort to recommend what to work on next. |
+| Command                     | What it does                                                                                                                                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/recall-review [--clean]`  | Reviews the whole store. Re-judges each learning by altitude and value, deleting entries that describe a single subsystem rather than a cross-cutting concern. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
+| `/recall-backlog [--clean]` | Triages the backlog. Validates each open item against the current repo, closes finished work, removes obsolete items, and corrects drifted ones, then ranks what remains by impact and effort to recommend what to work on next.                                               |
 
 Both skills delegate the judging to read-only reviewer subagents, so the per-entry analysis stays out of your main conversation. By default they apply the safe corrections directly and propose each deletion for your approval first. Pass `--clean` to apply the high-confidence deletions automatically too. Because the store isn't under version control, `--clean` still confirms any low-confidence deletion before removing it, since a wrong delete can't be undone.
 
@@ -165,10 +165,10 @@ The skill reads each past transcript the same way the sweep does, only your prom
 
 Both plugins read optional TOML config files. Settings cascade: a global file applies everywhere, and a project file overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.
 
-| Plugin | Global file | Project file |
-| --- | --- | --- |
+| Plugin               | Global file                         | Project file                                |
+| -------------------- | ----------------------------------- | ------------------------------------------- |
 | `natelandau-toolkit` | `~/.claude/natelandau-toolkit.toml` | `<project>/.claude/natelandau-toolkit.toml` |
-| `natelandau-recall` | `~/.claude/natelandau-recall.toml` | `<project>/.claude/natelandau-recall.toml` |
+| `natelandau-recall`  | `~/.claude/natelandau-recall.toml`  | `<project>/.claude/natelandau-recall.toml`  |
 
 Each plugin ships a `*.toml.example` template under its `hooks/` directory. Copy it to one of the paths above and edit.
 
@@ -176,11 +176,11 @@ Each plugin ships a `*.toml.example` template under its `hooks/` directory. Copy
 
 The toolkit groups its hooks into three profiles. `profile` selects the tier; `disabled_hooks` force-off individual hooks by id regardless of profile.
 
-| Profile | Active hooks |
-| --- | --- |
-| `minimal` | branch-protection, protect-secrets, protect-system. |
+| Profile              | Active hooks                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `minimal`            | branch-protection, protect-secrets, protect-system.                                           |
 | `standard` (default) | minimal plus protect-remote, confirm-recursive-rm, commit-message, config-protection, use-uv. |
-| `strict` | Same as standard, reserved for future use. |
+| `strict`             | Same as standard, reserved for future use.                                                    |
 
 ```toml
 # ~/.claude/natelandau-toolkit.toml
