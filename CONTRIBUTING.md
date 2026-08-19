@@ -1,11 +1,8 @@
 # Contributing to natelandau-cc-plugin
 
-This guide covers how to develop the plugins in this repository: hooks, skills, slash commands, and subagents. If you're here to install or configure the plugins rather than work on them, see the [README](README.md) instead.
+This guide covers how to develop the plugin in this repository: hooks, skills, slash commands, and subagents. If you're here to install or configure it rather than work on it, see the [README](README.md) instead.
 
-This repo is a Claude Code marketplace shipping two independent plugins under `plugins/`. They release together but share no code and have different internal structures, so most sections below are split by plugin.
-
-- `natelandau-toolkit`: PreToolUse and Stop safety hooks, on-demand skills, slash commands, and subagents.
-- `natelandau-recall`: project-memory hooks. SessionStart injects stored memory; SessionEnd and PreCompact run a detached background sweep that distills the session into durable memory.
+This repo is a Claude Code marketplace shipping one plugin, `natelandau-toolkit`, under `plugins/`: PreToolUse and Stop safety hooks, on-demand skills, slash commands, and subagents.
 
 ## Contents
 
@@ -15,7 +12,6 @@ This repo is a Claude Code marketplace shipping two independent plugins under `p
 - [How the toolkit hooks work](#how-the-toolkit-hooks-work)
 - [Adding a toolkit hook to an existing stage](#adding-a-toolkit-hook-to-an-existing-stage)
 - [Turning on a currently-noop toolkit stage](#turning-on-a-currently-noop-toolkit-stage)
-- [How natelandau-recall works](#how-natelandau-recall-works)
 - [Adding skills, commands, and agents](#adding-skills-commands-and-agents)
 - [Test safety rules](#test-safety-rules)
 - [Commit conventions](#commit-conventions)
@@ -51,11 +47,8 @@ The index lists direct URLs for hooks, skills, slash commands, and agents. Check
 Run these before every commit. They also run in CI. Tests resolve paths through `conftest.py` fixtures, so they run from any working directory.
 
 ```bash
-# Full suite (tests/ covers the toolkit, tests/recall/ covers recall)
+# Full suite
 uv run pytest
-
-# One plugin's tests
-uv run pytest tests/recall
 
 # A single file
 uv run pytest tests/test_use_uv.py
@@ -76,10 +69,10 @@ Skills, commands, and agents are content, not code, so they have no test harness
 
 ## Repository layout
 
-The marketplace catalog lives at the root; each plugin lives under `plugins/<name>/`.
+The marketplace catalog lives at the root; the plugin lives under `plugins/natelandau-toolkit/`.
 
 ```
-.claude-plugin/marketplace.json               Marketplace catalog (lists both plugins)
+.claude-plugin/marketplace.json               Marketplace catalog
 
 plugins/natelandau-toolkit/
   .claude-plugin/plugin.json                  Plugin manifest (name, version, description)
@@ -108,32 +101,20 @@ plugins/natelandau-toolkit/
   commands/<name>.md                          Slash commands
   agents/<name>.md                            Subagent definitions
 
-plugins/natelandau-recall/
-  .claude-plugin/plugin.json                  Plugin manifest
-  hooks/
-    hooks.json                                SessionStart, SessionEnd, PreCompact registration
-    sessionstart.py sessionend.py precompact.py   Thin hook entry scripts
-    recall-path.py                            Store-path resolver the skills call
-    recall-bootstrap.py                       Backfill facade the recall-bootstrap skill calls
-    recall/                                   Flat engine package (Store, Injector, Sweep, Bootstrap, etc.)
-    prompts/                                  Sweep and bootstrap prompt templates (incl. shared _capture-criteria.md)
-  skills/recall-*/SKILL.md                    Memory-curation, handoff, and backfill skills
-
-tests/                                        Toolkit characterization tests
-tests/recall/                                 Recall tests (import the engine directly)
+tests/                                        Characterization tests
 ```
 
 ### Path resolution and file modes
 
 On install, the plugin directory moves, so every path in `hooks.json` (and any path-bearing config) must reference scripts through `${CLAUDE_PLUGIN_ROOT}/...`.
 
-Hook entry scripts carry a `#!/usr/bin/env -S uv run --script` shebang plus a `# /// script` metadata block and are executable (`100755`; git tracks the mode bit). The modules they import (`hooks/lib/` in the toolkit, `hooks/recall/` in recall) have no shebang or metadata and stay `100644`. Hook code is stdlib-only; no third-party dependencies.
+Hook entry scripts carry a `#!/usr/bin/env -S uv run --script` shebang plus a `# /// script` metadata block and are executable (`100755`; git tracks the mode bit). The modules they import from `hooks/lib/` have no shebang or metadata and stay `100644`. Hook code is stdlib-only; no third-party dependencies.
 
 ---
 
 ## How the toolkit hooks work
 
-The toolkit uses a per-stage dispatcher model. This section applies only to `natelandau-toolkit`; recall has its own design, covered later.
+The toolkit uses a per-stage dispatcher model.
 
 ### The stage-dispatcher model
 
@@ -282,47 +263,9 @@ These steps wire a stage that currently has an empty `_registry.py` and no entry
 
 ---
 
-## How natelandau-recall works
-
-Recall is standalone. It does not use the toolkit's dispatcher, registry, or profile harness. Three thin hook entry scripts wire a flat engine package, alongside a `recall-path.py` resolver the skills call.
-
-- `hooks/sessionstart.py` builds the SessionStart memory block and injects it. It also injects a pending `HANDOFF.md` handoff ahead of that block on any start except `resume`, deleting it only after a confirmed write and independent of `inject_enabled`.
-- `hooks/sessionend.py` and `hooks/precompact.py` trigger the sweep that distills the session into memory.
-- `hooks/recall-path.py` resolves store paths (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) over `Store`. The recall skills call it instead of re-deriving the dash-encoded project key, so the encoding lives in one place (`paths.py`).
-- `hooks/recall-bootstrap.py` is the facade the `recall-bootstrap` skill drives (`discover`/`apply`/`clean`) over `Bootstrap`.
-
-The engine lives in `hooks/recall/`. The main pieces are:
-
-- `Store`: resolves the XDG data and state roots and the per-project key, and owns small fail-open IO helpers, including the consume-once handoff (`read_handoff`/`delete_handoff`).
-- `Injector`: assembles the SessionStart block (learnings index, one-line backlog pointer).
-- `Sweep`, with `Lock` and `ClaudeRunner`: gates, detaches, runs, and validates the headless `claude -p` pass.
-- `Bootstrap`: discovers, stages, and applies a backfill of the store from past transcripts.
-- `RecallConfig`: the flat config object.
-- Pure helpers: `transcript`, `frontmatter`, `paths`, `io`, `headless`, `safety` (the shared secret-scrub).
-
-Each module's docstring carries its detailed behavior.
-
-### The detached sweep and the recursion guard
-
-The sweep runs the `claude -p` pass in a double-forked daemon so it outlives session teardown or compaction. Before spawning, it gates on `min_exchanges` so trivial sessions are skipped.
-
-The spawned agent runs with `NL_RECALL_HEADLESS=1` in its environment. Recall's own entry scripts check for that variable and no-op when it's set, so the sweep's agent can't trigger another sweep. Preserve this guard in any change to the spawn path.
-
-After the agent finishes, the sweep validates every file the agent reports writing and confirms it stays inside the project's memory store. The containment check in `paths.py` resolves symlinks on both sides, so a symlinked intermediate directory can't smuggle a write outside the store. The sweep prompt also treats the transcript as untrusted data.
-
-### Config
-
-Recall config is flat TOML with `[inject]` and `[sweep]` tables. There are no profiles and no `disabled_hooks`. The template is at `hooks/natelandau-recall.toml.example`. Defaults live in `hooks/recall/config.py`.
-
-### Tests
-
-Recall tests in `tests/recall/` import the engine directly, for example `from recall.store import Store`. A `tests/__init__.py` exists so the `tests/recall` directory resolves as `tests.recall` and never shadows the `recall` engine package within one pytest process. The manifest test for recall is `tests/recall/test_recall_manifest.py`.
-
----
-
 ## Adding skills, commands, and agents
 
-Skills, slash commands, and subagents are content files. They live under the plugin that ships them (most under `natelandau-toolkit`; recall ships the `recall-review`, `recall-backlog`, and `recall-handoff` skills).
+Skills, slash commands, and subagents are content files. They live under `plugins/natelandau-toolkit/`.
 
 ### New skill
 
@@ -423,13 +366,13 @@ Valid types:
 | `style`    | Whitespace, formatting, or missing semicolons (no logic changes) |
 | `test`     | Adding or correcting tests                                        |
 
-The scope is the area affected, for example `hooks`, `stop`, `recall`, `skills`, or a specific plugin name.
+The scope is the area affected, for example `hooks`, `stop`, `pretooluse`, or `skills`.
 
 Examples:
 
 ```
 feat(pretooluse): add plugin to block direct database writes
 fix(stop): prevent false positive on test output phrases
-feat(recall): skip the sweep below the minimum exchange count
+docs(contributing): document the noop-stage wiring steps
 test(branch-protection): add case for squash-merge on protected branch
 ```

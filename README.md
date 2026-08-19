@@ -1,30 +1,25 @@
 # natelandau-cc-plugin
 
-A personal [Claude Code](https://code.claude.com) marketplace containing two plugins: guardrails and workflow tooling for everyday coding, plus a project-memory system that remembers what each project taught you.
+A personal [Claude Code](https://code.claude.com) marketplace containing one plugin: guardrails and workflow tooling for everyday coding.
 
 > [!WARNING]
 > This is a personal toolkit, built for one developer's machine and habits. It's opinionated about tools (uv, ruff, conventional commits), workflows, and what counts as "safe." It changes whenever those habits change, often without notice and without backward compatibility. Install it to study or fork it, not as a stable dependency. Pin to a tag if you need things to stay put.
 
 ## What you get
 
-Adding the marketplace gives you access to two plugins you can install independently.
-
-| Plugin               | What it does                                                                                                                   |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `natelandau-toolkit` | PreToolUse and Stop hooks that block risky actions, on-demand skills, slash commands, and review subagents.                    |
-| `natelandau-recall`  | Captures durable project learnings and a deferred backlog at session boundaries, then surfaces them when a new session starts. |
+Adding the marketplace gives you one plugin, `natelandau-toolkit`: PreToolUse and Stop hooks that block risky actions, on-demand skills, slash commands, and review subagents.
 
 ## Requirements
 
-Both plugins run their hooks as standalone Python scripts through [uv](https://docs.astral.sh/uv/), so you need a working install before either plugin does anything.
+The plugin runs its hooks as standalone Python scripts through [uv](https://docs.astral.sh/uv/), so you need a working install before it does anything.
 
 - Claude Code (the host for all components).
 - `uv` on your `PATH`. The hook scripts launch with `uv run`, and uv fetches the required Python (3.14+) on first run.
-- `git`. The branch-protection and memory features read repository state.
+- `git`. The branch-protection hook reads repository state.
 
 ## Install
 
-You install in two steps: register the marketplace, then install whichever plugins you want. Run these inside Claude Code.
+You install in two steps: register the marketplace, then install the plugin. Run these inside Claude Code.
 
 1. Add the marketplace from GitHub:
 
@@ -32,14 +27,13 @@ You install in two steps: register the marketplace, then install whichever plugi
     /plugin marketplace add natelandau/cc-plugin
     ```
 
-2. Install one or both plugins:
+2. Install the plugin:
 
     ```
     /plugin install natelandau-toolkit@natelandau-cc-plugin
-    /plugin install natelandau-recall@natelandau-cc-plugin
     ```
 
-That's it. Hooks register automatically, and skills, commands, and subagents become available right away. To confirm, run `/plugin` and check that the plugins appear as enabled.
+That's it. Hooks register automatically, and skills, commands, and subagents become available right away. To confirm, run `/plugin` and check that the plugin appears as enabled.
 
 ## natelandau-toolkit
 
@@ -106,73 +100,13 @@ The review commands above delegate to focused subagents that run in their own co
 | `review-verifier`    | Judges a candidate finding as kept, plausible, or refuted with a cited reason.                                                     |
 | `comment-pruner`     | Rewrites the inline comments in a change, keeping non-obvious why-comments and dropping the rest. Edits comments only, never code. |
 
-## natelandau-recall
-
-This plugin gives every project a small, persistent memory. It learns from your sessions and reminds you at the start of the next one, so hard-won context survives past a single conversation.
-
-It works through three automatic hooks:
-
-- When a session starts, it injects a compact summary of the project's memory: an index of learnings and a one-line pointer to the deferred backlog (a count of open items plus a nudge to run `/recall-backlog` to triage them), plus any handoff left for the next session (see [Handing off to the next session](#handing-off-to-the-next-session)).
-- When a session ends, or just before the context is compacted, it spawns a background agent that reads the transcript and updates the memory store.
-
-The sweep is conservative. It records non-obvious learnings (with rationale), durable user and project preferences and coding standards, design intent, and deferred backlog items as self-contained files in `learnings/`. It applies a strict bar: a fact earns a place only if it would help work on a _different_ part of the app and could not be recovered by reading the repo, so most small sessions add little or nothing. It skips trivia, never writes secrets, and only writes inside the project's own memory directory.
-
-### Where memory lives
-
-Memory is stored per project, outside the repository, so it never ends up in your commits. The location follows the XDG base directory spec:
-
-```
-~/.local/share/natelandau-recall/<project-key>/
-  backlog.md          deferred items grouped by commit type
-  learnings/          one file per item, with a summary and "read when" hints
-```
-
-The project key is derived from the repository root, so all worktrees and branches of one repo share a single store.
-
-### Handing off to the next session
-
-Sometimes you want to carry an in-progress task into a fresh session, most often right before you run `/compact` or `/clear`. The automatic sweep records durable learnings, but it doesn't preserve the live details of what you're doing right now. A handoff covers that.
-
-Run `/recall-handoff` to write a `HANDOFF.md` into the project's memory store. It captures the goal, progress so far, what worked, what to avoid, the key files, and the next steps, so a fresh session can continue where this one stopped. If a handoff already exists, the command reads it first and updates it instead of overwriting your earlier notes.
-
-The next session picks up the handoff on its own. When a session starts from `/compact`, `/clear`, or a new launch, recall injects the handoff and then deletes it, so you get it once and it never lingers. A resumed session skips it, since that session already has the context.
-
-The handoff lives alongside the rest of your memory in the store directory:
-
-```
-~/.local/share/natelandau-recall/<project-key>/
-  HANDOFF.md          consume-once handoff for the next session
-```
-
-### Curating memory
-
-The automated sweep only adds and refines. It never deletes. Two skills let you curate the store by hand, and they are where deletion happens.
-
-| Command                     | What it does                                                                                                                                                                                                                                                                   |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/recall-review [--clean]`  | Reviews the whole store. Re-judges each learning by altitude and value, deleting entries that describe a single subsystem rather than a cross-cutting concern. Deduplicates learnings, removes stale or trivial entries, closes resolved backlog items, and fixes frontmatter. |
-| `/recall-backlog [--clean]` | Triages the backlog. Validates each open item against the current repo, closes finished work, removes obsolete items, and corrects drifted ones, then ranks what remains by impact and effort to recommend what to work on next.                                               |
-
-Both skills delegate the judging to read-only reviewer subagents, so the per-entry analysis stays out of your main conversation. By default they apply the safe corrections directly and propose each deletion for your approval first. Pass `--clean` to apply the high-confidence deletions automatically too. Because the store isn't under version control, `--clean` still confirms any low-confidence deletion before removing it, since a wrong delete can't be undone.
-
-### Backfilling memory from past sessions
-
-The sweep only captures memory going forward, so a project that adopts recall after it already has history starts with an empty store. Run `/recall-bootstrap [count]` (default 20, or `--all`) to seed it from the project's past Claude Code transcripts.
-
-The skill reads each past transcript the same way the sweep does, only your prompts and the agent's replies, never tool calls or internal reasoning, and mines them in parallel for durable learnings and deferred work. It then shows you a single proposed set of additions and writes only what you approve. Because the store isn't under version control, those writes can't be undone, so nothing is written without your confirmation.
-
 ## Configuration
 
-Both plugins read optional TOML config files. Settings cascade: a global file applies everywhere, and a project file overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.
+The plugin reads an optional TOML config file. Settings cascade: a global file at `~/.claude/natelandau-toolkit.toml` applies everywhere, and a project file at `<project>/.claude/natelandau-toolkit.toml` overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.
 
-| Plugin               | Global file                         | Project file                                |
-| -------------------- | ----------------------------------- | ------------------------------------------- |
-| `natelandau-toolkit` | `~/.claude/natelandau-toolkit.toml` | `<project>/.claude/natelandau-toolkit.toml` |
-| `natelandau-recall`  | `~/.claude/natelandau-recall.toml`  | `<project>/.claude/natelandau-recall.toml`  |
+The plugin ships a `natelandau-toolkit.toml.example` template under its `hooks/` directory. Copy it to one of the paths above and edit.
 
-Each plugin ships a `*.toml.example` template under its `hooks/` directory. Copy it to one of the paths above and edit.
-
-### Toolkit: profiles and disabling hooks
+### Profiles and disabling hooks
 
 The toolkit groups its hooks into three profiles. `profile` selects the tier; `disabled_hooks` force-off individual hooks by id regardless of profile.
 
@@ -190,33 +124,14 @@ disabled_hooks = ["config-protection"]
 
 You can also add project-specific rules without touching the built-in ones. The protect-secrets, protect-system, protect-remote, and config-protection hooks read an extra rules file from `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`. These rules are additive: they can add new blocks but never weaken a built-in rule. A protect-remote rule may set `action = "ask"` or `"block"` (default `block`); a project `block` takes priority over the built-in prompts, so you can hard-stop specific remote commands per project. To turn a hook off, use `disabled_hooks`. The config template documents the schema.
 
-### Recall: injection and sweep
-
-The recall config controls what gets injected at session start and how the end-of-session sweep behaves.
-
-```toml
-# ~/.claude/natelandau-recall.toml
-[inject]
-enabled = true                # set false to stop SessionStart memory injection
-
-[sweep]
-enabled = true                # set false to stop the end-of-session sweep
-model = "claude-sonnet-4-6"   # model for the background sweep
-min_exchanges = 10            # skip the sweep below this many real messages (user + assistant)
-save_transcript = true        # save the sweep's own claude session (for API-usage auditing); false discards it
-```
-
 ## Uninstalling
 
-Remove a plugin, then the marketplace, from inside Claude Code:
+Remove the plugin, then the marketplace, from inside Claude Code:
 
 ```
 /plugin uninstall natelandau-toolkit@natelandau-cc-plugin
-/plugin uninstall natelandau-recall@natelandau-cc-plugin
 /plugin marketplace remove natelandau-cc-plugin
 ```
-
-Uninstalling the recall plugin leaves your stored memory in place under `~/.local/share/natelandau-recall/`. Delete that directory if you want it gone.
 
 ## Contributing
 

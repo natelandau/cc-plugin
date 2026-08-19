@@ -2,21 +2,15 @@
 
 ## Project overview
 
-A Claude Code **marketplace** repo (`.claude-plugin/marketplace.json`) shipping two
-independent plugins, each under `plugins/<name>/`. They ship together but share no
-code or structure.
-
-- **`natelandau-toolkit`** — PreToolUse/Stop safety hooks, on-demand skills, slash
-  commands, subagents.
-- **`natelandau-recall`** — project-memory hooks: SessionStart injects stored memory;
-  SessionEnd/PreCompact run a detached headless "sweep" that distills the session into
-  durable memory.
+A Claude Code **marketplace** repo (`.claude-plugin/marketplace.json`) shipping one
+plugin, `natelandau-toolkit`, under `plugins/natelandau-toolkit/`: PreToolUse/Stop
+safety hooks, on-demand skills, slash commands, subagents. The marketplace layout
+stays because it is the install path, not because a second plugin is planned.
 
 ## Commands
 
 ```bash
-uv run pytest                  # full suite (tests/ = toolkit, tests/recall/ = recall)
-uv run pytest tests/recall     # one plugin's tests
+uv run pytest                  # full suite
 uv run ruff check && uv run ruff format   # lint + format (run after any .py edit)
 uv run ty check                # typecheck — the SOLE typechecker; ignore Pyright entirely
 ```
@@ -36,8 +30,8 @@ committing a code change.
   `${CLAUDE_PLUGIN_ROOT}/...`.
 - **Entry scripts vs imported modules.** Hook entry scripts carry
   `#!/usr/bin/env -S uv run --script` + a `# /// script` block and are executable
-  (`100755`; git tracks the mode bit). The modules they import (`hooks/lib/`,
-  `hooks/recall/`) have no shebang/metadata and stay `100644`.
+  (`100755`; git tracks the mode bit). The modules they import (`hooks/lib/`) have no
+  shebang/metadata and stay `100644`.
 - **Stdlib only** in hook code; no third-party deps.
 - **Read stdin via the plugin's `io.read_payload()`**, not bare `json.load` (it caps
   the read and fails open to `{}`). Payload fields are `tool_name`, `tool_input`,
@@ -101,38 +95,6 @@ this file** (`ls hooks/pretooluse/` for the current set).
   shebang/exec bit) → register in `_registry.py` → `tests/test_<plugin>.py`. Wiring a
   noop stage on also needs a `hooks.json` block and removal from `STAGE_DISPATCHERS` in
   `tests/test_manifest.py` (the orphan guard).
-
-## natelandau-recall
-
-Standalone — **not** built on toolkit's harness (no dispatcher/registry/profiles).
-Three thin entry scripts (`hooks/sessionstart.py`, `sessionend.py`, `precompact.py`)
-wire a flat engine package `hooks/recall/`:
-
-- `Store` (XDG paths + per-project key, plus consume-once `HANDOFF.md` baton IO via
-  `read_handoff`/`delete_handoff`), `Injector` (the SessionStart memory block),
-  `Sweep`/`Lock`/`ClaudeRunner` (the headless `claude -p` sweep), `Bootstrap` (the
-  backfill engine behind `recall-bootstrap.py`), `RecallConfig`, plus pure
-  `transcript`/`frontmatter`/`paths`/`io`/`headless`/`safety` (shared secret-scrub).
-  Deep behavior is in each module's docstring.
-- **Store paths have one source of truth: `store.py`'s `encode_project_key`** (the dash-encoded project key).
-  Python reaches it through `Store`; **skills MUST call the `hooks/recall-path.py`
-  facade** (`--data-dir`/`--handoff`/`--backlog`/`--learnings`) to resolve a path,
-  never re-derive the encoding in prose. A skill references it via
-  `${CLAUDE_SKILL_DIR}/../../hooks/recall-path.py` (`${CLAUDE_PLUGIN_ROOT}` is a hook
-  var, not a skill var). The script is executable (`100755`); the engine modules it
-  imports stay `100644`. The companion **`hooks/recall-bootstrap.py`** facade (also
-  `100755`) is the skill-facing entry for transcript discovery, staging, and backfill
-  plan application; its engine is `hooks/recall/bootstrap.py` (`100644`).
-- The **`recall-bootstrap` skill** (user-invoked) backfills the memory store from past
-  session transcripts via parallel extractor subagents and a single user-approved merge.
-- **Config is flat** `[inject]`/`[sweep]` TOML (`hooks/natelandau-recall.toml.example`),
-  no profiles or `disabled_hooks`.
-- The sweep runs **detached** (double-fork) so it outlives session teardown, with an
-  `NL_RECALL_HEADLESS` env guard so the spawned agent's own hooks no-op (recursion
-  guard).
-- Tests in `tests/recall/` import the engine directly (`from recall.X import Y`).
-  `tests/__init__.py` exists so the `tests/recall` dir is `tests.recall` and never
-  shadows the `recall` engine package in one pytest process.
 
 ## Authoring skills / commands / agents
 

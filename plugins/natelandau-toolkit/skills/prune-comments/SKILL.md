@@ -25,7 +25,7 @@ you can review the edits with `git diff` first.
    **If the invocation carried arguments** (they arrive as an `ARGUMENTS:` line
    after these instructions), that is the scope. The user is naming files,
    directories, or globs, literally (`src/api/routes.py`, `hooks/*.py`) or in
-   words ("all files within src/api", "the recall engine"). Expand what they
+   words ("all files within src/api", "the hook dispatcher"). Expand what they
    named to a concrete file list and review **every comment in those files**,
    not just changed lines. If nothing matches what they named, say so and stop
    rather than guessing at a different scope.

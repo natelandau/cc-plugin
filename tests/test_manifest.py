@@ -330,3 +330,26 @@ def test_agent_name_matches_filename(agent_path: Path) -> None:
     assert fields.get("name") == agent_path.stem, (
         f"{agent_path}: frontmatter name {fields.get('name')!r} != file stem {agent_path.stem!r}"
     )
+
+
+def test_marketplace_sources_exist() -> None:
+    """Verify every marketplace entry points at a plugin directory that exists.
+
+    An entry outliving its plugin directory installs as a broken plugin for
+    anyone who adds the marketplace, and nothing else in the suite reads this
+    file.
+    """
+    # Given the marketplace catalog
+    catalog = Path(__file__).resolve().parent.parent / ".claude-plugin" / "marketplace.json"
+    data = json.loads(catalog.read_text(encoding="utf-8"))
+
+    entries = data.get("plugins", [])
+    assert entries, "marketplace.json lists no plugins"
+
+    # Then every listed source resolves to a real directory
+    for entry in entries:
+        source = catalog.parent.parent / entry["source"]
+        assert source.is_dir(), (
+            f"marketplace entry {entry['name']!r} points at {entry['source']}, "
+            f"which is not a directory"
+        )
