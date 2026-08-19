@@ -1,3 +1,15 @@
+## v0.21.0 (2026-08-19)
+
+### BREAKING CHANGE
+
+- natelandau-recall is no longer published by the natelandau-cc-plugin marketplace. An existing install keeps working until it is uninstalled, but receives no further updates from here.
+
+### Feat
+
+- **recall**: remove the natelandau-recall plugin
+- **toolkit**: exempt chosen directory trees from the branch guards
+- **skills**: replace documentation-writer with technical-writer
+
 ## v0.20.0 (2026-07-28)
 
 ### Feat
