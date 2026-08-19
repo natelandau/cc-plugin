@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
-from tests._env import GIT_REPO_VARS, clean_environ
+from tests._env import clean_environ, exempt_env
 from tests._helpers import load_hook_module
 
 if TYPE_CHECKING:
@@ -1091,30 +1091,53 @@ CASES: tuple[Case, ...] = (
 )
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
-def test_enforce_branch_protection(
-    case: Case,
-    repos: Mapping[str, str],
+def _run_hook(
     hooks_dir: Path,
-) -> None:
-    """Verify the hook blocks or allows each action per its rules."""
-    # Given a payload built against the ephemeral repos
-    hook = hooks_dir / "pretooluse.py"
-    payload = case.make_payload(repos)
+    payload: Payload,
+    home: str,
+    *,
+    exempt: str | None = None,
+    project_dir: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Pipe `payload` through the PreToolUse dispatcher, optionally declaring an exempt root.
 
-    # When invoking the hook with the payload on stdin
-    proc = subprocess.run(
-        [str(hook)],
+    Strips leaked git-location vars (GIT_DIR, ...) so the hook resolves the
+    ephemeral test repos, not the checkout the suite runs from (pre-commit /
+    worktree set these, which would otherwise hijack branch detection). `home`
+    and `project_dir` pin both config layers, so no file outside the test
+    decides what the hook allows.
+    """
+    env = clean_environ()
+    env["HOME"] = home
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    if project_dir is not None:
+        env["CLAUDE_PROJECT_DIR"] = project_dir
+    if exempt is not None:
+        env.update(exempt_env(exempt))
+    return subprocess.run(
+        [str(hooks_dir / "pretooluse.py")],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
         timeout=10,
         check=False,
-        # Strip leaked git-location vars (GIT_DIR, ...) so the hook resolves the
-        # ephemeral test repos, not the checkout the suite runs from (pre-commit
-        # / worktree set these, which would otherwise hijack branch detection).
-        env=clean_environ(),
+        env=env,
     )
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
+def test_enforce_branch_protection(
+    case: Case,
+    repos: Mapping[str, str],
+    hooks_dir: Path,
+    empty_home: str,
+) -> None:
+    """Verify the hook blocks or allows each action per its rules."""
+    # Given a payload built against the ephemeral repos
+    payload = case.make_payload(repos)
+
+    # When invoking the hook with the payload on stdin
+    proc = _run_hook(hooks_dir, payload, empty_home)
 
     # Then exit code and stream content match expectations
     diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
@@ -1214,37 +1237,39 @@ def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(m, "_is_git_ignored", fake_is_git_ignored)
     monkeypatch.setattr(m, "get_branch_at_path", fake_branch_at_path)
     base = "/repo"
+    # No exempt roots: these cases are about the branch/gitignore predicate,
+    # and the exemption has its own suite.
+    none_exempt = m.exempt_paths.ExemptRoots()
 
     # Then a target outside any repo is exempt -- a /tmp scratch path or a `..`
     # that resolves out of every repo both yield "" from the branch lookup
-    assert m._target_protected_branch("/tmp/x", "") is None  # noqa: S108
-    assert m._target_protected_branch("/tmp/../tracked.txt", "") is None  # noqa: S108
-    assert m._target_protected_branch("/external/store/x.md", "") is None
-    assert m._target_protected_branch("x.md", "/external/store") is None
+    assert m._target_protected_branch("/tmp/x", "", none_exempt) is None  # noqa: S108
+    assert m._target_protected_branch("/tmp/../tracked.txt", "", none_exempt) is None  # noqa: S108
+    assert m._target_protected_branch("/external/store/x.md", "", none_exempt) is None
+    assert m._target_protected_branch("x.md", "/external/store", none_exempt) is None
 
     # Then on a protected branch only gitignored targets are exempt: an absolute
     # gitignored target passes with no cwd, an absolute tracked one does not
     # (cwd is only needed to resolve relative paths)
-    assert m._target_protected_branch(f"{base}/ignored_dir/x", "") is None
-    assert m._target_protected_branch(f"{base}/foo.py", "") == "master"
+    assert m._target_protected_branch(f"{base}/ignored_dir/x", "", none_exempt) is None
+    assert m._target_protected_branch(f"{base}/foo.py", "", none_exempt) == "master"
 
     # Then a relative target with a cwd resolves and is judged (gitignored here,
     # so exempt). With no cwd it can't be located, so it can't be attributed to a
     # protected branch and is treated as harmless (the fail-open default).
-    assert m._target_protected_branch("ignored_dir/x", base) is None
-    assert m._target_protected_branch("ignored_dir/x", "") is None
+    assert m._target_protected_branch("ignored_dir/x", base, none_exempt) is None
+    assert m._target_protected_branch("ignored_dir/x", "", none_exempt) is None
 
 
 def test_target_protected_branch_follows_symlink_into_protected_repo(
-    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path
 ) -> None:
     """Verify a symlink resolving into a protected repo is judged by its real path."""
     # Given a symlink that lives outside any repo but points at a tracked path
     # inside the master repo, which is on a protected branch. The predicate runs
-    # git in-process, so any leaked git-location vars (pre-commit / worktree) must
-    # be cleared or they would hijack branch detection to the outer checkout.
-    for var in GIT_REPO_VARS:
-        monkeypatch.delenv(var, raising=False)
+    # git in-process, so it depends on the suite-wide fixture having cleared every
+    # GIT_-prefixed var; a leaked one would hijack branch detection to the outer
+    # checkout.
     m = _load_hook(hooks_dir)
     link = tmp_path / "sneaky.py"
     link.symlink_to(Path(repos["master"]) / "app.py")
@@ -1252,7 +1277,7 @@ def test_target_protected_branch_follows_symlink_into_protected_repo(
     # When checking the symlink target while the repo is on a protected branch
     # Then the branch lookup follows the link to the in-repo path and blocks it,
     # rather than reading the link's own (repo-less) parent directory as exempt
-    assert m._target_protected_branch(str(link), "") == "master"
+    assert m._target_protected_branch(str(link), "", m.exempt_paths.ExemptRoots()) == "master"
 
 
 def test_get_branch_at_path_ignores_ambient_git_dir(
@@ -1268,3 +1293,262 @@ def test_get_branch_at_path_ignores_ambient_git_dir(
     branch = m.get_branch_at_path(repos["feat"])
     # Then the -C path wins: feat's own branch, not the leaked master
     assert branch == "feat"
+
+
+# === Exempt-path carve-out ==================================================
+
+
+@dataclass(frozen=True)
+class ExemptCase:
+    """One case run with the `exempt` repo declared an exempt root."""
+
+    id: str
+    make_payload: Callable[[Mapping[str, str]], Payload]
+    expect_exit: int
+    stderr_contains: tuple[str, ...] = ()
+
+
+EXEMPT_CASES: tuple[ExemptCase, ...] = (
+    # Protected-branch checks do not apply inside an exempt tree: those are
+    # working stores committed to on their default branch by design.
+    ExemptCase(
+        id="edit in the exempt repo allowed",
+        make_payload=lambda r: _edit(f"{r['exempt']}/foo.py"),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="write in the exempt repo allowed",
+        make_payload=lambda r: _write(f"{r['exempt']}/new.py"),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="notebook edit in the exempt repo allowed",
+        make_payload=lambda r: _notebook(f"{r['exempt']}/foo.ipynb"),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="commit from inside the exempt repo allowed",
+        make_payload=lambda r: _bash('git commit -m "feat: add note"', cwd=r["exempt"]),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="git -C into the exempt repo commit allowed",
+        make_payload=lambda r: _bash(
+            f'git -C {r["exempt"]} commit -m "feat: add note"', cwd=r["outside"]
+        ),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="cd into the exempt repo then commit allowed",
+        make_payload=lambda r: _bash(
+            f'cd {r["exempt"]} && git commit -m "feat: add note"', cwd=r["outside"]
+        ),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="merge in the exempt repo does not ask",
+        make_payload=lambda r: _bash("git merge feature", cwd=r["exempt"]),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="git stash pop in the exempt repo allowed",
+        make_payload=lambda r: _bash("git stash pop", cwd=r["exempt"]),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="rm targeting the exempt repo from outside allowed",
+        make_payload=lambda r: _bash(f"rm {r['exempt']}/foo.py", cwd=r["outside"]),
+        expect_exit=0,
+    ),
+    ExemptCase(
+        id="unconfinable write from an exempt cwd allowed",
+        make_payload=lambda r: _bash("sed -i s/a/b/ foo.py", cwd=r["exempt"]),
+        expect_exit=0,
+    ),
+    # The carve-out is scoped to the exempt tree, not to protected branches at
+    # large: another repo on master is still guarded while one is configured.
+    ExemptCase(
+        id="edit in another master repo still blocked",
+        make_payload=lambda r: _edit(f"{r['master']}/foo.py"),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    ExemptCase(
+        id="rm targeting another master repo from an exempt cwd still blocked",
+        make_payload=lambda r: _bash(f"rm {r['master']}/foo.py", cwd=r["exempt"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    ExemptCase(
+        id="commit into another master repo from an exempt cwd still blocked",
+        make_payload=lambda r: _bash(f'git -C {r["master"]} commit -m "feat: x"', cwd=r["exempt"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_COMMIT,),
+    ),
+    # Destructive commands stay blocked inside an exempt tree: they destroy
+    # work whatever branch they run on, so the carve-out never reaches them.
+    ExemptCase(
+        id="force push in the exempt repo still blocked",
+        make_payload=lambda r: _bash("git push --force origin master", cwd=r["exempt"]),
+        expect_exit=2,
+        stderr_contains=("Force push",),
+    ),
+    ExemptCase(
+        id="reset --hard in the exempt repo still blocked",
+        make_payload=lambda r: _bash("git reset --hard HEAD~1", cwd=r["exempt"]),
+        expect_exit=2,
+        stderr_contains=("reset --hard",),
+    ),
+    ExemptCase(
+        id="clean -fd in the exempt repo still blocked",
+        make_payload=lambda r: _bash("git clean -fd", cwd=r["exempt"]),
+        expect_exit=2,
+        stderr_contains=("git clean -f",),
+    ),
+)
+
+
+@pytest.mark.parametrize("case", EXEMPT_CASES, ids=lambda c: c.id)
+def test_exempt_path_carve_out(
+    case: ExemptCase,
+    repos: Mapping[str, str],
+    hooks_dir: Path,
+    empty_home: str,
+) -> None:
+    """Verify an exempt root waives protected-branch checks but not destructive ones."""
+    # Given the exempt repo declared an exempt root
+    payload = case.make_payload(repos)
+
+    # When invoking the hook with the payload on stdin
+    proc = _run_hook(hooks_dir, payload, empty_home, exempt=repos["exempt"])
+
+    # Then exit code and stderr match expectations
+    diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
+    assert proc.returncode == case.expect_exit, f"exit={proc.returncode}{diag}"
+    for s in case.stderr_contains:
+        assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
+    # An ASK also exits 0, so an allowed case must additionally carry no
+    # permission decision -- otherwise the merge case would pass while still
+    # prompting. Advisory-only output has no `permissionDecision` key.
+    if case.expect_exit == 0:
+        assert "permissionDecision" not in proc.stdout, f"unexpected permission prompt{diag}"
+
+
+@pytest.mark.parametrize(
+    ("exempt_value", "case"),
+    [("", "empty"), ("relative/store", "relative"), ("/", "filesystem root")],
+)
+def test_exempt_path_unusable_value_still_blocks(
+    repos: Mapping[str, str], hooks_dir: Path, empty_home: str, exempt_value: str, case: str
+) -> None:
+    """Verify a variable that cannot name one tree exempts nothing."""
+    # Given an exemption variable whose value resolves to no usable root
+    payload = _edit(f"{repos['exempt']}/foo.py")
+
+    # When editing a file on a protected branch
+    proc = _run_hook(hooks_dir, payload, empty_home, exempt=exempt_value)
+
+    # Then the edit is still blocked
+    assert proc.returncode == 2, f"{case}: exit={proc.returncode} stderr={proc.stderr!r}"
+    assert BLOCK_FILE_MOD in proc.stderr, case
+
+
+def _write_toml(claude_dir: Path, exempt: str) -> None:
+    """Write a toolkit config declaring `exempt` an exempt tree."""
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    (claude_dir / "natelandau-toolkit.toml").write_text(
+        f'exempt_paths = ["{exempt}"]\n', encoding="utf-8"
+    )
+
+
+def test_exempt_path_from_the_global_config(
+    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path
+) -> None:
+    """Verify a root declared in the global config waives the protected-branch check."""
+    # Given a global config exempting the repo, and no exemption variable
+    home = tmp_path / "home"
+    _write_toml(home / ".claude", repos["exempt"])
+
+    # When editing a file in that repo while it sits on a protected branch
+    proc = _run_hook(hooks_dir, _edit(f"{repos['exempt']}/foo.py"), str(home))
+
+    # Then the edit passes
+    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
+
+
+def test_exempt_path_in_a_project_config_is_ignored(
+    hooks_dir: Path, empty_home: str, tmp_path: Path
+) -> None:
+    """Verify a repo's own committed config cannot exempt that repo.
+
+    The project config layer is a file inside the repository the guard protects,
+    and it is committed, so honoring `exempt_paths` there would let one repo
+    disable the guard for everyone who clones it.
+    """
+    # Given a repo on a protected branch whose own .claude config exempts itself
+    project = tmp_path / "self_exempting"
+    project.mkdir()
+    env = clean_environ()
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(project)], check=True, capture_output=True, env=env
+    )
+    _write_toml(project / ".claude", str(project))
+
+    # When editing a file in it with that repo as the project dir
+    proc = _run_hook(hooks_dir, _edit(f"{project}/foo.py"), empty_home, project_dir=str(project))
+
+    # Then the edit is still blocked
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert "Cannot modify files on the 'main' branch" in proc.stderr
+
+
+# === Tilde paths ============================================================
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("rm ~/master_repo/foo.py", BLOCK_FILE_MOD),
+        ('cd ~/master_repo && git commit -m "feat: x"', BLOCK_COMMIT),
+        ('git -C ~/master_repo commit -m "feat: x"', BLOCK_COMMIT),
+    ],
+)
+def test_tilde_paths_are_expanded_before_the_branch_lookup(
+    repos: Mapping[str, str], hooks_dir: Path, command: str, expected: str
+) -> None:
+    """Verify a `~`-written path is judged by the repo it names, not by the cwd.
+
+    The hook reads the command before the shell expands anything, so a tilde
+    joined onto the cwd would name a directory outside every repo and the
+    branch lookup would report nothing to protect.
+    """
+    # Given a home directory holding the protected repo
+    home = str(Path(repos["master"]).parent)
+    payload = _bash(command, cwd=repos["outside"])
+
+    # When invoking the hook from an unrelated cwd
+    proc = _run_hook(hooks_dir, payload, home)
+
+    # Then the action is blocked exactly as its absolute spelling would be
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert expected in proc.stderr
+
+
+def test_an_unusable_exempt_entry_does_not_disable_the_hook(
+    repos: Mapping[str, str], hooks_dir: Path, empty_home: str
+) -> None:
+    """Verify a tilde entry naming no account drops itself rather than the guard.
+
+    Every entry is resolved before any check runs, so an entry that raises
+    while expanding would take the whole hook down with it and silently allow
+    every protected-branch action.
+    """
+    # Given an exemption variable naming an account that does not exist
+    payload = _edit(f"{repos['master']}/foo.py")
+
+    # When editing a file on a protected branch
+    proc = _run_hook(hooks_dir, payload, empty_home, exempt="~nosuchuser42/store")
+
+    # Then the edit is still blocked
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert BLOCK_FILE_MOD in proc.stderr

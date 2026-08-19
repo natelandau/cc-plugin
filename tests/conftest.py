@@ -10,19 +10,40 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests._env import clean_environ
+
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
 
 
-# Strip GIT_* vars so subprocess git commands don't inherit state from a parent
-# pre-commit run (GIT_INDEX_FILE, GIT_DIR, etc. would point the ephemeral repo
-# at the outer repo's index and break tree-building).
-_CLEAN_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+@pytest.fixture(scope="session", autouse=True)
+def _strip_ambient_git_vars() -> Iterator[None]:
+    """Remove inherited git-location and path-exemption vars for the whole run.
+
+    A GIT_DIR or GIT_CONFIG_* exported by an outer git hook or worktree would
+    otherwise retarget any git subprocess spawned with a bare os.environ.copy(),
+    not just the calls that pass an explicit sanitized env. The toolkit's
+    path-exemption variables go the same way, so the exemption they grant is
+    only ever in play for the tests that set them themselves.
+    """
+    original = dict(os.environ)
+    stripped_keys = set(original) - set(clean_environ())
+    for key in stripped_keys:
+        del os.environ[key]
+    try:
+        yield
+    finally:
+        for key in stripped_keys:
+            os.environ[key] = original[key]
 
 
 @pytest.fixture(scope="session")
 def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
-    """Provide two ephemeral git repos (master, feat) plus a non-repo dir.
+    """Provide three ephemeral git repos (master, feat, exempt) plus a non-repo dir.
+
+    `exempt` is a second repo on a protected branch, for tests that declare it
+    an exempt root: keeping it distinct from `master` is what proves the
+    carve-out is scoped to the exempt tree rather than to every protected repo.
 
     Session-scoped because the hooks under test never write to the working tree.
     Recreating per test would slow the suite without changing behavior.
@@ -30,13 +51,14 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
     root = tmp_path_factory.mktemp("repos")
     master = root / "master_repo"
     feat = root / "feat_repo"
-    for path, branch in ((master, "master"), (feat, "feat")):
+    exempt = root / "exempt_repo"
+    for path, branch in ((master, "master"), (feat, "feat"), (exempt, "master")):
         path.mkdir()
         subprocess.run(
             ["git", "init", "-q", "-b", branch, str(path)],
             check=True,
             capture_output=True,
-            env=_CLEAN_GIT_ENV,
+            env=clean_environ(),
         )
         subprocess.run(
             [
@@ -55,7 +77,7 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
             ],
             check=True,
             capture_output=True,
-            env=_CLEAN_GIT_ENV,
+            env=clean_environ(),
         )
         # Neutralize the runner's global/XDG excludesfile so `git check-ignore`
         # (used by the gitignored-path bypass) sees only this repo's .gitignore.
@@ -65,7 +87,7 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
             ["git", "-C", str(path), "config", "core.excludesFile", "/dev/null"],
             check=True,
             capture_output=True,
-            env=_CLEAN_GIT_ENV,
+            env=clean_environ(),
         )
     # A .gitignore in the master repo lets branch-protection tests exercise
     # the gitignored-file bypass. check-ignore reads the working-tree file,
@@ -74,7 +96,23 @@ def repos(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, str]:
     (master / ".gitignore").write_text("*.ignored\nignored_dir/\n", encoding="utf-8")
     outside = root / "outside"
     outside.mkdir()
-    return {"master": str(master), "feat": str(feat), "outside": str(outside)}
+    return {
+        "master": str(master),
+        "feat": str(feat),
+        "exempt": str(exempt),
+        "outside": str(outside),
+    }
+
+
+@pytest.fixture(scope="session")
+def empty_home(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Provide a home directory holding no toolkit config.
+
+    Hook subprocesses resolve `~/.claude/natelandau-toolkit.toml`, so without
+    pointing HOME here a developer's own global config would decide the profile,
+    the disabled hooks, and the exempt paths for every subprocess test.
+    """
+    return str(tmp_path_factory.mktemp("empty_home"))
 
 
 @pytest.fixture(scope="session")
@@ -85,7 +123,7 @@ def hooks_dir() -> Path:
 
 @pytest.fixture
 def run_pretooluse(
-    hooks_dir: Path, tmp_path: Path
+    hooks_dir: Path, tmp_path: Path, empty_home: str
 ) -> Callable[[dict[str, Any]], subprocess.CompletedProcess[str]]:
     """Return a callable that pipes a payload through the PreToolUse dispatcher.
 
@@ -102,6 +140,7 @@ def run_pretooluse(
     def _run(payload: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
         env.pop("CLAUDE_PROJECT_DIR", None)
+        env["HOME"] = empty_home
         # Point the session-keyed state bridge at a per-test tmp dir so hooks
         # that debounce via lib.state never read/write the shared system temp
         # bridge, keeping the subprocess suite isolated and rerunnable.

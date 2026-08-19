@@ -7,16 +7,19 @@ exit 0 = allow, exit 2 = block.
 
 from __future__ import annotations
 
+import json
+import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests._env import clean_environ, exempt_env
 from tests._helpers import bash_payload as _bash
 
 if TYPE_CHECKING:
-    import subprocess
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
+    from pathlib import Path
 
 
 HEREDOC_VALID = (
@@ -518,3 +521,77 @@ def test_block_message_bracket_slug_is_hook_id(
     assert proc.returncode == 2, f"stderr={proc.stderr!r}"
     assert "BLOCKED [commit-message]:" in proc.stderr
     assert "'bad-format'" in proc.stderr
+
+
+# === Exempt-path carve-out ==================================================
+
+# A subject the conventions reject on three counts (capitalized, past tense,
+# trailing period), so a pass-through can only come from the carve-out.
+BAD_SUBJECT = "Reorganized the notes."
+
+
+def _run_with_exempt(
+    hooks_dir: Path, payload: dict[str, Any], exempt: str, home: str
+) -> subprocess.CompletedProcess[str]:
+    """Pipe `payload` through the PreToolUse dispatcher with `exempt` declared an exempt root.
+
+    `home` pins the global config layer and CLAUDE_PROJECT_DIR is dropped, so
+    neither a developer's own toolkit config nor the checkout the suite runs
+    from can decide whether the hook fires.
+    """
+    env: dict[str, str] = {**clean_environ(), **exempt_env(exempt), "HOME": home}
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    return subprocess.run(
+        [str(hooks_dir / "pretooluse.py")],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env=env,
+    )
+
+
+@pytest.mark.parametrize(
+    ("template", "case"),
+    [
+        ('git -C {root} commit -m "{subject}"', "git -C into the exempt tree"),
+        ('cd {root} && git commit -m "{subject}"', "cd into the exempt tree"),
+        ('gh pr create -t "{subject}"', "gh pr create from an exempt cwd"),
+    ],
+)
+def test_exempt_commands_skip_the_conventions(
+    repos: Mapping[str, str],
+    hooks_dir: Path,
+    empty_home: str,
+    template: str,
+    case: str,
+) -> None:
+    """Verify a non-conventional subject aimed at an exempt tree is allowed."""
+    # Given a command carrying a subject the conventions would reject, in an
+    # exempt tree on a feature branch so branch-protection cannot block first
+    # and mask whether the hook under test allowed it
+    root = repos["feat"]
+    payload = {**_bash(template.format(root=root, subject=BAD_SUBJECT)), "cwd": root}
+
+    # When invoking the hook with that repo declared an exempt root
+    proc = _run_with_exempt(hooks_dir, payload, root, empty_home)
+
+    # Then it passes through
+    assert proc.returncode == 0, f"{case}: stderr={proc.stderr!r}"
+
+
+def test_commit_outside_an_exempt_tree_still_enforced(
+    repos: Mapping[str, str], hooks_dir: Path, empty_home: str
+) -> None:
+    """Verify the conventions still apply to a repo no exempt root contains."""
+    # Given a non-conventional commit aimed at a repo outside every exempt root
+    command = f'git commit -m "{BAD_SUBJECT}"'
+    payload = {**_bash(command), "cwd": repos["outside"]}
+
+    # When invoking the hook with the exempt root pointed elsewhere
+    proc = _run_with_exempt(hooks_dir, payload, repos["feat"], empty_home)
+
+    # Then the message is still blocked
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert "BLOCKED [commit-message]:" in proc.stderr

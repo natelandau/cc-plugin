@@ -72,6 +72,23 @@ this file** (`ls hooks/pretooluse/` for the current set).
   `hooks/natelandau-toolkit.toml.example`. Per-project additive
   `.../natelandau-toolkit/<hook>.rules.toml` may only ADD blocking rules and fails open
   if malformed.
+- **Exempt paths:** user-owned, never plugin-owned — the plugin dir is replaced
+  on update, so nothing configurable may live in it. Two sources, unioned by
+  `lib/exempt_paths.resolve()`: `exempt_paths` in the **global** config
+  (`Config.exempt_paths`) and `$NATELANDAU_TOOLKIT_EXEMPT_PATHS` (`os.pathsep`-
+  separated). `evaluate()` resolves once into an `ExemptRoots` and threads it
+  down; don't re-resolve per check. **The project config layer is deliberately
+  not consulted for this key** — that file is committed inside the repo the
+  guard protects, so honoring it would let a repo waive the guard for every
+  clone. Paths inside a root skip `branch-protection`'s protected-branch checks
+  and `commit-message` outright, but NOT the destructive rules — a force push
+  destroys work on any branch. An empty/relative/`/`/`~nouser`/`..`-bearing entry
+  is dropped alone, so the carve-out can only narrow, never widen. Every
+  command-extracted path runs through `lib.paths.expand_user` first: the hook
+  sees the command before the shell does, so an unexpanded `~/repo` reads as a
+  child of the cwd and the branch lookup finds nothing to protect. Subprocess
+  tests pin `HOME` to the `empty_home` fixture (else a developer's global config
+  decides the outcome) and set the variable via `exempt_env()`.
 - **Rule data:** declaration-order, first-match-wins. In `.rules.toml` use literal
   strings (`'...'`) for `pattern` so regex backslashes pass verbatim; patterns compile
   at load, so a bad regex fails loudly.

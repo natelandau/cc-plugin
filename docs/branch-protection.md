@@ -24,11 +24,68 @@ So a write into a repo on `main` is caught even when you run it from a feature
 worktree, and a write into a feature branch passes even when your shell is on
 `main`. Protected branches are `main` and `master`.
 
+## Exempt paths
+
+Some directory trees are working stores you and your agents commit to on their
+default branch by design, so there is no trunk hygiene to protect in them. Every
+protected-branch rule on this page is waived for paths inside such a tree.
+
+You declare them, in either of two places. Both are read and the results are
+combined, so you can use whichever fits or both.
+
+**Your global config**, `~/.claude/natelandau-toolkit.toml`:
+
+```toml
+exempt_paths = [
+  "~/repos/shared-context-vault",
+  "/Volumes/scratch/notes",
+]
+```
+
+**An environment variable**, `NATELANDAU_TOOLKIT_EXEMPT_PATHS`, holding a
+`:`-separated list. Use it for a root that differs per machine or is composed
+from another variable:
+
+```bash
+export NATELANDAU_TOOLKIT_EXEMPT_PATHS="$SHARED_CONTEXT_VAULT:$HOME/scratch"
+```
+
+A leading `~` is expanded in both. Two cautions about the variable. Hooks inherit
+the environment Claude Code was started with, so an export in your shell profile
+does not apply if you launch Claude Code from a GUI launcher rather than a
+terminal; the config file has no such gap. And anything that sets the variable in
+that environment declares an exempt tree, including a repository's own `.envrc`
+picked up by `direnv` before you start a session, so treat allowing a `direnv`
+environment as trusting that repository with the carve-out.
+
+**`exempt_paths` is read from the global config only.** A project's
+`.claude/natelandau-toolkit.toml` is a committed file inside the very repository
+branch protection is guarding, so honoring the key there would let a repo waive
+the guard for everyone who clones it. The key is silently ignored in a project
+config.
+
+The exemption is keyed off the path, like every other rule. An edit to a file in
+an exempt tree passes from any shell, a `git -C <exempt-tree> commit` passes from
+anywhere, and an edit to some other repo on `main` is still blocked even while
+your shell sits inside one.
+
+Two things it does not waive:
+
+- **Destructive operations.** A force push or a `git reset --hard` inside an
+  exempt tree is still blocked. Those destroy work whatever branch they run on.
+- **Anything, when an entry is unusable.** An empty, relative, or `/` entry, a
+  `~user` naming no account, and any path carrying a `..` segment each
+  contribute no root and are dropped on their own, leaving neighbors intact, so
+  a typo narrows the exemption rather than widening it or voiding the list.
+
+The `commit-message` hook reads the same two sources, so commits and PR titles
+aimed at an exempt tree also skip the conventional-commit format check.
+
 ## Git operations
 
 The table covers git actions aimed at a protected branch. Actions on a feature
-branch are unaffected by branch protection (destructive operations are the
-exception; see below).
+branch, or inside an exempt tree, are unaffected by branch protection
+(destructive operations are the exception; see below).
 
 | Action | Decision | Why |
 | --- | --- | --- |
@@ -90,7 +147,7 @@ back into a repo on a protected branch is blocked, even a repo that happens to
 live under `/tmp`.
 
 `Edit`, `Write`, and `NotebookEdit` follow the same logic: blocked on a protected
-branch unless the target file is gitignored.
+branch unless the target file is gitignored or inside an exempt tree.
 
 ## Destructive operations (every branch)
 

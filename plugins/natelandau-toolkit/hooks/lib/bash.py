@@ -11,11 +11,19 @@ single or double quotes (an `awk 'c>=2'` program, an `echo "a && b"` literal)
 is data, not shell syntax, so it must not split a clause or read as a redirect.
 `mask_quoted` neutralizes those quoted spans while preserving every byte offset,
 so the split regexes match only real operators yet the parts stay verbatim.
+
+Alongside splitting, the module resolves the directory a clause acts on --
+tracking a leading `cd <dir>` and a git clause's `-C <path>` -- so a hook can
+judge each clause against the directory it actually touches instead of wherever
+the shell happened to sit.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
+
+from lib.paths import expand_user
 
 # Sequence operators that end one statement and begin the next. A bare newline
 # is one of them, so the lines of a multi-line script are separate clauses; a
@@ -245,3 +253,54 @@ def split_clauses(command: str, *, include_pipes: bool = False) -> list[str]:
         last = m.end()
     parts.append(command[last:])
     return parts
+
+
+# Pulls the `-C <path>` target out of a git clause, so an op is judged against
+# the repo it names rather than the shell's cwd. Tolerates the leading
+# per-invocation `-c <key=val>` options that may precede `-C`.
+_GIT_C_DIR_RE = re.compile(r"\bgit\s+(?:-c\s+\S+\s+)*-C\s+(\S+)")
+
+# A leading `cd <dir>` clause, so an effective cwd can be tracked across
+# `cd <dir> && ...`.
+_CD_RE = re.compile(r"^\s*cd\s+(\S+)")
+
+
+def strip_quotes(token: str) -> str:
+    """Strip surrounding single/double quotes from a path token captured from a command.
+
+    Command-extracted paths (`git -C '/repo'`, `rm "/repo/f"`) keep their shell
+    quotes; without stripping them a path lookup would miss and the caller's
+    guard would not see the real target. Paths containing spaces are not
+    recovered (the capture regexes stop at the first space); those are a known gap.
+    """
+    return token.strip("'\"")
+
+
+def resolve_against(path: str, cwd: str) -> str:
+    """Resolve a command-extracted `path` to an absolute string against `cwd` (absolute as-is).
+
+    A leading `~` is expanded first: the hook sees the command before the shell
+    has done it, so `~/repo` joined onto `cwd` would name a directory that does
+    not exist and every branch or containment lookup on it would come back
+    empty.
+    """
+    expanded = expand_user(strip_quotes(path))
+    if expanded.is_absolute():
+        return str(expanded)
+    return str(Path(cwd) / expanded) if cwd else str(expanded)
+
+
+def cd_target(clause: str, cwd: str) -> str | None:
+    """Return the dir a leading `cd <dir>` clause moves to (resolved against cwd), or None."""
+    m = _CD_RE.match(clause)
+    return resolve_against(m.group(1), cwd) if m else None
+
+
+def git_clause_dir(clause: str, cwd: str) -> str:
+    """Return the repo dir a git clause operates on, honoring `git -C <path>`.
+
+    Falls back to `cwd` when no `-C` is present, so the op is judged against the
+    repo it actually touches rather than wherever git was invoked from.
+    """
+    m = _GIT_C_DIR_RE.search(clause)
+    return resolve_against(m.group(1), cwd) if m else cwd

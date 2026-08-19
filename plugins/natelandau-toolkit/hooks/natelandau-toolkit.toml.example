@@ -11,6 +11,21 @@ profile = "standard"
 # e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 
+# --- Exempt paths ---------------------------------------------------------
+# Directory trees whose contents skip the branch-protection hook's
+# protected-branch rules (edits, direct commits, merges) and the
+# commit-message hook. Destructive git commands are still blocked inside them.
+# A leading ~ is expanded; a relative or "/" entry is ignored.
+#
+# READ FROM THE GLOBAL FILE ONLY. A project's .claude/natelandau-toolkit.toml
+# is committed inside the repository the guard protects, so this key is
+# ignored there -- otherwise one repo could waive the guard for every clone.
+# exempt_paths = ["~/repos/shared-context-vault"]
+#
+# The environment variable NATELANDAU_TOOLKIT_EXEMPT_PATHS adds to this list,
+# ":"-separated, for roots that differ per machine:
+#   export NATELANDAU_TOOLKIT_EXEMPT_PATHS="$SHARED_CONTEXT_VAULT"
+
 # --- Per-project additive rules -------------------------------------------
 # The protect-secrets, protect-system, protect-remote, and config-protection
 # hooks also read an optional project rules file of the

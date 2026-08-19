@@ -5,6 +5,12 @@ Resolution (low to high precedence): built-in defaults, then
 natelandau-toolkit.toml. Scalars and lists are replaced by the higher
 level; [hooks.*] tables are deep-merged per key. Any read or parse error
 is swallowed so a broken config never blocks tool execution.
+
+`exempt_paths` is the one key read from the global layer alone. Every other
+key can only tighten a guard or pick which guards run; that one waives them
+for a directory tree, and the project layer is a file inside the very repo a
+guard protects. Honoring it there would let a repo exempt itself, and because
+that file is committed it would do so for everyone who clones it.
 """
 
 import os
@@ -30,6 +36,9 @@ class Config:
     disabled_hooks: frozenset[str]
     hook_options: Mapping[str, Mapping[str, str]]
     project_dir: str | None = None
+    # Directory trees whose contents skip the protected-branch and
+    # commit-message guards. Global layer only; see the module docstring.
+    exempt_paths: tuple[str, ...] = ()
 
     def option(self, hook_id: str, key: str, default: str) -> str:
         """Return a per-hook option value, or `default` when unset."""
@@ -46,6 +55,13 @@ def _read_toml(path: Path) -> dict[str, object]:
     except (OSError, tomllib.TOMLDecodeError) as exc:
         print(f"natelandau-toolkit: ignoring {path}: {exc}", file=sys.stderr)  # noqa: T201
         return {}
+
+
+def _string_list(raw: object) -> tuple[str, ...]:
+    """Return the string entries of a TOML list, or () for anything else."""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(x for x in raw if isinstance(x, str))
 
 
 def _merge_hook_options(base: dict[str, dict[str, str]], raw: object) -> dict[str, dict[str, str]]:
@@ -109,7 +125,12 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
     project_dir = project_dir if project_dir is not None else os.environ.get("CLAUDE_PROJECT_DIR")
 
     acc = _Accumulator()
-    _apply(_read_toml(home / ".claude" / CONFIG_NAME), acc)
+    global_layer = _read_toml(home / ".claude" / CONFIG_NAME)
+    _apply(global_layer, acc)
+    # Read from the global layer only, before the project layer is folded in:
+    # a repo's own committed config must never exempt that repo from the
+    # guards protecting it.
+    exempt_paths = _string_list(global_layer.get("exempt_paths"))
     if project_dir:
         proj_path = Path(project_dir) / ".claude" / CONFIG_NAME
         _apply(_read_toml(proj_path), acc)
@@ -126,4 +147,5 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
         disabled_hooks=acc.disabled,
         hook_options={k: dict(v) for k, v in acc.hook_options.items()},
         project_dir=project_dir,
+        exempt_paths=exempt_paths,
     )

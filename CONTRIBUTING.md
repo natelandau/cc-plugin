@@ -102,7 +102,8 @@ plugins/natelandau-toolkit/
       use_uv.py
     stop/ posttooluse/ sessionstart/ sessionend/   Empty noop stages (each has a _registry.py)
     lib/                                      Shared library: dispatch, config, io, rules,
-                                              profiles, bash, paths, state, transcript
+                                              profiles, bash, paths, exempt_paths, state,
+                                              transcript
   skills/<name>/SKILL.md                      Skill entry files
   commands/<name>.md                          Slash commands
   agents/<name>.md                            Subagent definitions

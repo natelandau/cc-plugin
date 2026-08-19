@@ -19,6 +19,22 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def expand_user(path: str) -> Path:
+    """Return `path` as a Path with a leading `~` expanded, unchanged when it cannot be.
+
+    A command string reaches a hook before the shell has expanded anything, so
+    `~/repo/file` still carries its tilde; anchoring it to the cwd instead would
+    point every containment and branch lookup at a path that does not exist.
+    `Path.expanduser` raises for an unknown user or an undeterminable home, so a
+    literal `~foo` argument is returned as written rather than propagating.
+    """
+    candidate = Path(path)
+    try:
+        return candidate.expanduser()
+    except RuntimeError:
+        return candidate
+
+
 class PathEscapeError(ValueError):
     """A target path resolved outside its trusted root."""
 

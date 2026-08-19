@@ -12,6 +12,12 @@ file's branch, file-modifying Bash commands use each write target's branch, and
 git commit/merge use the repo named by `git -C <path>` / `cd <path> &&`. So a
 write into a repo on main is caught wherever the shell sits, and a write into a
 feature branch (or a different repo, or no repo) passes even from a main cwd.
+
+Paths under an exempt root (`lib.exempt_paths`) skip every protected-branch
+check: those trees are working stores committed to on their default branch by
+design, so trunk hygiene does not apply there. The destructive rules still fire
+inside them -- a force push or `reset --hard` destroys work whatever branch it
+runs on.
 """
 
 from __future__ import annotations
@@ -23,11 +29,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lib import bash
+from lib import bash, exempt_paths
 from lib.io import Decision
+from lib.paths import expand_user
 
 if TYPE_CHECKING:
     from lib.config import Config
+    from lib.exempt_paths import ExemptRoots
 
 ID = "branch-protection"
 PROTECTED_BRANCHES = {"main", "master"}
@@ -82,12 +90,6 @@ GIT_WORKTREE_WRITE_RE = re.compile(
 GIT_WORKTREE_READONLY_RE = re.compile(
     r"(?:^|\s)--(?:check|stat|numstat|summary|abort|quit|show-current-patch)\b"
 )
-# Pulls the `-C <path>` target out of a git clause so the op is judged against
-# the repo it touches, not the shell's cwd.
-_GIT_C_DIR_RE = re.compile(r"\bgit\s+(?:-c\s+\S+\s+)*-C\s+(\S+)")
-# A leading `cd <dir>` clause, so the effective cwd can be tracked across
-# `cd <dir> && git ...`.
-_CD_RE = re.compile(r"^\s*cd\s+(\S+)")
 
 GIT_C_ADVISORY = (
     "WARNING: Avoid using `git -C <path>`. "
@@ -380,42 +382,6 @@ def is_squash_merge_in_progress(command: str, git_dir: Path | None) -> bool:
     return False
 
 
-def _strip_quotes(token: str) -> str:
-    """Strip surrounding single/double quotes from a path token captured from a command.
-
-    Command-extracted paths (`git -C '/repo'`, `rm "/repo/f"`) keep their shell
-    quotes; without stripping them the path lookup would miss and the guard would
-    not see the real target. Paths containing spaces are not recovered (the regex
-    captures stop at the first space); those remain a known gap.
-    """
-    return token.strip("'\"")
-
-
-def _resolve_against(path: str, cwd: str) -> str:
-    """Resolve a command-extracted `path` to an absolute string against `cwd` (absolute as-is)."""
-    path = _strip_quotes(path)
-    if Path(path).is_absolute():
-        return path
-    return str(Path(cwd) / path) if cwd else path
-
-
-def _git_clause_dir(clause: str, cwd: str) -> str:
-    """Return the repo dir a git clause operates on, honoring `git -C <path>`.
-
-    Falls back to the effective `cwd` when no `-C` is present, so the op is
-    judged against the repo it actually touches rather than wherever git was
-    invoked from.
-    """
-    m = _GIT_C_DIR_RE.search(clause)
-    return _resolve_against(m.group(1), cwd) if m else cwd
-
-
-def _cd_target(clause: str, cwd: str) -> str | None:
-    """Return the dir a leading `cd <dir>` clause moves to (resolved against cwd), or None."""
-    m = _CD_RE.match(clause)
-    return _resolve_against(m.group(1), cwd) if m else None
-
-
 # === Checks ===
 
 
@@ -547,7 +513,7 @@ def _clause_write_targets(clause: str) -> list[str] | None:
     return targets
 
 
-def _target_protected_branch(target: str, cwd: str) -> str | None:
+def _target_protected_branch(target: str, cwd: str, exempt: ExemptRoots) -> str | None:
     """Return the protected branch a write to `target` would dirty, or None if harmless.
 
     A write is harmless when its resolved target is not inside a repo on a
@@ -557,23 +523,27 @@ def _target_protected_branch(target: str, cwd: str) -> str | None:
     is harmless even from a main cwd, while a write into a repo on main is caught
     wherever the shell sits -- the mirror of the Edit/Write exemption. A relative
     target with no cwd can't be located, so it is treated as harmless (the
-    fail-open default; real payloads always carry a cwd).
+    fail-open default; real payloads always carry a cwd). A leading `~` is
+    expanded first, since the hook sees the command before the shell does and a
+    tilde joined onto the cwd names nothing.
 
     There is deliberately no /tmp shortcut: exempting every path under /tmp would
     also exempt a real repo that happens to live there (e.g. a worktree, or
     pytest's ephemeral repos on Linux), silently dropping protection. A /tmp
     scratch path is not in a repo, so the branch lookup already returns "" for it.
     """
-    target = _strip_quotes(target)
-    if Path(target).is_absolute():
-        abs_target = target
+    expanded = expand_user(bash.strip_quotes(target))
+    if expanded.is_absolute():
+        abs_target = str(expanded)
     elif cwd:
-        abs_target = str(Path(cwd) / target)
+        abs_target = str(Path(cwd) / expanded)
     else:
         return None
     # Resolve symlinks and any `..` so a link or traversal is judged by the real
     # path it lands on, the same path the gitignore check canonicalizes.
     abs_resolved = str(Path(abs_target).resolve())
+    if exempt.contains(abs_resolved):
+        return None
     branch = get_branch_at_path(abs_resolved)
     if branch not in PROTECTED_BRANCHES:
         return None
@@ -592,17 +562,19 @@ def _deny_file_mod(branch: str) -> Decision:
     )
 
 
-def _evaluate_file_tool(event: dict[str, Any]) -> Decision | None:
+def _evaluate_file_tool(event: dict[str, Any], exempt: ExemptRoots) -> Decision | None:
     """Return a Decision for an Edit/Write/NotebookEdit, keyed off the target file's branch.
 
     A file on a protected branch is blocked unless it is gitignored (never part
-    of tracked history). A file on any other branch -- or outside any repo --
-    passes, so an edit inside a feature-branch worktree is allowed even when the
-    main checkout sits on main.
+    of tracked history) or under an exempt root. A file on any other branch --
+    or outside any repo -- passes, so an edit inside a feature-branch worktree
+    is allowed even when the main checkout sits on main.
     """
     tool_input: dict[str, Any] = event.get("tool_input") or {}
     file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
     if not file_path:
+        return None
+    if exempt.contains(file_path, event.get("cwd", "")):
         return None
     branch = get_branch_at_path(file_path)
     if branch not in PROTECTED_BRANCHES:
@@ -641,7 +613,9 @@ def _git_op_decision(*, command: str, clause: str, repo_dir: str, branch: str) -
     return None
 
 
-def _git_clause_decision(command: str, clause: str, eff_cwd: str) -> Decision | None:
+def _git_clause_decision(
+    command: str, clause: str, eff_cwd: str, exempt: ExemptRoots
+) -> Decision | None:
     """Return a Decision for one git clause, judged against the repo it operates on, else None.
 
     Only commit/merge/pull (history) and apply/am/stash-pop (working tree) can
@@ -656,7 +630,9 @@ def _git_clause_decision(command: str, clause: str, eff_cwd: str) -> Decision | 
     )
     if not (is_history or is_worktree_write):
         return None
-    repo_dir = _git_clause_dir(clause, eff_cwd)
+    repo_dir = bash.git_clause_dir(clause, eff_cwd)
+    if exempt.contains(repo_dir):
+        return None
     branch = get_branch_at_path(repo_dir) if repo_dir else _run_git("branch", "--show-current")
     if branch not in PROTECTED_BRANCHES:
         return None
@@ -668,7 +644,7 @@ def _git_clause_decision(command: str, clause: str, eff_cwd: str) -> Decision | 
     return _git_op_decision(command=command, clause=clause, repo_dir=repo_dir, branch=branch)
 
 
-def _file_clause_decision(clause: str, eff_cwd: str) -> Decision | None:
+def _file_clause_decision(clause: str, eff_cwd: str, exempt: ExemptRoots) -> Decision | None:
     """Return a deny Decision for a file-modifying clause on a protected branch, else None.
 
     Each confinable write target is judged by the branch of its own resolved
@@ -677,16 +653,18 @@ def _file_clause_decision(clause: str, eff_cwd: str) -> Decision | None:
     """
     targets = _clause_write_targets(clause)
     if targets is None:
+        if exempt.contains(eff_cwd):
+            return None
         branch = get_branch_at_path(eff_cwd) if eff_cwd else ""
         return _deny_file_mod(branch) if branch in PROTECTED_BRANCHES else None
     for target in targets:
-        branch = _target_protected_branch(target, eff_cwd)
+        branch = _target_protected_branch(target, eff_cwd, exempt)
         if branch:
             return _deny_file_mod(branch)
     return None
 
 
-def _evaluate_bash(command: str, cwd: str) -> Decision | None:
+def _evaluate_bash(command: str, cwd: str, exempt: ExemptRoots) -> Decision | None:
     """Return a Decision for a Bash command's protected-branch impact, else None.
 
     Walks the command's clauses once, left to right, tracking the effective
@@ -704,13 +682,13 @@ def _evaluate_bash(command: str, cwd: str) -> Decision | None:
         if not clause:
             continue
         if _is_git_command(clause):
-            decision = _git_clause_decision(command, clause, eff_cwd)
+            decision = _git_clause_decision(command, clause, eff_cwd, exempt)
         else:
-            moved = _cd_target(clause, eff_cwd)
+            moved = bash.cd_target(clause, eff_cwd)
             if moved is not None:
                 eff_cwd = moved
                 continue
-            decision = _file_clause_decision(clause, eff_cwd)
+            decision = _file_clause_decision(clause, eff_cwd, exempt)
         if decision is None:
             continue
         if decision.block:
@@ -719,15 +697,16 @@ def _evaluate_bash(command: str, cwd: str) -> Decision | None:
     return pending_ask
 
 
-def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
+def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     """Return a deny/ask/advisory Decision for branch protection, else None."""
     tool_name: str = event.get("tool_name", "")
     # Self-filter: only file-mod tools and Bash can write to a protected branch.
     # Skip others (notably Read) so the branch lookup's git call is not run per read.
-    if tool_name in ("Edit", "Write", "NotebookEdit"):
-        return _evaluate_file_tool(event)
-    if tool_name != "Bash":
+    if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
         return None
+    exempt = exempt_paths.resolve(cfg.exempt_paths)
+    if tool_name != "Bash":
+        return _evaluate_file_tool(event, exempt)
 
     command: str = bash.join_continuations((event.get("tool_input") or {}).get("command", ""))
     cwd: str = event.get("cwd", "")
@@ -736,7 +715,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: AR
     if reason:
         return Decision.blocked(ID, f"{reason}. Run this command outside Claude Code if you must.")
 
-    decision = _evaluate_bash(command, cwd)
+    decision = _evaluate_bash(command, cwd, exempt)
     if decision is not None:
         return decision
 

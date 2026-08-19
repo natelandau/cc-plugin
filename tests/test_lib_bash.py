@@ -159,3 +159,59 @@ def test_mask_comparisons_blanks_arith_test_operators(bash: ModuleType, command:
 def test_mask_comparisons_keeps_real_redirects(bash: ModuleType, command: str) -> None:
     """Verify a real redirect `>` (including inside a command substitution) survives."""
     assert ">" in bash.mask_comparisons(bash.mask_quoted(command))
+
+
+# === path resolution: resolve_against / cd_target / git_clause_dir ===
+
+
+def test_resolve_against_expands_a_leading_tilde(
+    bash: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify `~` names the home directory rather than a child of the cwd.
+
+    The hook reads the command before the shell expands anything, so joining
+    the tilde onto the cwd would point every branch lookup at a path that does
+    not exist and quietly allow the action.
+    """
+    # Given a home directory and a command-extracted path written with a tilde
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # When resolving it against an unrelated cwd
+    resolved = bash.resolve_against("~/repo/file.py", "/somewhere/else")
+
+    # Then it lands in the home directory
+    assert resolved == str(tmp_path / "repo" / "file.py")
+
+
+def test_resolve_against_keeps_an_unexpandable_tilde(bash: ModuleType) -> None:
+    """Verify a `~user` that names no account stays a literal relative path."""
+    # Given a tilde path for an account that does not exist
+    # When resolving it against a cwd
+    resolved = bash.resolve_against("~nosuchuser42/store", "/work")
+
+    # Then it is anchored to the cwd rather than raising
+    assert resolved == "/work/~nosuchuser42/store"
+
+
+def test_cd_target_expands_a_leading_tilde(
+    bash: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify `cd ~/repo` tracks to the home directory."""
+    # Given a home directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # When reading the target of a tilde `cd`
+    # Then the effective cwd is the expanded path
+    assert bash.cd_target("cd ~/repo", "/somewhere/else") == str(tmp_path / "repo")
+
+
+def test_git_clause_dir_expands_a_leading_tilde(
+    bash: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify `git -C ~/repo` names the repo in the home directory."""
+    # Given a home directory
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # When reading the repo a tilde `-C` clause operates on
+    # Then it is the expanded path, not one built from the cwd
+    assert bash.git_clause_dir("git -C ~/repo commit", "/somewhere/else") == str(tmp_path / "repo")

@@ -107,3 +107,79 @@ def test_project_dir_none_when_unset(
 
     # Then project_dir is None
     assert cfg.project_dir is None
+
+
+def test_exempt_paths_read_from_the_global_layer(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify exempt_paths in the global config reaches the resolved Config."""
+    # Given a global config listing two exempt trees
+    home = tmp_path / "home"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        'exempt_paths = ["/a/store", "~/b/store"]\n',
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(tmp_path / "proj"))
+
+    # Then both entries are carried verbatim, expansion being the resolver's job
+    assert cfg.exempt_paths == ("/a/store", "~/b/store")
+
+
+def test_exempt_paths_ignored_in_the_project_layer(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a project config cannot add an exempt tree.
+
+    The project layer is a committed file inside the repository a guard
+    protects, so honoring it there would let one repo waive the guard for
+    everyone who clones it.
+    """
+    # Given a project config listing an exempt tree and no global one
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(proj / ".claude" / "natelandau-toolkit.toml", 'exempt_paths = ["/sneaky"]\n')
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then nothing is exempt
+    assert cfg.exempt_paths == ()
+
+
+def test_project_layer_cannot_clear_global_exempt_paths(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify the project layer neither adds to nor removes from the global list."""
+    # Given a global config with an exempt tree and a project config clearing it
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(home / ".claude" / "natelandau-toolkit.toml", 'exempt_paths = ["/a/store"]\n')
+    _write(proj / ".claude" / "natelandau-toolkit.toml", "exempt_paths = []\n")
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then the global list stands
+    assert cfg.exempt_paths == ("/a/store",)
+
+
+def test_exempt_paths_ignores_non_string_entries(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a malformed entry is dropped without voiding the list."""
+    # Given a global config whose list mixes a path with a number
+    home = tmp_path / "home"
+    _write(home / ".claude" / "natelandau-toolkit.toml", 'exempt_paths = ["/a/store", 7]\n')
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(tmp_path / "proj"))
+
+    # Then the usable entry survives
+    assert cfg.exempt_paths == ("/a/store",)
+
+
+def test_exempt_paths_ignores_a_non_list_value(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a scalar written where a list belongs exempts nothing."""
+    # Given a global config with exempt_paths set to a bare string
+    home = tmp_path / "home"
+    _write(home / ".claude" / "natelandau-toolkit.toml", 'exempt_paths = "/a/store"\n')
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(tmp_path / "proj"))
+
+    # Then nothing is exempt
+    assert cfg.exempt_paths == ()
