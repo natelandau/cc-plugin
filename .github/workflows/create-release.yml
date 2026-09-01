@@ -2,12 +2,10 @@
 name: "Create Release"
 
 on:
+    # Dispatch against the tag ref itself, not a branch: the tests below are a local
+    # reusable workflow, so they always run at this workflow's ref. Releasing a tag
+    # while testing a branch would publish code that was never tested.
     workflow_dispatch:
-        inputs:
-            tag:
-                description: "Tag to release (e.g., v0.2.0)"
-                required: true
-                type: string
     push:
         tags:
             - "v*"
@@ -31,8 +29,6 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v7
-              with:
-                  fetch-depth: 0
 
             - name: Read plugin version
               run: |
@@ -40,21 +36,19 @@ jobs:
                   echo "PLUGIN_VERSION=$PLUGIN_VERSION" >> "$GITHUB_ENV"
 
             - name: Check tag matches plugin version
+              env:
+                  REF_NAME: ${{ github.ref_name }}
+                  REF_TYPE: ${{ github.ref_type }}
               run: |
-                  if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-                      TAG="${{ github.event.inputs.tag }}"
-                      if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-                          echo "::error::Tag $TAG does not exist"
-                          exit 1
-                      fi
-                  else
-                      TAG=$(git describe HEAD --tags --abbrev=0)
+                  if [[ "$REF_TYPE" != "tag" ]]; then
+                      echo "::error::Run this workflow against a tag ref; got $REF_TYPE $REF_NAME"
+                      exit 1
                   fi
 
-                  echo "Tag: $TAG"
+                  echo "Tag: $REF_NAME"
                   echo "Plugin version: $PLUGIN_VERSION"
-                  if [[ "$TAG" != "v$PLUGIN_VERSION" ]]; then
-                      echo "::error::Tag $TAG does not match plugin version v$PLUGIN_VERSION"
+                  if [[ "$REF_NAME" != "v$PLUGIN_VERSION" ]]; then
+                      echo "::error::Tag $REF_NAME does not match plugin version v$PLUGIN_VERSION"
                       exit 1
                   fi
 
@@ -68,6 +62,7 @@ jobs:
             - name: Create Release
               uses: softprops/action-gh-release@v3
               with:
+                  tag_name: ${{ github.ref_name }}
                   body: ${{join(fromJson(steps.generate_notes.outputs.notes).notes, '')}}
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
