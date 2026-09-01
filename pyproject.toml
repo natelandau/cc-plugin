@@ -106,5 +106,10 @@
         quote-style               = "double"
         skip-magic-trailing-comma = false
 
+[tool.ty.environment]
+    # `lib.*` only resolves with the hooks dir on sys.path, which importers insert
+    # at runtime. Entry scripts are PEP 723 and set their own root in-script.
+    extra-paths = ["plugins/natelandau-toolkit/hooks"]
+
 [tool.ty.terminal]
     error-on-warning = true

@@ -3,6 +3,9 @@
 # /// script
 # requires-python = ">=3.14"
 # dependencies = []
+#
+# [tool.ty.environment]
+# root = ["."]
 # ///
 
 """SessionEnd dispatcher: route session end through this stage's plugins."""

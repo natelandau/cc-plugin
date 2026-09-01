@@ -3,6 +3,9 @@
 # /// script
 # requires-python = ">=3.14"
 # dependencies = []
+#
+# [tool.ty.environment]
+# root = ["."]
 # ///
 
 """Stop dispatcher: parse the transcript once, route to this stage's plugins."""

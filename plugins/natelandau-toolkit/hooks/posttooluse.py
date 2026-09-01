@@ -3,6 +3,9 @@
 # /// script
 # requires-python = ">=3.14"
 # dependencies = []
+#
+# [tool.ty.environment]
+# root = ["."]
 # ///
 
 """PostToolUse dispatcher: route the tool result through this stage's plugins."""

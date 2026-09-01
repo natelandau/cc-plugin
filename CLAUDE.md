@@ -31,7 +31,10 @@ committing a code change.
 - **Entry scripts vs imported modules.** Hook entry scripts carry
   `#!/usr/bin/env -S uv run --script` + a `# /// script` block and are executable
   (`100755`; git tracks the mode bit). The modules they import (`hooks/lib/`) have no
-  shebang/metadata and stay `100644`.
+  shebang/metadata and stay `100644`. ty checks a PEP 723 script in isolation with an
+  empty search path, so each entry script's metadata block carries
+  `[tool.ty.environment] root = ["."]` to make `lib.*` resolve; everything else relies on
+  `extra-paths` in `pyproject.toml`.
 - **Stdlib only** in hook code; no third-party deps.
 - **Read stdin via the plugin's `io.read_payload()`**, not bare `json.load` (it caps
   the read and fails open to `{}`). Payload fields are `tool_name`, `tool_input`,

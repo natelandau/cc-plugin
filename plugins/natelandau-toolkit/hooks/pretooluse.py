@@ -3,6 +3,9 @@
 # /// script
 # requires-python = ">=3.14"
 # dependencies = []
+#
+# [tool.ty.environment]
+# root = ["."]
 # ///
 
 """PreToolUse dispatcher: route the tool call through this stage's plugins."""

@@ -387,7 +387,7 @@ def configprot_module(hooks_dir: Path) -> Any:
 
 
 def _cfg(project_dir: str | None = None) -> Any:
-    from lib.config import Config  # ty: ignore[unresolved-import]
+    from lib.config import Config
 
     return Config(
         profile="standard", disabled_hooks=frozenset(), hook_options={}, project_dir=project_dir

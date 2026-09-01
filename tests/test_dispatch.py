@@ -5,22 +5,25 @@ from __future__ import annotations
 import sys
 import textwrap
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest  # noqa: F401  # pytest discovers fixtures from this import
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 HOOKS = Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit" / "hooks"
 sys.path.insert(0, str(HOOKS))
 
-from lib import dispatch  # noqa: E402  # ty: ignore[unresolved-import]
+from lib import dispatch  # noqa: E402
+from lib.config import Config  # noqa: E402
 
 # Decision is used inside the embedded plugin source strings, not directly here.
-from lib.io import Decision  # noqa: E402, F401  # ty: ignore[unresolved-import]
+from lib.io import Decision  # noqa: E402, F401
 
 
-class _Cfg:
-    def __init__(self, profile="standard", disabled=()):
-        self.profile = profile
-        self.disabled_hooks = set(disabled)
+def _cfg(profile: str = "standard", disabled: Iterable[str] = ()) -> Config:
+    return Config(profile=profile, disabled_hooks=frozenset(disabled), hook_options={})
 
 
 def _stage(tmp_path: Path, plugins: dict[str, str], registry: str) -> Path:
@@ -36,7 +39,7 @@ def _stage(tmp_path: Path, plugins: dict[str, str], registry: str) -> Path:
 def test_empty_registry_is_noop(tmp_path):
     """Verify an empty PLUGINS registry yields no decision and no contexts."""
     d = _stage(tmp_path, {}, "PLUGINS = []")
-    assert dispatch.collect(d, {}, _Cfg()) == (None, [])
+    assert dispatch.collect(d, {}, _cfg()) == (None, [])
 
 
 def test_first_block_wins(tmp_path):
@@ -49,7 +52,8 @@ def test_first_block_wins(tmp_path):
         },
         "from lib.profiles import ALL\nPLUGINS=[('a',ALL),('b',ALL)]",
     )
-    blocking, _contexts = dispatch.collect(d, {}, _Cfg())
+    blocking, _contexts = dispatch.collect(d, {}, _cfg())
+    assert blocking is not None
     assert blocking.reason == "A"
 
 
@@ -62,7 +66,7 @@ def test_profile_gating_skips_plugin(tmp_path):
         },
         "from lib.profiles import STANDARD_UP\nPLUGINS=[('a',STANDARD_UP)]",
     )
-    assert dispatch.collect(d, {}, _Cfg(profile="minimal")) == (None, [])
+    assert dispatch.collect(d, {}, _cfg(profile="minimal")) == (None, [])
 
 
 def test_disabled_hooks_skips_by_id(tmp_path):
@@ -74,7 +78,7 @@ def test_disabled_hooks_skips_by_id(tmp_path):
         },
         "from lib.profiles import ALL\nPLUGINS=[('a',ALL)]",
     )
-    assert dispatch.collect(d, {}, _Cfg(disabled={"alpha"})) == (None, [])
+    assert dispatch.collect(d, {}, _cfg(disabled={"alpha"})) == (None, [])
 
 
 def test_plugin_exception_is_swallowed(tmp_path):
@@ -87,7 +91,7 @@ def test_plugin_exception_is_swallowed(tmp_path):
         },
         "from lib.profiles import ALL\nPLUGINS=[('boom',ALL),('ok',ALL)]",
     )
-    blocking, contexts = dispatch.collect(d, {}, _Cfg())
+    blocking, contexts = dispatch.collect(d, {}, _cfg())
     assert blocking is None
     assert contexts == ["hi"]
 
@@ -102,7 +106,8 @@ def test_ask_is_held_but_later_block_wins(tmp_path):
         },
         "from lib.profiles import ALL\nPLUGINS=[('a',ALL),('b',ALL)]",
     )
-    decision, _contexts = dispatch.collect(d, {}, _Cfg())
+    decision, _contexts = dispatch.collect(d, {}, _cfg())
+    assert decision is not None
     assert decision.block is True
     assert decision.reason == "B"
 
@@ -118,7 +123,8 @@ def test_first_ask_wins_when_no_block(tmp_path):
         },
         "from lib.profiles import ALL\nPLUGINS=[('ctx',ALL),('a',ALL),('b',ALL)]",
     )
-    decision, contexts = dispatch.collect(d, {}, _Cfg())
+    decision, contexts = dispatch.collect(d, {}, _cfg())
+    assert decision is not None
     assert decision.ask is True
     assert decision.reason == "ASK [a]: first"
     assert contexts == ["nudge"]

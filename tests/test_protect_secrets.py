@@ -468,7 +468,7 @@ def secrets_module(hooks_dir: Path) -> Any:
 
 
 def _cfg(project_dir: str | None = None) -> Any:
-    from lib.config import Config  # ty: ignore[unresolved-import]
+    from lib.config import Config
 
     return Config(
         profile="standard", disabled_hooks=frozenset(), hook_options={}, project_dir=project_dir
@@ -553,7 +553,7 @@ def test_project_rule_without_field_warns_and_cannot_match(
 
 
 def _conditions_cfg() -> Any:
-    from lib.config import Config  # ty: ignore[unresolved-import]
+    from lib.config import Config
 
     return Config(profile="standard", disabled_hooks=frozenset(), hook_options={})
 
