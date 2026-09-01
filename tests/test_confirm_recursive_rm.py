@@ -423,3 +423,108 @@ def test_non_bash_tool_ignored(
     # Then nothing asks
     assert proc.returncode == 0
     assert "permissionDecision" not in proc.stdout
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'S=/private/tmp/scratch; rm -rf "$S/smoke-vault" "$S/proj"',
+        "S=/tmp/work; rm -rf $S/out",
+        'S=/tmp/work; rm -rf "${S}/out"',
+        "export S=/tmp/work; rm -rf $S",
+        "S=/tmp/work && rm -rf $S/out",
+        "S=/tmp/work\nrm -rf $S/out",
+        "R=/repo; rm -rf $R/node_modules",
+    ],
+    ids=[
+        "reported-shape",
+        "bare-ref",
+        "braced-ref",
+        "export-prefix",
+        "assign-then-and",
+        "newline-separated",
+        "artifact-dir-under-var",
+    ],
+)
+def test_temp_path_reached_through_a_variable_passes_through(
+    command: str,
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    """Verify binding a temp path to a variable first does not manufacture a prompt.
+
+    The hook runs before the shell expands anything, so without resolution the
+    operand reads as an opaque `$S/...` token and every one of these prompts.
+    """
+    # Given a delete whose exempt target is routed through a shell variable
+    payload = _bash(command)
+
+    # When the PreToolUse dispatcher evaluates it
+    proc = run_pretooluse(payload)
+
+    # Then nothing asks
+    diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
+    assert proc.returncode == 0, f"exit={proc.returncode}{diag}"
+    assert "permissionDecision" not in proc.stdout, f"unexpected ask{diag}"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "S=$(mktemp -d); rm -rf $S/out",
+        "S=/tmp/work; S=$(mktemp -d); rm -rf $S/out",
+        "test -d /tmp/work && S=/tmp/work; rm -rf $S/out",
+        "S=/tmp/work; test -d /x && S=/srv/data; rm -rf $S/out",
+        "rm -rf $SCRATCH/out",
+        "S=/tmp/work; rm -rf $S/../../etc",
+        "S=~/repos/proj; rm -rf $S/build",
+        "S=/tmp; rm -rf $S",
+        "S=/tmp/work; rm -rf '$S/out'",
+        "S=/tmp/work echo hi; rm -rf $S/out",
+        "S=/tmp/work; S+=/../../etc; rm -rf $S",
+        "S=/tmp/work; local S=/srv/data; rm -rf $S",
+        "S=/tmp/work; unset S; rm -rf $S",
+        "TMPDIR=$(pwd); rm -rf $TMPDIR/src",
+        "S=/tmp/work & rm -rf $S/out",
+        "S=/tmp/work | rm -rf $S/out",
+    ],
+    ids=[
+        "command-substitution",
+        "reassigned-unresolvable",
+        "conditional-assignment",
+        "conditional-reassignment",
+        "never-assigned",
+        "traversal-after-resolution",
+        "variable-holds-a-project-path",
+        "resolves-to-the-temp-root",
+        "single-quoted-reference",
+        "environment-prefix",
+        "append-rebinding",
+        "keyword-rebinding",
+        "unset-rebinding",
+        "tmpdir-rebound-unresolvably",
+        "backgrounded-assignment",
+        "piped-assignment",
+    ],
+)
+def test_unresolvable_or_unsafe_variable_target_still_asks(
+    command: str,
+    run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]],
+) -> None:
+    """Verify resolution only ever removes a prompt for a provably exempt path.
+
+    Safety floor for the variable resolution: a value the pass cannot evaluate,
+    one an earlier binding must not survive, and one that resolves to a real
+    path all keep the confirmation they had before.
+    """
+    # Given a delete whose variable target is unresolvable or resolves outside a temp root
+    payload = _bash(command)
+
+    # When the PreToolUse dispatcher evaluates it
+    proc = run_pretooluse(payload)
+
+    # Then the hook asks
+    diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
+    assert proc.returncode == 0, f"exit={proc.returncode}{diag}"
+    assert proc.stdout, f"expected an ask decision on stdout{diag}"
+    decision = json.loads(proc.stdout)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "ask", f"not an ask{diag}"

@@ -21,6 +21,16 @@ irreversible:
   (`terraform destroy --auto-approve`, `aws s3 rb --force`,
   `gcloud ... delete --quiet`, `gh repo delete --yes`).
 
+A command that binds a path to one of its own variables before using it
+(`H=$HOME; rm -rf "$H"`) is matched twice: once as written, then once with
+those assignments replayed by `bash.resolve_command`. The literal pass runs
+first and unchanged, so resolution can only ever add a block, never lose
+one. Resolution is narrow by construction (see `resolve_command`), and a
+reference it cannot evaluate stays as written and matches nothing, so this
+raises the floor for the catastrophic targets rather than guaranteeing one:
+a path from a command substitution or the surrounding environment is still
+invisible here.
+
 Secret reads and git destructive ops are intentionally not duplicated
 here; see `protect_secrets.py` and `enforce_branch_protection.py`.
 
@@ -79,4 +89,21 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
         # The bracket slug is the hook id a user disables (see Decision.blocked);
         # the rule id rides in the message so the specific rule stays visible.
         return Decision.blocked(ID, f"'{matched.id}': Cannot execute: {matched.reason}")
+    # Every rule matches the command as written, so a target the command routes
+    # through a variable of its own (`H=$HOME; rm -rf "$H"`) reads as an opaque
+    # token and evades the rule that names it. Retry against the resolved text.
+    # Second, never first: resolution can only add a block this way, so no rule
+    # that fires on the literal command can be lost to a substitution.
+    resolved = bash.resolve_command(command)
+    if resolved == command:
+        return None
+    matched = rules.first_match(system_rules, text=resolved, fields={**fields, "command": resolved})
+    if matched:
+        # Name the resolved form: the operator wrote `$H`, and the rule that
+        # fired names a path that appears nowhere in what they typed.
+        return Decision.blocked(
+            ID,
+            f"'{matched.id}': Cannot execute: {matched.reason}"
+            f" -- the command's own variables resolve it to: {resolved}",
+        )
     return None
