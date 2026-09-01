@@ -1,3 +1,9 @@
+## v0.21.1 (2026-09-01)
+
+### Fix
+
+- **toolkit**: resolve a command's own shell variables before matching (#17)
+
 ## v0.21.0 (2026-08-19)
 
 ### BREAKING CHANGE
