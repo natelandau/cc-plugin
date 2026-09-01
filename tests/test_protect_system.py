@@ -917,3 +917,89 @@ def test_git_adjacent_paths_not_blocked(
     # Then protect_system does not block it
     diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
     assert proc.returncode != 2, f"unexpectedly blocked{diag}"
+
+
+# A target the command routes through one of its own variables is matched
+# against the resolved text as well as the literal text. Resolution only ever
+# adds a block: a reference the pass cannot evaluate stays as written and
+# matches nothing, so such a command keeps whatever verdict it had before.
+VARIABLE_CASES: tuple[Case, ...] = (
+    Case(
+        id="tilde bound to a variable blocked",
+        payload=_bash('S=~; rm -rf "$S"'),
+        expect_exit=2,
+        stderr_contains=("BLOCKED", "rm-home", "resolve it to"),
+    ),
+    Case(
+        id="home aliased to a variable blocked",
+        payload=_bash('H=$HOME; rm -rf "$H"'),
+        expect_exit=2,
+        stderr_contains=("BLOCKED", "rm-home"),
+    ),
+    Case(
+        id="system dir bound to a variable blocked",
+        payload=_bash('D=/etc; rm -rf "$D"'),
+        expect_exit=2,
+        stderr_contains=("BLOCKED", "rm-system"),
+    ),
+    Case(
+        id="cwd bound to a variable blocked",
+        payload=_bash('D=.; rm -rf "$D"'),
+        expect_exit=2,
+        stderr_contains=("BLOCKED", "rm-cwd"),
+    ),
+    Case(
+        id="braced reference blocked",
+        payload=_bash('D=/usr; rm -rf "${D}"'),
+        expect_exit=2,
+        stderr_contains=("BLOCKED", "rm-system"),
+    ),
+    Case(
+        id="disk device bound to a variable blocked",
+        payload=_bash("T=/dev/sda; dd if=/dev/zero of=$T"),
+        expect_exit=2,
+        stderr_contains=("BLOCKED", "disk-wipe"),
+    ),
+    # Below: resolution declines, so the verdict is whatever it was before it.
+    Case(
+        id="value from a command substitution is not blocked",
+        payload=_bash('D=$(dirname /etc/x); rm -rf "$D"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="conditionally assigned value is not blocked",
+        payload=_bash('test -d /etc && D=/etc; rm -rf "$D"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="rebinding forgets a catastrophic value",
+        payload=_bash('D=/etc; D=/tmp/work; rm -rf "$D"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="name from the surrounding environment is not blocked",
+        payload=_bash('rm -rf "$PROJECT_ROOT"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="temp path bound to a variable is not blocked",
+        payload=_bash('S=/tmp/work; rm -rf "$S"'),
+        expect_exit=0,
+    ),
+)
+
+
+@pytest.mark.parametrize("case", VARIABLE_CASES, ids=[c.id for c in VARIABLE_CASES])
+def test_protect_system_target_routed_through_a_variable(
+    case: Case, run_pretooluse: Callable[[dict[str, Any]], subprocess.CompletedProcess[str]]
+) -> None:
+    """Verify a catastrophic target aliased to a variable is blocked, not merely prompted."""
+    # Given a command that binds its target to one of its own variables
+    # When invoking the hook with that payload
+    proc = run_pretooluse(case.payload)
+
+    # Then the verdict follows the resolved target
+    diag = f"\n  stderr={proc.stderr!r}\n  stdout={proc.stdout!r}"
+    assert proc.returncode == case.expect_exit, f"exit={proc.returncode}{diag}"
+    for s in case.stderr_contains:
+        assert s in proc.stderr, f"missing {s!r} in stderr{diag}"

@@ -16,11 +16,18 @@ Alongside splitting, the module resolves the directory a clause acts on --
 tracking a leading `cd <dir>` and a git clause's `-C <path>` -- so a hook can
 judge each clause against the directory it actually touches instead of wherever
 the shell happened to sit.
+
+A hook also sees the command before the shell has expanded anything, so a path
+routed through a variable (`S=/tmp/work; rm -rf "$S/out"`) reads as an opaque
+token to every path-matching rule. `resolve_assignments` replays the plain
+literal assignments a command makes to itself, so those rules judge the path
+that will actually be touched.
 """
 
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 from lib.paths import expand_user
@@ -217,6 +224,32 @@ def mask_comparisons(masked: str) -> str:
     return "".join(out)
 
 
+def _split_with_separators(command: str, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
+    """Split `command` on `pattern`, pairing each clause with the operator ahead of it.
+
+    The separator is what `split_clauses` throws away, and it is needed for two
+    things: it is the only evidence of whether a clause is certain to run (a
+    clause after `;` always executes, one after `&&` or `||` may not), and it
+    is what rejoins the clauses into the original string. It is returned
+    verbatim, surrounding whitespace included, so a caller that rebuilds the
+    command changes nothing but the clauses themselves; strip it before
+    comparing it to an operator. The first clause carries an empty separator.
+    Operator positions are found on the quote-masked view so a metacharacter
+    inside quotes never splits, while the clauses are sliced verbatim out of
+    the original string.
+    """
+    masked = mask_quoted(command)
+    parts: list[tuple[str, str]] = []
+    last = 0
+    separator = ""
+    for m in pattern.finditer(masked):
+        parts.append((separator, command[last : m.start()]))
+        separator = m.group()
+        last = m.end()
+    parts.append((separator, command[last:]))
+    return parts
+
+
 def split_clauses(command: str, *, include_pipes: bool = False) -> list[str]:
     """Split a Bash command into independently-checkable clauses.
 
@@ -242,17 +275,246 @@ def split_clauses(command: str, *, include_pipes: bool = False) -> list[str]:
             just the sequence operators. Defaults to False.
     """
     pattern = _PIPELINE_SPLIT if include_pipes else _SEQUENCE_SPLIT
-    # Match operator positions on the quote-masked view so a `&&`/`;`/`|` inside
-    # quotes never splits, then slice the parts out of the original string -- the
-    # parts stay byte-for-byte verbatim, only the split points are quote-aware.
-    masked = mask_quoted(command)
-    parts: list[str] = []
-    last = 0
-    for m in pattern.finditer(masked):
-        parts.append(command[last : m.start()])
-        last = m.end()
-    parts.append(command[last:])
+    return [clause for _, clause in _split_with_separators(command, pattern)]
+
+
+# A shell variable reference, braced or bare. Positional and special parameters
+# (`$1`, `$@`, `$?`) are deliberately unmatched: only a name a plain assignment
+# could have set is ever resolvable.
+_VAR_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+# The `NAME=` head of an assignment clause, with the optional `export` prefix.
+_ASSIGNMENT_HEAD = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
+
+# Separators after which a clause is certain to run. Behind `&&`, `||`, `|` or
+# `&` a clause is conditional or concurrent, so an assignment there cannot be
+# trusted: if it never runs the variable is empty, and a later command expands
+# to a different target than the recorded value predicts.
+_UNCONDITIONAL_SEPARATORS = frozenset({"", ";"})
+
+# Separators that put the clause *before* them in a subshell: a pipeline stage
+# and a backgrounded command each get their own shell, so a binding either one
+# makes never reaches the clauses that follow (`S=/tmp/w & rm -rf $S/out`
+# deletes `/out`, not `/tmp/w/out`). Only the pipeline split emits these.
+_SUBSHELL_SEPARATORS = frozenset({"|", "&"})
+
+# Characters substitution may add across the whole command. Resolution is
+# iterative, so a chain of doubling assignments (`A=ab; B=$A$A; C=$B$B; ...`)
+# grows exponentially and a few hundred bytes of command would otherwise take
+# minutes. Past the budget every remaining reference is left as written, which
+# is the verdict a caller reaches with no resolution at all.
+_MAX_EXPANSION_CHARS = 64 * 1024
+
+# Any `NAME=` or `NAME+=` in a clause, wherever it sits. A clause can rebind a
+# name in a shape `_ASSIGNMENT_HEAD` does not read as an assignment -- an append
+# (`S+=/x`), a keyword-prefixed or block-wrapped one (`local S=/x`, `{ S=/x; }`,
+# `then S=/x`) -- and a binding that survived one of those would substitute a
+# value the shell has already replaced. Over-matching is harmless: a name this
+# finds is only ever forgotten.
+#
+# The name must start at a word boundary. Without the lookbehind the scan is
+# quadratic -- every offset inside a long unbroken word (a base64 blob in an
+# `echo`) restarts a greedy run to the end of it looking for an `=` that is not
+# there -- so a command of a few tens of kB stalls the hook for tens of seconds.
+_REBOUND_NAME = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\+?=")
+
+# Builtins that write a name without an `=` anywhere. Their operands are not
+# worth parsing precisely, so any name in such a clause is forgotten.
+_NAME_WRITING_BUILTIN = re.compile(r"(?:^|[\s;&|(){])(?:unset|read|mapfile|readarray)(?![\w-])")
+
+_BARE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+# A value that is itself the home directory, in a spelling a rule can read.
+# `$HOME` is otherwise rejected for carrying a `$`, which would hide the one
+# variable whose deletion is catastrophic behind an alias (`H=$HOME; rm -rf
+# "$H"`). Substituting it forward keeps the reference a rule already matches.
+_HOME_ROOTED = re.compile(r"""(?:~|\$\{?HOME\}?)(?:/[^\s$`;&|<>()'"]*)?""")
+
+
+def _expand_refs(text: str, values: dict[str, str]) -> str:
+    """Substitute `$NAME`/`${NAME}` in `text` from `values`, leaving unknowns as written.
+
+    Quote-aware in the one direction that matters: inside single quotes a `$` is
+    literal, so a reference there is left alone rather than resolved to a path
+    the shell would never reach. An unknown name is also left as written, which
+    keeps it unresolvable to every caller downstream.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    quote = ""
+    while i < n:
+        ch = text[i]
+        if quote == "'":
+            out.append(ch)
+            if ch == "'":
+                quote = ""
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            # Outside single quotes a backslash escapes the next character, so
+            # `\$S` is a literal dollar sign and not a reference.
+            out.append(text[i : i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in ("'", '"'):
+            quote = ch
+        if ch == "$":
+            m = _VAR_REF.match(text, i)
+            if m and (name := m.group(1) or m.group(2)) in values:
+                out.append(values[name])
+                i = m.end()
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _literal_word(text: str) -> str | None:
+    """Return `text` as one unquoted shell word, or None when it is not literally one.
+
+    None means "do not record this value": the text is several words (an
+    environment prefix like `FOO=bar cmd arg`), is unparsable, or carries shell
+    syntax this module cannot evaluate or safely substitute (`$(mktemp -d)`, a
+    backtick, an unresolved name, an operator). An empty string is a real value
+    -- `S=` sets S to empty.
+    """
+    try:
+        words = shlex.split(text)
+    except ValueError:
+        return None
+    if len(words) > 1:
+        return None
+    word = words[0] if words else ""
+    if _HOME_ROOTED.fullmatch(word):
+        return word
+    # A value is substituted into a later clause that is then re-tokenized, so
+    # one carrying shell syntax would be re-read as syntax rather than as the
+    # path it stands for.
+    return None if any(char in word for char in "$`;&|<>()\n'\"") else word
+
+
+def _rebound_names(clause: str) -> set[str]:
+    """Return every name `clause` might bind, in any spelling this pass cannot evaluate.
+
+    Scanned on the quote-masked view so an `=` inside a quoted argument
+    (`git commit -m 'a=b'`) is data, not an assignment.
+    """
+    masked = mask_quoted(clause)
+    names = {m.group(1) for m in _REBOUND_NAME.finditer(masked)}
+    if _NAME_WRITING_BUILTIN.search(masked):
+        names.update(m.group() for m in _BARE_NAME.finditer(masked))
+    return names
+
+
+def binds_name(command: str, name: str) -> bool:
+    """Return whether `command` anywhere binds the shell variable `name`.
+
+    A rule that trusts a reference by its spelling rather than by its value
+    (`$TMPDIR/...` as a temp path) must stop trusting it once the command
+    rebinds the name, since every later reference then means something else.
+
+    Asked one clause at a time. A clause running `unset`/`read` gives up on
+    naming its operands and counts every word in it as bound, so scanning the
+    whole command at once would let an `unset` in one clause claim a name that
+    only ever appears in another.
+    """
+    return any(
+        name in _rebound_names(clause) for clause in split_clauses(command, include_pipes=True)
+    )
+
+
+def _resolved_parts(command: str, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
+    """Split `command` on `pattern`, replaying the literal assignments it makes to itself.
+
+    The shared walk behind `resolve_assignments` and `resolve_command`: it
+    carries the value map forward across clauses and returns each clause with
+    its references substituted, still paired with its verbatim separator.
+
+    A binding is carried forward only when the clause that makes it is both
+    certain to run (the separator ahead of it) and running in this shell rather
+    than a subshell (the separator behind it), and only while the command's
+    total expansion stays inside `_MAX_EXPANSION_CHARS`.
+    """
+    values: dict[str, str] = {}
+    parts: list[tuple[str, str]] = []
+    split = _split_with_separators(command, pattern)
+    budget = _MAX_EXPANSION_CHARS
+    for position, (separator, clause) in enumerate(split):
+        expanded = _expand_refs(clause, values) if values else clause
+        budget -= len(expanded) - len(clause)
+        if budget < 0:
+            values.clear()
+            expanded = clause
+        parts.append((separator, expanded))
+        trailing = split[position + 1][0].strip() if position + 1 < len(split) else ""
+        recorded: tuple[str, str] | None = None
+        if (
+            (m := _ASSIGNMENT_HEAD.match(expanded))
+            and separator.strip() in _UNCONDITIONAL_SEPARATORS
+            and trailing not in _SUBSHELL_SEPARATORS
+        ):
+            value = _literal_word(expanded[m.end() :])
+            if value is not None:
+                recorded = (m.group(1), value)
+        # Forget first, then record: every other spelling of a binding drops the
+        # name, so only the value this pass evaluated itself survives the clause.
+        for name in _rebound_names(expanded):
+            values.pop(name, None)
+        if recorded:
+            values[recorded[0]] = recorded[1]
     return parts
+
+
+def resolve_assignments(command: str, *, include_pipes: bool = False) -> list[str]:
+    """Split `command` into clauses, resolving variables assigned earlier in it.
+
+    Same clauses as `split_clauses`, except that a `$NAME` a preceding clause
+    set to a literal value is replaced by that value. A hook sees the command
+    before the shell expands anything, so an otherwise inert detour through a
+    variable (`S=/tmp/work; rm -rf "$S/out"`) hides the real target from every
+    path-matching rule.
+
+    Resolution is deliberately narrow, and every case it declines to resolve
+    leaves the reference as written, which reads as an unknown path to the
+    caller:
+
+    - Only a clause that is nothing but `NAME=<single literal word>` records a
+      value. A value carrying a command substitution, a backtick, or a name
+      this pass could not itself resolve records nothing.
+    - Only an unconditionally reached assignment (start of the command, or
+      after `;` or a newline) is trusted. One behind `&&`/`||` may never run,
+      and one followed by `|` or `&` runs in a subshell whose binding the rest
+      of the command never sees.
+    - A clause that binds a name in any other way *forgets* whatever that name
+      held -- an unrecordable value, an append (`S+=/x`), a keyword-prefixed or
+      block-wrapped assignment (`local S=/x`), an `unset`/`read`. A stale
+      binding can never outlive the clause that replaced it.
+
+    Args:
+        command: The Bash command string to split and resolve.
+        include_pipes: Also split on a single `|` and a background `&`, as in
+            `split_clauses`. Defaults to False.
+    """
+    pattern = _PIPELINE_SPLIT if include_pipes else _SEQUENCE_SPLIT
+    return [clause for _, clause in _resolved_parts(command, pattern)]
+
+
+def resolve_command(command: str) -> str:
+    """Return `command` with its own literal assignments replayed, otherwise verbatim.
+
+    The whole-command counterpart to `resolve_assignments`, for a rule that
+    matches across clause boundaries (a remote script piped into a shell) and
+    so cannot be handed one clause at a time. Only the resolved references
+    differ from the input; every operator, quote and run of whitespace is
+    preserved, so a pattern written against real command text still matches.
+    """
+    return "".join(
+        separator + clause for separator, clause in _resolved_parts(command, _SEQUENCE_SPLIT)
+    )
 
 
 # Pulls the `-C <path>` target out of a git clause, so an op is judged against

@@ -15,12 +15,25 @@ Two kinds of operand are exempt:
   shared temp directory, which affects every other process on the machine.
   Roots are matched as written, not resolved: on macOS `$TMPDIR` expands
   under `/var/folders/`, and protect_system hard-blocks any `/var` path, so
-  the expanded spelling is blocked rather than exempt.
+  the expanded spelling is blocked rather than exempt. The two `$TMPDIR`
+  spellings are trusted only while the name still means the shell's temp
+  directory, so a command that binds `TMPDIR` itself drops them and every
+  `$TMPDIR` operand it did not resolve to a literal prompts.
 - A directory a toolchain rebuilds from a manifest, matched on the operand's
   final path segment (`_ARTIFACT_DIRS`).
 
 An operand containing `..` is never exempt, so an exempt prefix cannot be
 used to walk back out to a real path (`rm -rf /tmp/../etc`).
+
+A path the same command routed through a variable is resolved first
+(`S=/tmp/work; rm -rf "$S/out"`), since the hook runs before the shell
+expands anything and the bare `$S/out` would otherwise read as a project
+path and prompt. Only `bash.resolve_assignments`' narrow literal cases
+resolve; a value from a command substitution, one assigned behind an `&&`,
+and any name the command never set all stay unresolved, and an unresolved
+operand is not exempt. So the resolution can only ever remove a prompt for
+a path that provably lands in a temp root, never add an exemption for one
+whose target is in doubt.
 
 Judging happens per clause, so `rm -rf /tmp/a && rm -rf /tmp/b` stays silent
 while a safe leading clause cannot shield a project delete behind it.
@@ -31,8 +44,12 @@ count. Operands are tokenized with shlex, so quoted paths and paths carrying
 a space are read as single operands.
 
 This hook only asks. protect_system's exit-2 blocks run first and win, so a
-catastrophic target (`rm -rf ~`, `rm -rf /etc`, `rm -rf .`) stays hard
-blocked and is never downgraded to a prompt.
+catastrophic target (`rm -rf ~`, `rm -rf /etc`, `rm -rf .`) stays hard blocked
+and is never downgraded to a prompt, whether it is spelled literally or routed
+through a variable the command sets itself (`S=~; rm -rf "$S"`), which
+protect_system resolves the same way this hook does. A target neither can
+resolve -- one from a command substitution or from the surrounding
+environment -- reaches this hook and prompts.
 """
 
 from __future__ import annotations
@@ -103,13 +120,13 @@ def _parse_rm(tokens: list[str]) -> tuple[bool, list[str]]:
     return recursive, operands
 
 
-def _is_exempt(operand: str) -> bool:
+def _is_exempt(operand: str, roots: tuple[str, ...]) -> bool:
     """Return True when deleting `operand` destroys nothing worth confirming."""
     path = PurePosixPath(operand)
     # An exempt prefix must not be a way to walk back out to a real path.
     if ".." in path.parts:
         return False
-    for root in _TEMP_ROOTS:
+    for root in roots:
         if operand.startswith(root):
             # `/tmp/` and `/tmp/*` empty the shared temp root as thoroughly as
             # `/tmp` does, so only a named path *under* the root is exempt.
@@ -141,7 +158,7 @@ def _rm_index(tokens: list[str]) -> int | None:
     return None
 
 
-def _clause_needs_confirmation(clause: str) -> bool:
+def _clause_needs_confirmation(clause: str, roots: tuple[str, ...]) -> bool:
     """Return True when `clause` is a recursive rm reaching outside a temp root."""
     tokens = _tokenize(clause)
     index = _rm_index(tokens)
@@ -150,7 +167,7 @@ def _clause_needs_confirmation(clause: str) -> bool:
     recursive, operands = _parse_rm(tokens[index + 1 :])
     if not recursive:
         return False
-    return not (operands and all(_is_exempt(operand) for operand in operands))
+    return not (operands and all(_is_exempt(operand, roots) for operand in operands))
 
 
 def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: ARG001
@@ -160,11 +177,20 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: AR
     command: str = bash.join_continuations((event.get("tool_input") or {}).get("command", ""))
     if not command:
         return None
+    # The `$TMPDIR` roots are exempt as a spelling, not as a resolved path, so
+    # they hold only while the name still means the shell's temp directory: a
+    # command that rebinds it has retargeted every reference the pass could not
+    # resolve to a literal.
+    roots = (
+        tuple(root for root in _TEMP_ROOTS if "TMPDIR" not in root)
+        if bash.binds_name(command, "TMPDIR")
+        else _TEMP_ROOTS
+    )
     # Judge each clause alone: a chain of temp-only deletes must stay silent,
     # and a safe leading clause must not shield a later one.
     if not any(
-        _clause_needs_confirmation(clause)
-        for clause in bash.split_clauses(command, include_pipes=True)
+        _clause_needs_confirmation(clause, roots)
+        for clause in bash.resolve_assignments(command, include_pipes=True)
     ):
         return None
     return Decision.ask_user(
