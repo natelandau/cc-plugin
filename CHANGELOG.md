@@ -1,3 +1,9 @@
+## v0.21.2 (2026-09-01)
+
+### Fix
+
+- **lint**: fix ty module resolution under ty 0.0.72+
+
 ## v0.21.1 (2026-09-01)
 
 ### Fix
