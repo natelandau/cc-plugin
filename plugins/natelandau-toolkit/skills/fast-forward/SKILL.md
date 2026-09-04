@@ -1,7 +1,6 @@
 ---
 name: fast-forward
-description: Use when the user invokes /fast-forward to land a finished feature branch (or its worktree) onto the local main/master branch as a fast-forward of its logically grouped, changelog-worthy commits. Commits any outstanding work, syncs and rebases onto the local trunk, regroups the history into a few reviewable commits whose messages read as public changelog entries, fast-forwards them onto the trunk with no merge commit, then deletes the branch and removes its worktree. User-invoked only; local only, never pushes; irreversible and destructive.
-disable-model-invocation: true
+description: Use when the user asks to merge a finished branch into main or master, fast-forward main, land the branch on the trunk, or bring main up to date with the branch (or its worktree). A plain "merge into main" or "merge this branch" request means this skill even when the user never says "fast-forward"; only the explicit words squash or single commit mean the squash workflow instead. Commits any outstanding work, syncs and rebases onto the local trunk, regroups the history into a few reviewable commits whose messages read as public changelog entries, fast-forwards them onto the trunk with no merge commit, then deletes the branch and removes its worktree. Local only; never pushes. Irreversible and destructive. Do not use to open a pull request.
 ---
 
 # Fast-forward

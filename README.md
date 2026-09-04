@@ -75,7 +75,7 @@ These skills load on demand when your task matches. You don't invoke them by nam
 
 ### Workflow commands
 
-These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. You invoke them deliberately; they never fire on their own. The git workflows are local-only and never push unless they say so.
+These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. Most fire only when you invoke them. The exceptions are `/pr`, `/squash`, and `/fast-forward`, which Claude also runs on its own when you ask in plain words to open a PR, squash a branch into `main`, or merge a branch into `main`. The git workflows are local-only and never push unless they say so.
 
 | Command                                | What it does                                                                                                                                                          |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

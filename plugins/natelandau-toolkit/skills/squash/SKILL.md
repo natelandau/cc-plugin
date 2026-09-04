@@ -1,7 +1,6 @@
 ---
 name: squash
-description: Use when the user invokes /squash to collapse a finished feature branch or worktree into a single commit on the local trunk. Commits any outstanding work, squash-merges the whole branch into one conventional commit on the local main or master branch, then deletes the branch and removes its worktree. User-invoked only. This is an irreversible, destructive workflow.
-disable-model-invocation: true
+description: Use when the user asks to squash a branch into main or master, squash-merge the branch, land or merge the branch as a single commit, or collapse the branch (or its worktree) into one commit on the trunk, even when phrased casually ("squash this into main", "squash and land it"). Commits any outstanding work, squash-merges the whole branch into one conventional commit on the local main or master branch, then deletes the branch and removes its worktree. Local only; never pushes. This is an irreversible, destructive workflow, so reach for it only when the user says squash or asks for a single commit: a plain "merge into main" means the fast-forward workflow, and opening a pull request is a different workflow.
 ---
 
 # Squash
