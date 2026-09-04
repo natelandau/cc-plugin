@@ -1,3 +1,10 @@
+## v0.21.3 (2026-09-04)
+
+### Fix
+
+- **use-uv**: only nudge for tools the project venv provides
+- **branch-protection**: block inline interpreter programs on trunk (#18)
+
 ## v0.21.2 (2026-09-01)
 
 ### Fix
