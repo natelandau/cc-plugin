@@ -34,9 +34,15 @@ def test_benign_command_passes_through() -> None:
     assert proc.returncode == 0
 
 
-def test_uv_nudge_emits_advisory_context() -> None:
+def test_uv_nudge_emits_advisory_context(tmp_path: Path) -> None:
     """Verify the use-uv advisory reaches additionalContext through the dispatcher."""
-    proc = _run({"tool_name": "Bash", "tool_input": {"command": "pytest -q"}})
+    # Given a project whose venv provides pytest (the nudge is gated on that)
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (tmp_path / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    (venv_bin / "pytest").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    proc = _run({"tool_name": "Bash", "tool_input": {"command": "pytest -q"}, "cwd": str(tmp_path)})
     assert proc.returncode == 0
     ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "uv run pytest" in ctx
