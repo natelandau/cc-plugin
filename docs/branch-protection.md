@@ -127,6 +127,16 @@ The hook reads the write targets from the command and checks each one:
 | Output redirects | `> file`, `>> file`, `2> file`, `2>> file` |
 | In-place and download writers | `sed -i`, `perl -i`, `curl -o`/`-O`, `wget`, `tee` |
 | Bulk and in-place writers without a positional target | `truncate`, `dd of=<path>` (except `of=/dev/null`), `find ... -delete`, `xargs rm` |
+| Inline interpreter programs | `python3 - <<EOF`, `python3 -c '...'`, `uv run python -c '...'`, `uv run - <<EOF`, `node -e`/`-p`/`--eval`, `ruby -e`, `perl -e`/`-pe`/`-ne`, `php -r`, `deno eval`, `bun -e`, a here-string, or an interpreter fed by a pipe (`echo ... \| python3`) |
+
+An inline interpreter program can write any path, and the hook does not inspect
+the program text, so the launch line alone is the signal. Running a script file
+(`python3 tool.py`), a module (`python3 -m pytest`), or a tool (`uv run pytest`,
+`node build.js`) is not matched, and neither is `--version`/`--help`. A heredoc
+or here-string counts only when no script, module, or tool argument comes before
+it. An interpreter reads its program from stdin only when it is given nothing
+else, so the heredoc in `python3 tool.py <<EOF` or `uv run pytest <<EOF` is input
+data for that program, and the command is not matched.
 
 The command name is read past a leading launcher (`sudo`, `env`, `command`,
 `nice`, `time`), an absolute path (`/bin/rm`), or a subshell/group opener
@@ -172,13 +182,22 @@ genuinely intend it.
 The hook attributes a write to the file's own branch only when it can read the
 target path from the command. For positional writers and redirects, it can. For
 `sed -i`, `perl -i`, `curl -o`, `wget`, `truncate`, `dd of=`, `find -delete`,
-`xargs rm`, and similar, the target is not recoverable positionally, so the hook
-falls back to the branch of your shell's working directory.
+`xargs rm`, an inline interpreter program, and similar, the target is not
+recoverable positionally, so the hook falls back to the branch of your shell's
+working directory.
 
 The practical effect: `sed -i ... /path/to/main-repo/file.py` run from a feature
 worktree is allowed, because the hook cannot confine the target and your shell is
 not on a protected branch. Use `Edit`/`Write` for changes to a protected repo,
 which are always judged by the file's branch.
+
+The hook recognizes command shapes, so it cannot see a write made by an
+executable it does not model. A script file (`python3 /tmp/tool.py`), a
+formatter (`ruff format`, `prettier --write`), `pre-commit run`, `make`, or an
+`npm run` script can still modify tracked files on a protected branch. The same
+holds for an interpreter flag that takes a separate value before a heredoc, such
+as `uv run --with rich <<EOF`: the value reads as a program argument, so the
+heredoc is treated as input data and the command is not matched.
 
 ## Disabling or scoping the hook
 

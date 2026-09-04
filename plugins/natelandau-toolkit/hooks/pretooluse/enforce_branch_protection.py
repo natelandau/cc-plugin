@@ -13,6 +13,11 @@ git commit/merge use the repo named by `git -C <path>` / `cd <path> &&`. So a
 write into a repo on main is caught wherever the shell sits, and a write into a
 feature branch (or a different repo, or no repo) passes even from a main cwd.
 
+A write whose target cannot be read off the command (`sed -i`, `wget`, an
+interpreter running an inline program from a heredoc, `-c`/`-e` code, or a
+pipe) is judged by the branch of the effective working directory instead, so
+it is denied on a protected branch regardless of where it might write.
+
 Paths under an exempt root (`lib.exempt_paths`) skip every protected-branch
 check: those trees are working stores committed to on their default branch by
 design, so trunk hygiene does not apply there. The destructive rules still fire
@@ -193,10 +198,57 @@ DESTRUCTIVE_RULES: tuple[CommandRule, ...] = (
     ),
 )
 
+# An interpreter handed its program inline -- a heredoc/here-string, `-c`/`-e`
+# code, or stdin from a pipe -- can write any path, and the hook cannot read a
+# target out of the program text, so on a protected branch it is treated as an
+# unconfinable write. The launch line is the signal; the program body is never
+# inspected, since a token blocklist (`open(..., "w")`) is trivially evaded.
+# Running a script file (`python3 tool.py`), a module (`-m`), or a tool
+# (`uv run pytest`) is an ordinary dev action and is deliberately not matched.
+#
+# The pieces below are matched against the quote-masked clause (see
+# `_clause_write_targets`), so an interpreter name or `<<` inside quotes is
+# already inert text and cannot trip the rule.
+_INTERPRETER = (
+    r"(?:"
+    r"uv\s+run(?:\s+-\S+(?:\s+[^-\s]\S*)?)*?\s+python[0-9.]*"  # `uv run [opts] python`
+    r"|uv\s+run"  # `uv run -` / `uv run <<EOF` (stdin script)
+    r"|python[0-9.]*|pypy[0-9.]*|node(?:js)?|bun|deno|ruby|perl|php"
+    r")\b"
+)
+# Clause start or a pipe stage, past the same launchers `_command_index` skips
+# (so `sudo python3`, `echo x | env python3`) and a directory prefix.
+_INTERPRETER_LAUNCH = (
+    r"(?:^|\|)\s*"
+    r"(?:(?:sudo|doas|env|command|builtin|exec|nice|time)\s+(?:-\S+\s+)*)*"
+    r"(?:\S*/)?" + _INTERPRETER
+)
+# Inline-source signals after the interpreter, past any leading flags: a short
+# flag cluster ending in c/e/p/E/r (`-c`, `-uc`, `-e`, `-pe`, `-ne`, `-E`, `-p`,
+# `-r`; the 0-3 prefix keeps `-Werror` from reading as `-r`), `--eval`/`--print`,
+# deno's `eval` subcommand, a lone `-` (read stdin), nothing at all (a stdin-fed
+# pipe stage or bare interpreter), or a heredoc/here-string. The heredoc only
+# counts when no positional argument precedes it: an interpreter reads its
+# program from stdin solely when given no script or command, so a heredoc after
+# one (`python3 tool.py <<EOF`, `uv run pytest <<EOF`) is that program's input
+# data. A flag's separate value (`--with rich <<EOF`) reads as positional and
+# slips through, a known gap.
+_INLINE_SOURCE = (
+    r"(?:\s+-\S*)*?(?:"
+    r"\s+-[A-Za-z]{0,3}[cepEr]\b|\s+--(?:eval|print)\b|\s+eval\b|\s+-(?=\s|$)|\s*$|\s*<<"
+    r")"
+)
+# An interpreter whose only argument reports its version or usage runs nothing.
+_INTERPRETER_INFO_ONLY = (
+    r"^\s*(?:(?:sudo|doas|env|command|builtin|exec|nice|time)\s+(?:-\S+\s+)*)*"
+    r"(?:\S*/)?" + _INTERPRETER + r"\s+(?:-v|-V|--version|-h|--help)\s*$"
+)
+
 PROTECTED_FILE_MOD_RULES: tuple[CommandRule, ...] = (
     CommandRule(pattern=r"^\s*(rm|rmdir|mv|cp|touch|mkdir|chmod|chown|ln|install)\b"),
     CommandRule(pattern=r"\bsed\b.*\s-i"),
     CommandRule(pattern=r"\bperl\b.*\s-i"),
+    CommandRule(pattern=_INTERPRETER_LAUNCH + _INLINE_SOURCE, exclude=_INTERPRETER_INFO_ONLY),
     CommandRule(pattern=r"\bcurl\b.*\s-[oO]\b"),
     CommandRule(pattern=r"^\s*wget\b"),
     CommandRule(pattern=r"\btee\b"),
