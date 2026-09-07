@@ -4,38 +4,24 @@ description: Use when the user invokes /cleanup-branch to repackage the current 
 disable-model-invocation: true
 ---
 
-# /cleanup-branch - regroup a branch's history for review
+# /cleanup-branch
 
-Repackage the commits the current feature branch adds on top of the trunk into a
-**smaller set of logically grouped, reviewable commits**, without changing the
-resulting code at all. This is pure history repackaging: the files on disk after
-cleanup are identical, byte for byte, to before. A reviewer reads one coherent
-commit per concern instead of a long trail of small or fixup-style edits.
+Repackage the commits that the current feature branch adds on top of the trunk
+into a smaller set of logically grouped, reviewable commits. The files on disk
+end up byte-for-byte identical. Only the commit boundaries change.
 
-## Non-negotiable guardrails (safety invariants)
+## Guardrails
 
-These are not optional. If any cannot be satisfied, stop and report rather than
-proceed.
+- Create a backup branch at the current HEAD before the first rewrite. One
+  `git reset --hard <backup>` restores everything.
+- The tree must end up byte-for-byte identical. The shared regroup procedure
+  enforces this and restores from the backup if anything drifted.
+- Local only. Never push and never merge. Updating a remote is the user's call.
+- Refuse on a dirty working tree. The byte-identical guarantee covers committed
+  history only.
 
-- **Back up before touching anything.** Create a backup branch pointing at the
-  current HEAD _before_ the first rewrite. Everything stays recoverable with a
-  single `git reset --hard <backup>`.
-- **The tree must end up byte-for-byte identical.** This is enforced by the shared
-  regroup procedure (its Step 4): if `git diff <backup> HEAD` is not empty, it
-  restores from the backup and aborts. Never leave the branch in a changed state.
-- **Local only. Never push, never merge.** This skill rewrites local history.
-  Updating a remote is the user's call afterward.
-- **Refuse on a dirty working tree.** The byte-identical guarantee reasons only
-  about committed history, so uncommitted changes are a hard stop (see Step 1).
-
-## What this skill is not
-
-- **Not a squash to one commit.** The goal is a _handful_ of commits split by
-  area, not a single combined commit.
-- **No fetch, rebase, or push.** It does not sync the branch onto the latest
-  trunk and does not push or open anything. It only repackages the commits
-  already on the branch.
-- **Not a refactor.** It changes _how the work is committed_, never the work.
+This skill is not a squash to one commit, and it never fetches, rebases, or
+pushes. It changes how the work is committed, never the work.
 
 ## Workflow
 
@@ -43,7 +29,7 @@ proceed.
 digraph cleanup_branch {
   rankdir=TB; node [shape=box];
   detect   [label="Step 0: detect branch, trunk,\nmerge-base, upstream"];
-  refuse   [label="On trunk / dirty tree / <=1 commit?\nStop and explain" shape=diamond];
+  refuse   [label="On trunk, dirty tree, or <=1 commit?\nStop and explain" shape=diamond];
   backup   [label="Step 2: create backup/<branch>-<sha7>"];
   regroup  [label="Step 3: shared regroup procedure\n(group, rewrite --no-verify,\nverify tree, full gate)"];
   tidy     [label="Procedure reported nothing to do?" shape=diamond];
@@ -69,81 +55,71 @@ digraph cleanup_branch {
 }
 ```
 
-### Step 0 — Detect the situation
+### Step 0: Detect the situation
 
 ```bash
-git branch --show-current                                         # the branch to clean up
-git rev-parse --verify main >/dev/null 2>&1 && echo main || echo master   # trunk fallback
-gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null # authoritative trunk, if a remote exists
-git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null         # upstream, if the branch was pushed
+git branch --show-current                                                  # the branch to clean up
+gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null # trunk, if a remote exists
+git rev-parse --verify main >/dev/null 2>&1 && echo main || echo master    # trunk fallback
+git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null         # upstream, if pushed
 ```
 
-Establish:
+- Trunk name: the default branch that `gh` reports, else `main`, else
+  `master`.
+- Merge-base: `git merge-base <trunk> HEAD`, the commit this branch forked
+  from. This is the regroup base, not the trunk tip. Regrouping on the
+  merge-base preserves the tree even when the branch was never rebased onto
+  the latest trunk.
+- Upstream: whether the branch has a remote-tracking counterpart. Step 4 uses
+  it for the closing note.
 
-- **Trunk name**: prefer the default branch reported by `gh`; fall back to `main`,
-  then `master`.
-- **Merge-base**: `git merge-base <trunk> HEAD` — the commit this branch forked
-  from. **This is the regroup base, not the trunk tip.** Regrouping on top of the
-  merge-base preserves the branch's tree even when the branch was never rebased
-  onto the latest trunk; using the trunk tip would not.
-- **Upstream**: whether the branch already has a remote-tracking counterpart.
-  Record it for the closing note (Step 4).
-
-### Step 1 — Refuse early
+### Step 1: Refuse early
 
 Stop, change nothing, and explain if any of these hold:
 
-- **On the trunk itself** (current branch is `main`/`master`). There is no feature
-  history to regroup.
-- **Dirty working tree** (`git status --porcelain` prints anything). Tell the user
-  to commit or stash first, then re-run. Do not stash or commit on their behalf.
-- **One commit or fewer beyond the trunk**
-  (`git rev-list --count <merge-base>..HEAD` ≤ 1). Nothing to regroup.
+- The current branch is the trunk.
+- `git status --porcelain` prints anything. Tell the user to commit or stash
+  first. Do not stash or commit on their behalf.
+- `git rev-list --count <merge-base>..HEAD` is 1 or less. There is nothing to
+  regroup.
 
-### Step 2 — Create the backup branch
-
-Before any rewrite, snapshot the current tip so the whole operation is reversible:
+### Step 2: Create the backup branch
 
 ```bash
 sha7=$(git rev-parse --short HEAD)
-safe=$(git branch --show-current | tr '/' '-')   # slashes would create nested refs
+safe=$(git branch --show-current | tr '/' '-')   # a slash would nest the ref
 git branch "backup/${safe}-${sha7}"
 ```
 
-If that backup name already exists (a prior cleanup on the same tip), stop and ask
-the user to remove the stale backup first rather than overwriting it.
+If that name already exists, a prior cleanup ran on the same tip. Stop and ask
+the user to remove the stale backup rather than overwrite it.
 
-### Step 3 — Regroup (shared procedure)
+### Step 3: Regroup
 
-**Read `../shared/regroup-history.md`** (relative to this skill's base directory)
-and perform every step in it, with:
+Read `../shared/regroup-history.md` (relative to this skill's base directory)
+and do every step in it, with:
 
-- **`<base>`** = the **merge-base** from Step 0 (`git merge-base <trunk> HEAD`).
-- **`<original-tip>`** = the **backup branch** created in Step 2.
+- `<base>` = the merge-base from Step 0
+- `<original-tip>` = the backup branch from Step 2
 
-The shared procedure decides whether regrouping helps, groups the commits,
-rebuilds the history (committing each group with `--no-verify`, because a
-partially-staged index would fail or reformat under the project's git hooks),
-verifies the tree is byte-for-byte identical (restoring from the backup if
-anything drifted), and finally runs the project's full gate once over the whole
-tree. Return here when it is done.
+The procedure decides whether regrouping helps, groups the commits, and
+rebuilds the history. It proves the tree is byte-for-byte identical and runs
+the project's full gate once at the end. Then:
 
-- **If it reported "nothing to do"** (the history already reads cleanly), there is
-  no value in the backup you created — delete it (`git branch -D backup/...`) and
-  stop, telling the user the branch was already tidy.
-- **If its Step 5 gate came back red**, the regrouped history is still sound. The
-  tree is what it always was, so the failures predate the cleanup. Report them,
-  **keep the backup branch** (skip the delete offer in Step 4), and let the user
-  decide whether to fix forward or reset. Do not fix the failures yourself; this
-  skill never changes the work.
-- **If it rebuilt the history and the gate passed**, continue to Step 4.
+- If it reported nothing to do, delete the backup (`git branch -D backup/...`)
+  and stop. Tell the user the branch was already tidy.
+- If its closing gate is red, the regrouped history is still sound and the
+  failures predate the cleanup. Report them, keep the backup, skip the delete
+  offer in Step 4, and let the user decide. Do not fix the failures yourself.
+- If it rebuilt the history and the gate is green, continue to Step 4.
 
-### Step 4 — Report and offer to delete the backup
+### Step 4: Report and offer to delete the backup
 
-Print the new history as a table (`<trunk>..HEAD`), one row per regrouped commit:
+Print the new history as a table, one row per commit in `<trunk>..HEAD`.
+Source the columns from `git log --oneline` and `git show --stat`:
 
-```
-New history on <branch> (<old-count> → <new-count> commits):
+```text
+New history on <branch> (<old-count> -> <new-count> commits):
 
   #  Commit                                       Files  +/-
   1  refactor(rules): extract shared matcher          3  +88 / -40
@@ -152,26 +128,24 @@ New history on <branch> (<old-count> → <new-count> commits):
 Backup saved at backup/<branch>-<sha7>.
 ```
 
-Source the columns from `git log --oneline <trunk>..HEAD` and
-`git show --stat` per commit. Then ask whether to delete the backup:
+Then ask whether to delete the backup:
 
-- **Delete** → `git branch -D backup/<branch>-<sha7>`, confirm it is gone.
-- **Keep** → leave it and print its name so the user can delete it later with
-  `git branch -D <name>`.
+- Delete: `git branch -D backup/<branch>-<sha7>`, and confirm that it is gone.
+- Keep: print its name so the user can delete it later.
 
-**If the branch has an upstream** (Step 0), add a closing note: the local history
-was rewritten, so updating the remote will require a force push
-(`git push --force-with-lease`). The `enforce_branch_protection` hook blocks force
-pushes for the agent by design, so the user runs that themselves if they want it.
+If the branch has an upstream, add a closing note: the local history was
+rewritten, so updating the remote needs `git push --force-with-lease`. The
+`enforce_branch_protection` hook blocks force pushes for the agent, so the user
+runs that themselves.
 
-## Common failure modes
+## Failure modes
 
-| Symptom | Cause | Do this |
-| ------- | ----- | ------- |
-| Refuses immediately | Dirty tree, on trunk, or ≤1 commit beyond trunk | Commit/stash, switch to a feature branch, or accept there's nothing to regroup |
-| Regroup verify failed and rolled back | A group's paths were staged wrong, dropping or altering content | The branch is unchanged; re-read the diff and regroup again |
-| A `git commit` is blocked | Subject isn't a valid conventional commit | Fix the subject; `chore` is not an allowed type here (`--no-verify` does not bypass this gate) |
-| A git `pre-commit` hook fails or reformats during the rewrite | A group commit staged only part of the tree | Commit each group with `--no-verify`; the full gate runs once at the end |
-| The closing gate reports failures | Pre-existing breakage; the tree is unchanged | Report it, keep the backup, don't fix it here |
-| Backup name already exists | A prior cleanup left a backup on the same tip | Remove the stale backup, then re-run |
-| User wants the remote updated | History was rewritten locally | They run `git push --force-with-lease`; the agent cannot (hook blocks it) |
+| Symptom                                           | Cause                                             | Do this                                                                               |
+| ------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Refuses immediately                               | Dirty tree, on trunk, or 1 commit or less         | Commit or stash, switch to a feature branch, or accept there is nothing to regroup    |
+| Regroup verify failed and rolled back             | A group's paths were staged wrong                 | The branch is unchanged. Re-read the diff and regroup again                           |
+| A `git commit` is blocked                         | Subject is not a valid conventional commit        | Fix the subject. `chore` is not allowed, and `--no-verify` does not bypass this gate   |
+| A `pre-commit` hook fails or reformats a commit   | A group commit staged only part of the tree       | Commit each group with `--no-verify`. The full gate runs once at the end              |
+| The closing gate is red                           | Pre-existing breakage. The tree is unchanged      | Report it, keep the backup, do not fix it here                                        |
+| Backup name already exists                        | A prior cleanup left a backup on the same tip     | Remove the stale backup, then re-run                                                  |
+| User wants the remote updated                     | History was rewritten locally                     | They run `git push --force-with-lease`. The hook blocks the agent from doing it       |

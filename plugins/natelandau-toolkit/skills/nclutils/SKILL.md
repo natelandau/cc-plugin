@@ -77,7 +77,7 @@ from nclutils.text_processing import ... # use nclutils.text instead
 
 ## What lives where
 
-A task → module lookup. When you are about to write code for one of these, reach for the listed helper first.
+A task-to-module lookup. When you are about to write code for one of these, reach for the listed helper first.
 
 | Task                                               | Reach for                                                                                               | Notes                                                                                 |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -131,7 +131,7 @@ The project has two intentional, independent output channels:
 - **`nclutils.pp`** writes user-facing output (Rich console, colored level markers, spinners, optional logfile). The host CLI configures it via `pp.configure(...)`.
 - **stdlib `logging`** is used internally by `nclutils.fs`, `nclutils.text`, `nclutils.sh`, and `nclutils.git` for diagnostic messages, under loggers `nclutils.fs`, `nclutils.text`, `nclutils.sh`. These are silent until the host attaches a handler.
 
-Do NOT pipe `pp` into a stdlib `logging.Handler`, and do NOT call `pp.info(...)` from a library module that should be silent by default. Keep them separate.
+Do not pipe `pp` into a stdlib `logging.Handler`, and do not call `pp.info(...)` from a library module that is silent by default. Keep them separate.
 
 If you want to see internal diagnostics during development:
 
@@ -192,11 +192,11 @@ Error hierarchy (all inherit from `ShellCommandError`):
 
 Catch `ShellCommandError` to handle all three uniformly.
 
-For interactive commands (editors, SSH, anything that drives the terminal), use `run_interactive(argv)` instead — it inherits the parent's streams and returns the exit code as an int.
+For interactive commands (editors, SSH, anything that drives the terminal), use `run_interactive(argv)` instead. It inherits the parent's streams and returns the exit code as an int.
 
 ### 3. Don't reinvent what `nclutils` already does
 
-When the project depends on `nclutils`, prefer the existing helper over a hand-rolled equivalent. The package was written precisely so callers don't have to:
+When the project depends on `nclutils`, prefer the existing helper over a hand-rolled equivalent:
 
 | Don't write                                  | Use instead                                                                         |
 | -------------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -213,7 +213,7 @@ When the project depends on `nclutils`, prefer the existing helper over a hand-r
 | A handwritten `replace_in_file`              | `nclutils.text.replace_in_file(path, replacements)`                                 |
 | A handwritten "ensure lines in file"         | `nclutils.text.ensure_lines_in_file(path, lines)`                                   |
 
-This is not about style; the helpers do extra work (timestamped backups, separate stdout/stderr capture, typed exceptions, debug logging, dotfile filtering) that hand-rolled code tends to skip.
+This is not about style. The helpers do extra work (timestamped backups, separate stdout and stderr capture, typed exceptions, debug logging, dotfile filtering) that hand-rolled code tends to skip.
 
 ### 4. `pp.step()` does not nest
 
@@ -252,14 +252,14 @@ Warnings, errors, dryrun notices, and `step()` always render. `pp.critical` is s
 
 ## Deeper module references
 
-When you need API details beyond the table above, read the relevant file in `references/`. Don't load them eagerly; read on demand.
+When you need API details beyond the table above, read the relevant file in `references/`. Read them on demand, not eagerly.
 
-- `references/pp.md` — full pretty-printer surface (per-call tags, exceptions, kv, file logger, themes, ASCII fallback, isolated emitters)
-- `references/sh.md` — `run_command` options, error hierarchy, migration from the old `sh`-package API
+- `references/pp.md`: the full pretty-printer surface (per-call tags, exceptions, kv, file logger, themes, ASCII fallback, isolated emitters)
+- `references/sh.md`: `run_command` options, the error hierarchy, migration from the old `sh`-package API
 - `references/git.md`: composites (`get_repo_state`, `sync_branch`, `stashed`, `add_worktree`), primitives, dataclass field tables (`RepoState`, `SyncResult`, `Worktree`, `Remote`, `PrunableBranch`, `DeleteOutcome`)
-- `references/fs.md` — copy/backup semantics, symlink handling, search edge cases
-- `references/strings.md` — every case-conversion / tokenizer / padding signature
-- `references/misc.md` — `ask`, `net`, `text`, `utils` reference
+- `references/fs.md`: copy and backup semantics, symlink handling, search edge cases
+- `references/strings.md`: every case-conversion, tokenizer, and padding signature
+- `references/misc.md`: the `ask`, `net`, `text`, and `utils` reference
 
 ## Python compatibility
 

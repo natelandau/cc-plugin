@@ -7,69 +7,56 @@ disable-model-invocation: true
 
 # Prune comments
 
-Clean up the inline comments in the work you have in flight so every survivor
-earns its place: it explains a non-obvious *why* rather than restating *what*,
-states a present-tense invariant instead of citing the incident or review that
-motivated the change, and says it in the fewest words that still carry the
-reason. Reach for it any time you want to tidy a change's comments, for example
-right before you commit, or point it at any part of the codebase by naming a
-scope when you invoke it.
+Clean up the inline comments in the work in flight, or in a named scope, so
+every survivor explains a non-obvious why, states a present-tense invariant
+rather than the incident that motivated it, and does so in the fewest words.
+The skill edits the working tree in place and stops there. The user reviews
+the edits with `git diff` and commits.
 
-It edits the working tree in place and stops there. Committing is yours to do, so
-you can review the edits with `git diff` first.
+## What to do
 
-## What it does
+1. Resolve the scope.
 
-1. **Resolve the scope.**
-
-   **If the invocation carried arguments** (they arrive as an `ARGUMENTS:` line
-   after these instructions), that is the scope. The user is naming files,
+   If the invocation carried arguments (they arrive as an `ARGUMENTS:` line
+   after these instructions), that is the scope. The user names files,
    directories, or globs, literally (`src/api/routes.py`, `hooks/*.py`) or in
-   words ("all files within src/api", "the hook dispatcher"). Expand what they
-   named to a concrete file list and review **every comment in those files**,
-   not just changed lines. If nothing matches what they named, say so and stop
-   rather than guessing at a different scope.
+   words ("all files within src/api"). Expand what they named to a concrete
+   file list and review every comment in those files. If nothing matches,
+   say so and stop rather than guess at a different scope.
 
-   **With no arguments**, the scope is the work in flight. Look at the working
-   tree, then pick the scope that actually holds it:
+   With no arguments, the scope is the work in flight:
 
    ```bash
    git status --porcelain     # is anything uncommitted?
    ```
 
-   - **Dirty tree** (uncommitted changes present): the scope is that uncommitted
-     work, `git diff HEAD` plus any new untracked files. This is the common case,
-     where you have been editing and want the comments cleaned before you commit.
-   - **Clean tree**: fall back to the current branch's committed changes against
-     its trunk. Establish the trunk (prefer `main`, else `master`) and the fork
-     point, and review that range:
+   - Dirty tree: the scope is the uncommitted work, `git diff HEAD` plus any
+     new untracked files.
+   - Clean tree: the scope is the branch's committed changes against its
+     trunk (`main`, else `master`):
 
      ```bash
      git merge-base <trunk> HEAD   # fork point; scope is <merge-base>..HEAD
      ```
 
-   - **Clean tree on the trunk itself** (no branch changes and nothing
-     uncommitted): there is nothing to review, so say so and stop.
+   - Clean tree on the trunk itself: there is nothing to review. Say so and
+     stop.
 
-2. **Dispatch the `comment-pruner` subagent** (ships with this plugin) to do the
-   work. Tell it the exact scope you resolved above, and which kind it is: a
-   diff range (touch only comments on changed lines) or an explicit file list
-   (review every comment in each file). It reads the scope and edits comments
-   in place, deleting redundant what-comments, tightening verbose ones,
-   rewording history-citing ones to the present-tense reason, keeping genuine
-   why-comments, and never touching
-   `noqa`/`type: ignore` or other tooling directives. It edits comments only,
-   never code or docstrings, and returns a short summary. Running it as a
-   subagent keeps the verbose, file-by-file review out of this conversation.
+2. Dispatch the `comment-pruner` subagent (it ships with this plugin). Tell it
+   the exact scope and which kind it is: a diff range (touch only comments on
+   changed lines) or an explicit file list (review every comment in each
+   file). It edits comments in place, never code or docstrings, and returns a
+   short summary. Running it as a subagent keeps the file-by-file review out
+   of this conversation.
 
-   If the subagent is unavailable, do the pass yourself over the resolved scope:
-   delete comments that restate the code or whose reason is already obvious,
-   reword ones that reference the incident, conversation, or review behind the
-   change into the present-tense invariant they protect, tighten wordy keepers,
-   and leave tooling directives, docstrings, and commented-out code untouched.
+   If the subagent is unavailable, do the pass yourself over the resolved
+   scope. Delete comments that restate the code or whose reason is obvious.
+   Reword comments that cite the incident, conversation, or review behind the
+   change into the present-tense invariant they protect. Tighten wordy
+   keepers. Leave tooling directives, docstrings, and commented-out code
+   untouched.
 
-3. **Report and stop.** Relay the subagent's summary: how many comments it
-   removed, reworded, and left, and which files it changed. Do **not** stage or
-   commit anything. Remind the user the edits are uncommitted, so they can review
-   with `git diff` and commit when ready (comment-only edits fit the `style`
-   conventional-commit type).
+3. Report and stop. Relay the summary: how many comments were removed,
+   reworded, and left, and which files changed. Do not stage or commit
+   anything. Remind the user that the edits are uncommitted. Comment-only
+   edits fit the `style` conventional-commit type.

@@ -19,7 +19,7 @@ module.exports = {
 };
 ```
 
-For detailed installation options and CDN usage, see `references/installation.md`.
+For other installation options and CDN usage, see the [daisyUI install docs](https://daisyui.com/docs/install/).
 
 ## Component Categories
 
@@ -53,8 +53,8 @@ v5 changed form structure significantly from v4. The old `form-control`/`label-t
 
 - **Input wrapper**: `<label class="input w-full">` contains `<input class="grow">`
 - **Validation**: Add `validator` class to the label for automatic validation UI
-- **Selects**: Apply `select` class directly to `<select>` — no wrapper label
-- **Textareas**: Apply `textarea` class directly — no `-bordered` suffix in v5
+- **Selects**: Apply the `select` class directly to `<select>`, with no wrapper label
+- **Textareas**: Apply the `textarea` class directly. There is no `-bordered` suffix in v5
 - **Helper text**: Use `<p class="label">` below inputs
 - **Spacing**: Use `space-y-4` on forms for consistent field spacing
 - **Always add `w-full`** to `<label class="input">` for full-width inputs
@@ -71,7 +71,7 @@ v5 changed form structure significantly from v4. The old `form-control`/`label-t
 </fieldset>
 ```
 
-### Common v4 → v5 Mistakes
+### Common v4 to v5 Mistakes
 
 | v4 (wrong)                                | v5 (correct)                                       |
 | ----------------------------------------- | -------------------------------------------------- |
@@ -94,7 +94,7 @@ Set theme via HTML attribute:
 
 Available themes: light, dark, cupcake, bumblebee, emerald, corporate, synthwave, retro, cyberpunk, valentine, halloween, garden, forest, aqua, lofi, pastel, fantasy, wireframe, black, luxury, dracula, cmyk, autumn, business, acid, lemonade, night, coffee, winter, dim, nord, sunset
 
-For advanced theming and custom theme creation, see `references/theming.md`.
+For custom theme creation, see the [daisyUI themes docs](https://daisyui.com/docs/themes/).
 
 ## Responsive Design
 

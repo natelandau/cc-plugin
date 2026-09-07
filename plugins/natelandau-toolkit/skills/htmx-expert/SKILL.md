@@ -5,7 +5,7 @@ description: Use when writing, debugging, or reviewing htmx attributes (hx-get, 
 
 # htmx Expert
 
-Target: **htmx 2.x** — see `references/v2-changes.md` for migration notes from 1.x.
+Target: **htmx 2.x**. See `references/v2-changes.md` for migration notes from 1.x.
 
 ## Core Philosophy
 
@@ -23,9 +23,9 @@ Servers respond with HTML fragments, not JSON. htmx extends HTML to handle AJAX 
 | `hx-patch`  | Issue PATCH request  | click                |
 | `hx-delete` | Issue DELETE request | click                |
 
-### hx-boost — Progressive Enhancement in One Attribute
+### hx-boost: Progressive Enhancement in One Attribute
 
-`hx-boost="true"` on a parent element converts all child links and forms to AJAX requests automatically. This is the easiest way to add htmx to an existing multi-page app — no other attributes needed.
+`hx-boost="true"` on a parent element converts all child links and forms to AJAX requests. This is the easiest way to add htmx to an existing multi-page app, because no other attributes are needed.
 
 ```html
 <body hx-boost="true">
@@ -73,7 +73,7 @@ Boosted requests swap the `<body>` content and push the URL to browser history. 
 - **hx-replace-url**: Replace current URL in history
 - **hx-history**: Control history snapshot behavior
 - **hx-history-elt**: Specify element to snapshot
-- **hx-preserve**: Keep an element unchanged during swaps — essential for video/audio players, iframes, or any stateful DOM content. The element must have a stable `id`.
+- **hx-preserve**: Keep an element unchanged during swaps. Use it for video and audio players, iframes, or any stateful DOM content. The element must have a stable `id`.
 
 ### UI Indicators
 
@@ -246,7 +246,7 @@ else:
     return render_template('full_page.html')
 ```
 
-Convention: prefix partial templates with `_` (e.g., `_search_results.html`, `_user_row.html`) to distinguish them from full-page templates at a glance.
+Convention: prefix partial templates with `_` (for example `_search_results.html` and `_user_row.html`) to distinguish them from full-page templates at a glance.
 
 ## Server Response Patterns
 
@@ -287,7 +287,7 @@ Style transitions with CSS:
 }
 ```
 
-Requires browser support (Chrome 111+, Safari 18+). Falls back gracefully — the swap still works, just without the animation.
+Requires browser support (Chrome 111+, Safari 18+). Without support, the swap still works, without the animation.
 
 ## Events
 
@@ -307,7 +307,7 @@ Requires browser support (Chrome 111+, Safari 18+). Falls back gracefully — th
 
 ### Event Handling
 
-Using `hx-on:` (htmx 2.x syntax — note the colon, then the event with `::` prefix for htmx events):
+Using `hx-on:` (htmx 2.x syntax: a colon, then the event, with a `::` prefix for htmx events):
 
 ```html
 <button hx-get="/data" hx-on::before-request="console.log('Starting...')" hx-on::after-swap="console.log('Done!')">
@@ -347,7 +347,7 @@ htmx 2.x ships extensions as separate packages. See `references/extensions.md` f
 <body hx-ext="extension-name"></body>
 ```
 
-Key extensions: **idiomorph** (morph swaps — preserves focus/form state), **sse** (Server-Sent Events), **ws** (WebSockets), **head-support** (merge `<head>` changes), **response-targets** (target by HTTP status), **preload** (prefetch on hover).
+Key extensions: **idiomorph** (morph swaps that preserve focus and form state), **sse** (Server-Sent Events), **ws** (WebSockets), **head-support** (merge `<head>` changes), **response-targets** (target by HTTP status), **preload** (prefetch on hover).
 
 ## Configuration
 
@@ -383,14 +383,14 @@ htmx.process(document.getElementById("new-content")); // for programmatically ad
 
 ## Common Gotchas
 
-1. **ID Stability**: Keep element IDs stable for CSS transitions and OOB swaps
-2. **Swap Timing**: Default 0ms swap delay; use `swap:100ms` for transitions
-3. **Event Bubbling**: htmx events bubble; use `event.detail` for data
-4. **Form Data**: Only named inputs are included in requests
-5. **History**: History snapshots store innerHTML, not full DOM state
-6. **file:// won't work**: htmx requires HTTP — always serve via HTTP server
-7. **hx-on syntax**: In htmx 2.x, use `hx-on:click` (not `hx-on="click: ..."`). For htmx events, double colon: `hx-on::after-swap`
-8. **Extensions are separate**: SSE, WebSockets, and other extensions must be loaded as separate scripts in htmx 2.x
+1. Keep element IDs stable for CSS transitions and OOB swaps.
+2. The default swap delay is 0ms. Use `swap:100ms` for transitions.
+3. htmx events bubble. Read the data from `event.detail`.
+4. Only named inputs are included in requests.
+5. History snapshots store innerHTML, not the full DOM state.
+6. htmx does not work over `file://`. Always serve over HTTP.
+7. In htmx 2.x, use `hx-on:click`, not `hx-on="click: ..."`. htmx events take a double colon: `hx-on::after-swap`.
+8. SSE, WebSockets, and other extensions load as separate scripts in htmx 2.x.
 
 ## Progressive Enhancement
 
@@ -402,4 +402,4 @@ htmx.process(document.getElementById("new-content")); // for programmatically ad
 <div id="results"></div>
 ```
 
-Non-JavaScript users get form submission; JavaScript users get AJAX.
+Non-JavaScript users get a form submission. JavaScript users get AJAX.

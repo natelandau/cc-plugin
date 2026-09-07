@@ -94,7 +94,7 @@ class User(TimestampMixin, AbstractBase):
 | Temporal | `DateField`, `DatetimeField(auto_now, auto_now_add)`, `TimeField`, `TimeDeltaField`                               |
 | Other    | `BooleanField`, `UUIDField`, `JSONField(encoder, decoder)`, `CharEnumField(enum_type)`, `IntEnumField(enum_type)` |
 
-**`auto_now` / `auto_now_add` are Python-only** -- they do NOT create a DB DEFAULT clause. For database-level defaults, use `db_default`:
+**`auto_now` / `auto_now_add` are Python-only.** They do not create a DB DEFAULT clause. For database-level defaults, use `db_default`:
 
 ```python
 from tortoise.fields.db_defaults import Now, SqlDefault
@@ -113,7 +113,7 @@ class Event(Model):
     )
 ```
 
-- DB column is `tournament_id` -- accessible directly for performance (avoids fetching the related object)
+- The DB column is `tournament_id`. Read it directly when you do not need the related object.
 - `on_delete` options: `CASCADE`, `RESTRICT`, `SET_NULL` (requires `null=True`), `SET_DEFAULT`, `NO_ACTION`
 
 **ManyToMany:**
@@ -134,7 +134,7 @@ address: fields.OneToOneRelation[Address] = fields.OneToOneField(
 )
 ```
 
-**Reverse relations** -- annotate them for type hints:
+**Reverse relations.** Annotate them for type hints:
 
 ```python
 class Tournament(Model):
@@ -143,7 +143,7 @@ class Tournament(Model):
 
 ## Querying
 
-QuerySets are **lazy** -- they build queries but don't execute until awaited.
+QuerySets are **lazy**. They build queries but do not execute until awaited.
 
 ```python
 # Create
@@ -171,7 +171,7 @@ obj, created = await Model.update_or_create(name="x", defaults={"field": "val"})
 
 **QuerySet methods:** `filter`, `exclude`, `all`, `first`, `last`, `count`, `exists`, `values`, `values_list`, `only`, `defer`, `order_by`, `limit`, `offset`, `distinct`, `group_by`, `annotate`, `select_related`, `prefetch_related`, `select_for_update`, `using_db`, `raw`, `explain`.
 
-**Filter operators** (double-underscore): `__gt`, `__gte`, `__lt`, `__lte`, `__in`, `__not_in`, `__not`, `__isnull`, `__contains`, `__icontains`, `__startswith`, `__istartswith`, `__endswith`, `__iendswith`, `__iexact`, `__search`, `__range`, `__year`, `__month`, `__day`, etc.
+**Filter operators** (double-underscore): `__gt`, `__gte`, `__lt`, `__lte`, `__in`, `__not_in`, `__not`, `__isnull`, `__contains`, `__icontains`, `__startswith`, `__istartswith`, `__endswith`, `__iendswith`, `__iexact`, `__search`, `__range`, `__year`, `__month`, `__day`, and more.
 
 **Q objects** for complex boolean logic:
 
@@ -205,7 +205,7 @@ await Model.bulk_update([obj1, obj2], fields=["name"], batch_size=100)
 
 ### Fetching Relations
 
-Three approaches -- choose based on context:
+Three approaches. Choose by context:
 
 | Method                             | Scope                       | When to use                       |
 | ---------------------------------- | --------------------------- | --------------------------------- |
@@ -272,7 +272,7 @@ pydantic_obj = await Tournament_Pydantic.from_tortoise_orm(instance)
 pydantic_obj = await Tournament_Pydantic.from_queryset_single(Tournament.get(id=1))
 ```
 
-Call `Tortoise.init_models(["app.models"], "models")` before creating Pydantic models if full ORM init hasn't happened yet. Computed fields in `PydanticMeta` must have explicit return type hints.
+If full ORM init has not run yet, call `Tortoise.init_models(["app.models"], "models")` before you create Pydantic models. Computed fields in `PydanticMeta` must have explicit return type hints.
 
 ## Testing (v1.x -- pytest only)
 
@@ -361,7 +361,7 @@ You cannot add to a ManyToMany relation if either object has not been persisted 
 
 ### 7. Understand `auto_now` vs `db_default`
 
-`auto_now`/`auto_now_add` are Python-side only. They do not create DB DEFAULT clauses. If you need the database to set defaults (for raw SQL inserts, migrations, etc.), use `db_default=Now()`.
+`auto_now`/`auto_now_add` are Python-side only. They do not create DB DEFAULT clauses. If the database must set the default (for raw SQL inserts or migrations), use `db_default=Now()`.
 
 ### 8. Call `init_models()` before Pydantic model creation
 

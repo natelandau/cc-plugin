@@ -48,17 +48,18 @@ Reach for the right element by intent:
 | A config file or command worth copying | **Code block** with `title=` and copy button | Names the file and makes it one-click copyable |
 | An index/landing page summarizing sections | **Card grid** | Scannable overview with icons and links |
 | Acronyms readers may not know | **Abbreviations / glossary** | Auto-tooltips every occurrence site-wide |
-| Supplemental detail that would interrupt | **Footnote** | Keeps the main line clean |
+| Supplemental detail that interrupts the flow | **Footnote** | Keeps the main line clean |
 | Optional deep-dive content | **Collapsible admonition** (`??? note`) | Present but out of the way until wanted |
 
 Rules of thumb:
 
-- If you're about to write "first... then... if X... otherwise...", it's
-  probably a **flowchart** or **content tabs**.
-- If you're about to add a caveat mid-paragraph, pull it into an **admonition**.
-- If a code sample needs three sentences of explanation underneath, some of that
-  is probably **code annotations** instead.
-- Don't overdo it. One well-placed diagram is worth more than five decorative
+- If you are about to write "first... then... if X... otherwise...", write a
+  **flowchart** or **content tabs** instead.
+- If you are about to add a caveat mid-paragraph, pull it into an
+  **admonition**.
+- If a code sample needs three sentences of explanation underneath, move some
+  of that into **code annotations**.
+- Do not overdo it. One well-placed diagram is worth more than five decorative
   admonitions. Use richness where it earns its place.
 
 ## Quick start
@@ -205,9 +206,9 @@ map, and theme flags are in `references/configuration.md`.
 
 ## Reference files
 
-- **`references/authoring.md`** — complete, verbatim Markdown syntax for every
+- **`references/authoring.md`**: complete, verbatim Markdown syntax for every
   authoring feature. Read this whenever writing or reviewing page content.
-- **`references/configuration.md`** — CLI commands and options, `zensical.toml`
+- **`references/configuration.md`**: CLI commands and options, `zensical.toml`
   settings, theme variant, colors/palette, navigation, theme feature flags, the
   full default extensions block, and extra CSS/JS. Read this whenever setting up
   or configuring a project.

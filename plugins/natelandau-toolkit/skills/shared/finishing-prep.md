@@ -1,158 +1,114 @@
-# Finishing a branch — shared preparation
+# Finishing a branch: shared preparation
 
-Shared by the `/pr` and `/squash` skills. Both run this identical preparation
-between their own **Step 0** (detect the situation / refuse early) and their own
-**terminal step** (open the PR, or squash onto the trunk). Whichever skill sent
-you here: do every step below, in order, then return to that skill's terminal
-step.
-
-## Conventional commits throughout
+The `/pr`, `/squash`, and `/fast-forward` skills run this preparation between
+their own detection step and their own terminal step. Do every step below, in
+order, then return to the calling skill.
 
 Every commit you make here must be a valid conventional commit:
-`<type>(<scope>): <subject>` — imperative, lowercase subject, ≤70-char header,
-type from the allowed set (`build ci docs feat fix perf refactor style test` —
-note there is no `chore`). The `enforce_commit_message` hook rejects anything
-else.
+`<type>(<scope>): <subject>`, imperative, lowercase subject, at most 70
+characters, with a type from `build ci docs feat fix perf refactor style test`.
+There is no `chore`. The `enforce_commit_message` hook rejects anything else.
 
-## Git hooks during prep
+Every commit here stages the whole working tree with `git add -A`, so the
+project's `pre-commit` hooks see a complete tree. Let them run. If a formatting
+hook rewrites files and aborts the commit, re-stage and re-commit. Never use
+`git commit --no-verify` in this preparation. That flag belongs only to the
+partial, one-group-at-a-time commits of a history regroup.
 
-Every commit in this preparation stages the **whole** working tree (`git add -A`),
-so the project's git `pre-commit` hooks see a complete, self-consistent tree. Let
-them run; a failure here is real, and that is the point of Step C. If a
-formatting hook rewrites files and aborts the commit, re-stage and re-commit.
+## Step A: Commit outstanding work
 
-`git commit --no-verify` has no place in this preparation. It belongs only to the
-partial, one-group-at-a-time commits of a history regroup, where the index is
-incomplete by design (the calling skill's regroup step covers it).
-
-## Step A — Commit outstanding work
-
-The terminal step only acts on _committed_ history, so any uncommitted work must
-be committed onto the feature branch first.
+The terminal step acts on committed history only.
 
 ```bash
 git status --porcelain    # anything here must be committed
 ```
 
-If dirty, stage and commit with a conventional message describing the changes:
+If the tree is dirty, stage and commit with a conventional message that
+describes the changes:
 
 ```bash
 git add -A
 git commit -m "<type>(<scope>): <subject>"
 ```
 
-If the tree is already clean, skip this step.
+If the tree is clean, skip this step.
 
-## Step B — Sync with the latest trunk
+## Step B: Rebase onto the trunk
 
-Bring the feature branch up to date with the trunk **now**, so any integration
-conflicts surface here instead of mid-squash or after the PR is open. This
-matters whenever commits landed on the trunk after this branch was created.
-
-Run this on a clean tree (Step A already committed everything). It behaves the
-same in a linked worktree as in a single checkout — you rebase the _feature
-branch_, never the trunk. Use the trunk / default-branch name the calling skill
-established in Step 0.
+Bring the feature branch up to date with the trunk now, so integration
+conflicts surface here instead of mid-squash or after the PR opens. You rebase
+the feature branch, never the trunk. This works the same in a linked worktree.
 
 ```bash
-git fetch --all --prune    # refresh remote-tracking refs; safe no-op without a remote
+git fetch --all --prune    # safe no-op without a remote
 ```
 
-Rebase the feature branch onto the ref the calling skill told you to use
-(`<rebase-onto>`). The two callers land their work in different places, so they
-sync against different refs:
+Rebase onto the ref the calling skill passed as `<rebase-onto>`:
 
-- **Landing on the remote trunk** (opening a PR): `<rebase-onto>` is
-  `origin/<trunk>`. The PR merges into the remote, so the remote trunk is the
-  integration target. The `git fetch` above just refreshed it, so it's current.
-- **Landing on the local trunk** (squashing onto local `main`): `<rebase-onto>`
-  is the **local** `<trunk>` branch. The squash lands there, not on the remote,
-  and the local trunk can be _ahead_ of the remote (e.g. prior unpushed squashes
-  in a never-push workflow). The calling skill has already fast-forwarded the
-  local trunk to its remote before sending you here, so rebasing onto it syncs
-  the feature with the remote **and** those local-only commits in one step —
-  surfacing any conflict here rather than mid-squash.
-
-`git fetch` only updates remote-tracking refs (`origin/<trunk>`), never a
-checked-out local branch — which is why rebasing onto `origin/<trunk>` works from
-a linked worktree where the local trunk lives in another checkout, and why a
-caller landing on the local trunk must bring that branch current itself first.
+- `/pr` passes `origin/<trunk>`. The PR merges into the remote trunk, and the
+  fetch above refreshed it.
+- `/squash` and `/fast-forward` pass the local `<trunk>` branch. The work
+  lands there, and the local trunk can be ahead of the remote. The calling
+  skill already fast-forwarded it to the remote before sending you here.
 
 ```bash
-# Remote-backed repo: rebase onto the ref the caller specified
-git rebase <rebase-onto>
-
-# Local-only repo (no remote): rebase onto the local trunk
-git rebase <trunk>
+git rebase <rebase-onto>    # local-only repo: git rebase <trunk>
 ```
 
-**If the rebase reports conflicts, stop.** Report which files conflict and let
-the user resolve them (or run `git rebase --abort` if they'd rather not rebase
-right now). Do not guess at resolutions — resume only once the rebase completes
-cleanly. If the branch was already current, the rebase is a no-op; move on.
+If the rebase reports conflicts, stop. Report which files conflict and let the
+user resolve them, or run `git rebase --abort` if they prefer not to rebase now.
+Do not guess at resolutions. Resume only when the rebase completes cleanly. If
+the branch was already current, the rebase is a no-op.
 
-## Step C — Get the branch green
+## Step C: Get the branch green
 
-Land only work that passes the project's own gates. Running a full lint/test
-suite produces a lot of output you don't need in this conversation, so **dispatch
-the `test-runner` subagent** (ships with this plugin) to run the project's gates
-and return just a `GREEN`/`RED` verdict with the specific failures. It discovers
-the project's real tooling and does not modify anything.
+Land only work that passes the project's own gates. A full lint and test run
+produces output you do not need in this conversation, so dispatch the
+`test-runner` subagent (it ships with this plugin). It discovers the project's
+tooling, modifies nothing, and returns a `GREEN` or `RED` verdict with the
+failures.
 
-Then:
-
-- **`GREEN`** → nothing to fix; move on.
-- **`RED`** → fix what it reported here in the main conversation, commit the
-  fixes, and re-dispatch `test-runner` to confirm. Repeat until green.
+- `GREEN`: move on.
+- `RED`: fix what it reported, commit the fixes, and dispatch `test-runner`
+  again. Repeat until green.
 
 ```bash
 git add -A
 git commit -m "<type>(<scope>): <subject>"
 ```
 
-If the subagent is unavailable for any reason, run the project's gates directly
-(discover them from `pyproject.toml`, `package.json`, `Makefile`, CI workflows,
-etc. — don't assume) and proceed the same way. **Do not proceed to the terminal
-step with failing linters or tests.**
+If the subagent is unavailable, discover the gates yourself from
+`pyproject.toml`, `package.json`, `Makefile`, or the CI workflows, and run them
+directly. Do not proceed to the terminal step with failing linters or tests.
 
-## Step D — Fix documentation that the branch made wrong
+## Step D: Fix documentation that the branch made wrong
 
-The goal here is narrow: make sure nothing in the docs is now **out of date**, and
-that any genuinely **major** new capability isn't left **undocumented**. It is
-_not_ to document everything the branch changed. The docs are for a reader trying
-to use the project, not a changelog of the diff — so the test for every edit is
-"does this keep the reader from being misled, or tell them about something they'd
-actually need to know?" If not, leave the docs alone.
+The goal is narrow: nothing in the docs is out of date, and no major new
+capability is undocumented. The docs serve a reader who uses the project, not
+a changelog of the diff. Most branches need no doc change, and an empty diff
+here is the common, correct outcome.
 
-Reviewing every doc against the full diff is verbose, read-only analysis, so
-**dispatch the `doc-drift-reviewer` subagent** (ships with this plugin) to compare
-the project's documentation against the branch's changes and return a prioritized
-list of drift. It is read-only and recommends edits without making them.
+Dispatch the `doc-drift-reviewer` subagent (it ships with this plugin). It
+compares the project's documentation against the branch and returns a
+prioritized list of drift without editing anything. Then apply only the edits
+that clear this bar, in priority order:
 
-Then apply **only** the edits that clear the bar, in priority order:
+- Fix what is wrong. A documented command, flag, path, default, or step that
+  the branch renamed, moved, removed, or changed misleads a reader today.
+- Document a major new capability only if a reader looks for it: a new
+  command, a new public option, a changed install step, or a prominent
+  user-facing feature.
+- Skip the rest. Do not add lines for internal refactors, private helpers,
+  renamed internals, test changes, or minor options. When in doubt, leave it
+  out.
 
-- **Fix what's now wrong.** A documented command, flag, path, default, or step the
-  branch renamed, moved, removed, or changed — the reader following it today would
-  hit an error or the wrong result. These are the edits that matter most; do them.
-- **Document a major new capability only if a reader would look for it** — a new
-  command, a new public option, a changed setup/install step, a new user-facing
-  feature prominent enough that its absence is a real gap. "Major" is the user's
-  bar, not the diff's: if a reader wouldn't go looking for it, it doesn't need an
-  entry.
-- **Skip the minutiae.** Do not add lines for internal refactors, new private
-  helpers, renamed internals, test changes, or minor options nobody reaching for
-  the docs would need. Adding noise to make the docs "track the diff" makes them
-  worse, not better. When unsure whether an addition earns its place, leave it out.
-
-If the `technical-writer` skill is available, use it for the actual writing.
-Commit any documentation changes with a conventional message:
+If the `technical-writer` skill is available, use it for the writing. Commit
+any documentation change with a conventional message:
 
 ```bash
 git add -A
 git commit -m "<type>(<scope>): <subject>"
 ```
 
-Most branches need **no** doc change at all. If nothing is now wrong and no major
-capability went undocumented (or the subagent is unavailable and a quick manual
-scan of the README, CONTRIBUTING, and `docs/` shows nothing stale), there's nothing
-to commit — move on. An empty diff here is the common, correct outcome.
+If the subagent is unavailable, scan the README, CONTRIBUTING, and `docs/`
+yourself for anything the branch made stale.

@@ -13,75 +13,76 @@ description: |
 
 # Tufte Visualization Ideation
 
-Apply Edward Tufte's principles to design clear, honest, high-density data visualizations.
+Apply Edward Tufte's principles to design clear, honest, high-density data
+visualizations.
 
-## Workflow
+## Workflow for a new visualization
 
-### For new visualizations:
+1. Clarify the data story. Which comparisons matter? What is the key insight?
+   Who is the audience?
 
-1. **Clarify the data story**
-    - What comparisons matter?
-    - What's the key insight to communicate?
-    - Who's the audience?
+2. Select the approach:
+   - A strong comparison need calls for small multiples.
+   - Dense data calls for a data table or sparklines.
+   - A time series calls for a line chart with a minimal grid.
+   - A part-to-whole relation calls for a bar chart or a table, not a pie
+     chart.
 
-2. **Select approach** using Tufte principles:
-    - High comparison need → Small multiples
-    - Dense data → Consider data tables, sparklines
-    - Time-series → Line charts with minimal grid
-    - Part-to-whole → Avoid pie charts; prefer bar/table
+3. Design with data-ink in mind. Start minimal and add only what is
+   necessary. Every element must earn its ink. Default to grayscale, and use
+   color with purpose.
 
-3. **Design with data-ink in mind**
-    - Start minimal, add only what's necessary
-    - Every element must earn its ink
-    - Default to grayscale; use color purposefully
+4. Apply the eraser test. For every element (label, tick, gridline, border,
+   annotation), ask whether it can be erased without losing information that
+   nothing else conveys. Watch for duplicate encodings: a numeric label next to
+   a value a tick already marks, a legend that duplicates direct labels, a
+   per-panel scale annotation that duplicates a shared-scale caption. When two
+   elements compete for the same job, keep one.
 
-4. **Apply the eraser test before shipping**
-    - For every element (label, tick, gridline, border, annotation): can it be erased without losing information that's not already conveyed elsewhere?
-    - Watch for duplicate encodings: numeric labels next to a value already marked by a tick; legends duplicating direct labels; per-panel scale annotations duplicating a shared-scale caption.
-    - If two elements compete for the same job, keep the visual one and drop the textual one (or vice versa) — not both.
+5. Apply the collision test. For every text element in the plot (axis labels,
+   point annotations, epoch labels, baseline labels, notes), draw its bounding
+   box in your mind. Does another text element, a data line, or a cluster of
+   dense markers cross that box? The eraser test catches redundant elements.
+   The collision test catches crowded ones. Both must pass. Standard fixes:
+   move explanatory prose out of the plot into the figcaption, relocate band
+   or epoch labels to a strip above the plot, push baseline labels to the
+   outside margin, and give each in-plot annotation a leader line. Watch
+   especially for inverted axes (extreme values and annotations both want the
+   top), shared-scale small multiples (labels stacked near zero in every
+   panel), and dense scatter plots (text vanishes into the dot cloud).
 
-5. **Apply the collision test before shipping**
-    - For every text element in the plot (axis labels, point annotations, epoch labels, baseline labels, explanatory notes): mentally draw its bounding box. Does anything else — another text element, a data line, dense markers — live in or cross that box?
-    - The eraser test catches _redundant_ elements; the collision test catches _crowded_ ones. Both must pass.
-    - Standard fixes: move explanatory prose out of the plot into the figcaption; relocate band/epoch labels to a dedicated strip above the plot; push baseline/reference labels to the outside margin; give each in-plot annotation a leader line so the marker and the text occupy clearly separated space.
-    - Watch especially: inverted axes (top of plot is now where extreme values cluster, where annotations also want to go); shared-scale small multiples (labels stacked near zero in every panel); dense scatter (text vanishes into the dot cloud unless explicitly cleared).
+6. Apply the Tufte test in `references/tufte-principles.md`.
 
-6. **Apply the Tufte test** (see references/tufte-principles.md)
+## Workflow for a critique
 
-### For critiquing visualizations:
+1. Check graphical integrity. Calculate the lie factor if the proportions look
+   off. Confirm the baselines and scales. Look for 3D distortion.
+2. Identify chartjunk: decorative elements, heavy grids, 3D effects, moire
+   patterns.
+3. Evaluate the data-ink ratio. What can be erased? What is redundant?
+4. Suggest improvements as specific before-and-after recommendations.
 
-1. **Check graphical integrity**
-    - Calculate lie factor if proportions seem off
-    - Verify baselines and scales
-    - Look for 3D distortion
+## References
 
-2. **Identify chartjunk**
-    - Decorative elements
-    - Heavy grids
-    - Unnecessary 3D effects
-    - Moiré patterns
+- `references/tufte-principles.md`: the core principles from The Visual
+  Display of Quantitative Information: lie factor, data-ink, chartjunk, small
+  multiples, integrity.
+- `references/analytical-design.md`: the extensions from Envisioning
+  Information, Visual Explanations, and Beautiful Evidence: the six principles
+  of analytical design, sparklines, layering and separation, micro and macro
+  readings, range-frames, causality, confections. Load it when designing
+  dashboards, dense displays, sparklines, or explanatory graphics.
 
-3. **Evaluate data-ink ratio**
-    - What can be erased?
-    - What's redundant?
+## Quick checklist
 
-4. **Suggest improvements** with specific before/after recommendations
-
-## Key Principles Reference
-
-- `references/tufte-principles.md` — core principles from _Visual Display of Quantitative Information_: lie factor, data-ink, chartjunk, small multiples, integrity.
-- `references/analytical-design.md` — extensions from _Envisioning Information_, _Visual Explanations_, and _Beautiful Evidence_: the 6 principles of analytical design, sparklines, layering & separation, micro/macro, range-frames, causality, confections. Load when designing dashboards, dense displays, sparklines, or explanatory graphics.
-
-**Quick checklist:**
-
-- [ ] Lie Factor ≈ 1.0 (no visual distortion)
-- [ ] Maximum data-ink ratio
-- [ ] Zero chartjunk
-- [ ] Clear labeling
-- [ ] Answers "compared to what?"
-- [ ] Shows causality or mechanism where relevant
-- [ ] Multivariate (not over-reduced)
-- [ ] Words, numbers, images integrated — not segregated
-- [ ] Reveals multiple levels of detail (micro + macro)
-- [ ] Layering: primary data dominates, secondary recedes
-- [ ] Appropriate data density
+- [ ] The lie factor is close to 1.0, with no visual distortion.
+- [ ] The data-ink ratio is as high as the data allows.
+- [ ] There is no chartjunk.
+- [ ] The labels are clear.
+- [ ] The chart answers "compared to what?".
+- [ ] The chart shows causality or mechanism where relevant.
+- [ ] The chart is multivariate, not over-reduced.
+- [ ] Words, numbers, and images are integrated, not segregated.
+- [ ] The chart reveals several levels of detail, micro and macro.
+- [ ] The primary data dominates and the secondary data recedes.
+- [ ] The data density suits the display.

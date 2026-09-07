@@ -7,42 +7,44 @@ disable-model-invocation: true
 
 Investigate this GitHub Actions URL: $ARGUMENTS
 
-Use the gh CLI to analyze this workflow run. Your investigation should:
+Use the `gh` CLI to analyze the workflow run.
 
-1. **Get basic info & identify actual failure**:
-    - What workflow/job failed, when, and on which commit?
-    - CRITICAL: Read the full logs carefully to find what SPECIFICALLY caused the exit code 1
-    - Distinguish between warnings/non-fatal errors vs actual failures
-    - Look for patterns like "failing:", "fatal:", or script logic that determines when to exit 1
-    - If you see both "non-fatal" and "fatal" errors, focus on what actually caused the failure
+1. Identify the actual failure. Find which workflow and job failed, when, and
+   on which commit. Read the full logs to find what caused the non-zero exit.
+   Separate warnings and non-fatal errors from the real failure. Look for
+   markers such as "failing:" and "fatal:", and for the script logic that
+   decides when to exit 1. When the logs show both non-fatal and fatal errors,
+   focus on the one that caused the exit.
 
-2. **Check flakiness**: Check the past 10-20 runs of THE EXACT SAME failing job:
-    - IMPORTANT: If a workflow has multiple jobs, you must check history for the SPECIFIC JOB that failed, not just the workflow
-    - Use `gh run list --workflow=<workflow-name>` to get run IDs, then `gh run view <run-id> --json jobs` to check the specific job's status
-    - Is this a one-time failure or recurring pattern for THIS SPECIFIC JOB?
-    - What's the success rate for THIS JOB recently?
-    - When did THIS JOB last pass?
+2. Check flakiness. Review the past 10 to 20 runs of the exact job that
+   failed, not the workflow as a whole. Use
+   `gh run list --workflow=<workflow-name>` to get the run ids, then
+   `gh run view <run-id> --json jobs` to read that job's status in each run.
+   Answer three questions: is this a one-time failure or a recurring pattern
+   for this job, what is its recent success rate, and when did it last pass?
 
-3. **Identify breaking commit** (if there's a pattern of failures for the specific job):
-    - Find the first run where THIS SPECIFIC JOB failed and the last run where it passed
-    - Identify the commit that introduced the failure
-    - Verify by checking: does THIS JOB fail in ALL runs after that commit? Does it pass in ALL runs before?
-    - If verified, report the breaking commit with high confidence
+3. Identify the breaking commit, if the job fails in a pattern. Find the first
+   run where the job failed and the last run where it passed, and identify the
+   commit between them. Confirm it: the job fails in every run after that
+   commit and passes in every run before it. Report the commit only when
+   confirmed.
 
-4. **Root cause**: Based on logs, history, and any breaking commit, what's the likely cause?
-    - Focus on what ACTUALLY caused the failure (not just any errors you see)
-    - Verify your hypothesis against the logs and failure logic
+4. Find the root cause. Combine the logs, the history, and any breaking commit
+   into the likely cause. Focus on what caused the failure, not on every error
+   in the logs. Confirm your hypothesis against the logs and the failure
+   logic.
 
-5. **Check for existing fix PRs**: Search for open PRs that might already address this issue:
-    - Use `gh pr list --state open --search "<keywords>"` with relevant error messages or file names
-    - Check if any open PR modifies the failing file/workflow
-    - If a fix PR exists, note it in your report and skip the recommendation section
+5. Check for an existing fix. Search open PRs with
+   `gh pr list --state open --search "<keywords>"`, using the error messages
+   or file names. Check whether any open PR modifies the failing file or
+   workflow. If a fix PR exists, include it in the report and skip the
+   recommendation.
 
 Write a final report with:
 
-- Summary of failure (what specifically triggered the exit code 1)
-- Flakiness assessment (one-time vs recurring, success rate)
-- Breaking commit (if identified and verified)
-- Root cause analysis (based on the ACTUAL failure trigger)
-- Existing fix PR (if found - include PR number and link)
-- Recommendation (skip if fix PR already exists)
+- the failure summary: what triggered the non-zero exit;
+- the flakiness assessment: one-time or recurring, with the success rate;
+- the breaking commit, if identified and confirmed;
+- the root cause;
+- the existing fix PR, if found, with its number and link;
+- a recommendation, unless a fix PR exists.

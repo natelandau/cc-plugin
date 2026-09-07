@@ -68,7 +68,7 @@ def create_app(config_class=Config):
 
 ### Extensions Module
 
-Centralizing extensions in a separate file prevents circular imports — other modules can import extensions without importing `app`.
+Centralizing extensions in a separate file prevents circular imports, because other modules can import extensions without importing `app`.
 
 ```python
 # app/extensions.py
@@ -379,17 +379,17 @@ For authentication patterns with Flask-Login (forms, routes, protecting routes, 
 
 ### Always Do
 
-1. **Use application factory pattern** — enables testing, avoids globals
-2. **Put extensions in separate file** — prevents circular imports
-3. **Import routes at bottom of blueprint `__init__.py`** — after `bp` is created
-4. **Use `current_app` not `app`** — inside request context
+1. Use the application factory pattern. It enables testing and avoids globals.
+2. Put extensions in a separate file. That prevents circular imports.
+3. Import routes at the bottom of the blueprint `__init__.py`, after `bp` is created.
+4. Use `current_app`, not `app`, inside a request context.
 
 ### Never Do
 
-1. **Never import `app` in modules that `app` imports** — causes circular imports
-2. **Never store secrets in code** — use environment variables
-3. **Never use `app.run()` in production** — use Gunicorn
-4. **Never skip CSRF protection** — keep Flask-WTF enabled for form submissions
+1. Never import `app` in a module that `app` imports. That causes a circular import.
+2. Never store secrets in code. Use environment variables.
+3. Never use `app.run()` in production. Use Gunicorn.
+4. Never skip CSRF protection. Keep Flask-WTF enabled for form submissions.
 
 ## Common Errors & Fixes
 

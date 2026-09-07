@@ -4,149 +4,83 @@ description: Generate a comprehensive Product Requirements Document (PRD) from c
 argument-hint: output_file
 ---
 
-# Create PRD: Generate Product Requirements Document
+# Create PRD
 
-## Overview
-
-Generate a comprehensive Product Requirements Document (PRD) based on the current conversation context and requirements discussed. Use the structure and sections defined below to create a thorough, professional PRD.
-
-## Output File
-
-Write the PRD to: `$ARGUMENTS` (default: `PRD.md`)
-
-## PRD Structure
-
-Create a well-structured PRD with the following sections. Adapt depth and detail based on available information:
-
-### Required Sections
-
-**1. Executive Summary**
-- Concise product overview (2-3 paragraphs)
-- Core value proposition
-- MVP goal statement
-
-**2. Mission**
-- Product mission statement
-- Core principles (3-5 key principles)
-
-**3. Target Users**
-- Primary user personas
-- Technical comfort level
-- Key user needs and pain points
-
-**4. MVP Scope**
-- **In Scope:** Core functionality for MVP (use checkboxes)
-- **Out of Scope:** Features deferred to future phases (use checkboxes)
-- Group by categories (Core Functionality, Technical, Integration, Deployment)
-
-**5. User Stories**
-- Primary user stories (5-8 stories) in format: "As a [user], I want to [action], so that [benefit]"
-- Include concrete examples for each story
-- Add technical user stories if relevant
-
-**6. Core Architecture & Patterns**
-- High-level architecture approach
-- Directory structure (if applicable)
-- Key design patterns and principles
-- Technology-specific patterns
-
-**7. Tools/Features**
-- Detailed feature specifications
-- If building an agent: Tool designs with purpose, operations, and key features
-- If building an app: Core feature breakdown
-
-**8. Technology Stack**
-- Backend/Frontend technologies with versions
-- Dependencies and libraries
-- Optional dependencies
-- Third-party integrations
-
-**9. Security & Configuration**
-- Authentication/authorization approach
-- Configuration management (environment variables, settings)
-- Security scope (in-scope and out-of-scope)
-- Deployment considerations
-
-**10. API Specification** (if applicable)
-- Endpoint definitions
-- Request/response formats
-- Authentication requirements
-- Example payloads
-
-**11. Success Criteria**
-- MVP success definition
-- Functional requirements (use checkboxes)
-- Quality indicators
-- User experience goals
-
-**12. Implementation Phases**
-- Break down into 3-4 phases
-- Each phase includes: Goal, Deliverables (checkboxes), Validation criteria
-- Realistic timeline estimates
-
-**13. Future Considerations**
-- Post-MVP enhancements
-- Integration opportunities
-- Advanced features for later phases
-
-**14. Risks & Mitigations**
-- 3-5 key risks with specific mitigation strategies
-
-**15. Appendix** (if applicable)
-- Related documents
-- Key dependencies with links
-- Repository/project structure
+Generate a Product Requirements Document (PRD) from the requirements discussed
+in the current conversation. Write it to `$ARGUMENTS` (default: `PRD.md`).
 
 ## Instructions
 
-### 1. Extract Requirements
-- Review the entire conversation history
-- Identify explicit requirements and implicit needs
-- Note technical constraints and preferences
-- Capture user goals and success criteria
+1. Extract the requirements. Review the whole conversation. Identify explicit
+   requirements and implicit needs, technical constraints and preferences, and
+   the user's goals and success criteria.
+2. If critical information is missing, ask clarifying questions before you
+   generate the document.
+3. Organize the requirements into the sections below. Fill gaps with
+   reasonable assumptions and mark each one. Keep the sections consistent with
+   each other.
+4. Write the PRD. Use markdown headings, lists, tables, code blocks, and
+   checkboxes. Mark in-scope items with a checkmark and out-of-scope items
+   with an X. Prefer concrete examples over abstract descriptions. Add code
+   snippets to technical sections where they help. Use one term per concept
+   throughout.
+5. Adapt the depth of each section to the available detail. For a technical
+   product, emphasize architecture and the technology stack. For a user-facing
+   product, emphasize user stories and experience.
 
-### 2. Synthesize Information
-- Organize requirements into appropriate sections
-- Fill in reasonable assumptions where details are missing
-- Maintain consistency across sections
-- Ensure technical feasibility
+## PRD structure
 
-### 3. Write the PRD
-- Use clear, professional language
-- Include concrete examples and specifics
-- Use markdown formatting (headings, lists, code blocks, checkboxes)
-- Add code snippets for technical sections where helpful
-- Keep Executive Summary concise but comprehensive
+Include every required section. Sections marked "if applicable" can be
+omitted.
 
-### 4. Quality Checks
-- All required sections present
-- User stories have clear benefits
-- MVP scope is realistic and well-defined
-- Technology choices are justified
-- Implementation phases are actionable
-- Success criteria are measurable
-- Consistent terminology throughout
+1. Executive Summary: a two-to-three paragraph product overview, the core
+   value proposition, and the MVP goal statement.
+2. Mission: the mission statement and three to five core principles.
+3. Target Users: primary personas, their technical comfort level, and their
+   key needs and pain points.
+4. MVP Scope: in-scope and out-of-scope items as checkboxes, grouped by
+   category (Core Functionality, Technical, Integration, Deployment).
+5. User Stories: five to eight stories in the form "As a [user], I want to
+   [action], so that [benefit]", each with a concrete example. Add technical
+   user stories where relevant.
+6. Core Architecture and Patterns: the high-level approach, the directory
+   structure if applicable, and the key design patterns.
+7. Tools or Features: detailed feature specifications. For an agent, the tool
+   designs with purpose, operations, and key features. For an app, the core
+   feature breakdown.
+8. Technology Stack: backend and frontend technologies with versions,
+   dependencies, optional dependencies, and third-party integrations.
+9. Security and Configuration: authentication and authorization, configuration
+   management (environment variables, settings), the security scope, and
+   deployment considerations.
+10. API Specification (if applicable): endpoints, request and response
+    formats, authentication requirements, and example payloads.
+11. Success Criteria: the MVP success definition, functional requirements as
+    checkboxes, quality indicators, and user experience goals.
+12. Implementation Phases: three to four phases, each with a goal,
+    deliverables as checkboxes, validation criteria, and a realistic
+    timeline.
+13. Future Considerations: post-MVP enhancements, integration opportunities,
+    and advanced features.
+14. Risks and Mitigations: three to five key risks, each with a specific
+    mitigation.
+15. Appendix (if applicable): related documents, key dependencies with links,
+    and the repository structure.
 
-## Style Guidelines
+## Quality checks
 
-- **Tone:** Professional, clear, action-oriented
-- **Format:** Use markdown extensively (headings, lists, code blocks, tables)
-- **Checkboxes:** Use checkmarks for in-scope items, X for out-of-scope
-- **Specificity:** Prefer concrete examples over abstract descriptions
-- **Length:** Comprehensive but scannable (typically 30-60 sections worth of content)
+Before you write the file, confirm that:
 
-## Output Confirmation
+- every required section is present;
+- every user story states a clear benefit;
+- the MVP scope is realistic and well defined;
+- the technology choices are justified;
+- the implementation phases are actionable;
+- the success criteria are measurable.
 
-After creating the PRD:
-1. Confirm the file path where it was written
-2. Provide a brief summary of the PRD contents
-3. Highlight any assumptions made due to missing information
-4. Suggest next steps (e.g., review, refinement, planning)
+## After writing
 
-## Notes
-
-- If critical information is missing, ask clarifying questions before generating
-- Adapt section depth based on available details
-- For highly technical products, emphasize architecture and technical stack
-- For user-facing products, emphasize user stories and experience
-- This command contains the complete PRD template structure - no external references needed
+1. Confirm the file path.
+2. Summarize the PRD contents briefly.
+3. List the assumptions you made because information was missing.
+4. Suggest next steps, such as review, refinement, or planning.
