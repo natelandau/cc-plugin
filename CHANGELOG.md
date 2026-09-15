@@ -1,3 +1,13 @@
+## v0.22.0 (2026-09-15)
+
+### Feat
+
+- **skills**: let /pr, /squash, and /fast-forward trigger from plain requests
+
+### Refactor
+
+- **skills**: simplify the prose of every skill, agent, and command
+
 ## v0.21.3 (2026-09-04)
 
 ### Fix
