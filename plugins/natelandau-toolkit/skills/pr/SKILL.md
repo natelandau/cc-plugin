@@ -168,9 +168,13 @@ ls .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md \
 
 The title is the squash commit subject: `<type>(<scope>): <subject>`,
 imperative, lowercase subject, at most 70 characters. The type comes from
-`build ci docs feat fix perf refactor style test`. There is no `chore`. Frame
-the subject for a reader of the merged history. Add `!` before the colon when
-the branch is breaking.
+`build ci docs feat fix perf refactor style test`. There is no `chore`. Add `!`
+before the colon when the branch is breaking.
+
+Read `../shared/commit-subjects.md` (relative to this skill's base directory)
+and write the title to that bar. Write it from the whole diff, not from the
+commit subjects: commits describe steps, the title describes the outcome.
+Mechanics and placement go in `## Changes`.
 
 #### Lead block
 
@@ -184,6 +188,8 @@ No headings, checklists, or bullet lists.
   touching the destination" names the change. A description of the state the
   branch leaves behind does not.
 - One idea per sentence. Detail that piles up belongs in `## Changes`.
+- Fewer words beat more. If a sentence still says the same thing with a
+  clause cut, cut it.
 - Give the motivation as a clause, and only where the change reads as
   arbitrary without it. That is usually a fix, where the failure mode is the
   point. Do not open with a paragraph that establishes the feature was

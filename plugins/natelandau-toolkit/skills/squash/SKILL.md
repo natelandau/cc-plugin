@@ -161,11 +161,11 @@ git diff --staged --stat                      # the net change landing on the tr
 ```
 
 Write one conventional commit that describes the branch as one feature for an
-end user of the project: what they can do with it, and why it helps them. The
-reader scans the trunk history or a release changelog, so name the public
-capability, not internal class names, refactors, or intermediate commits. Drop
-incidental churn (test tweaks, lint fixes, renames) unless it is the user-facing
-point. The body gives the reason for the change.
+end user of the project. Read `../shared/commit-subjects.md` (relative to this
+skill's base directory) and write the subject to that bar, from the whole
+staged diff rather than the intermediate commits. Drop incidental churn (test
+tweaks, lint fixes, renames) unless it is the user-facing point. The body gives
+the reason for the change.
 
 Commit it without an approval pause:
 

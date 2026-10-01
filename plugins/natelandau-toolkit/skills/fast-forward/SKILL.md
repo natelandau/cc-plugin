@@ -158,15 +158,11 @@ This skill adds two rules to the procedure:
 
 1. Rewrite when any message fails the changelog bar, even if the grouping is
    already clean. The rewrite stays tree-preserving. Only the messages change.
-2. Hold every subject and body to the changelog bar. A commit is
-   changelog-worthy when a user of the project, reading the trunk log or a
-   release changelog, learns what changed and how it helps them:
-   - Describe the user-facing change, not the internal mechanics. Name a
-     private class, function, module, or file path only when it is the public
-     surface, such as a CLI flag or an exported API.
-   - No process or provenance references: "as discussed", "per review",
-     "addresses feedback", mentions of agents, tools, conversations, or
-     sessions, or a bare ticket or PR number as the payload.
+2. Hold every subject and body to the changelog bar. Read
+   `../shared/commit-subjects.md` (relative to this skill's base directory)
+   for it. In addition:
+   - Name a private class, function, module, or file path only when it is the
+     public surface, such as a CLI flag or an exported API.
    - Do not dress incidental churn as a feature. Fold lint fixes, test tweaks,
      and renames into the commit they support, unless the churn is the
      user-facing point.

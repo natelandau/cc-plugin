@@ -54,7 +54,8 @@ Choose a grouping in which:
   they stand alone.
 - Commits read top to bottom: groundwork first (a refactor, a new helper, a
   schema change), then the work that builds on it.
-- Each subject names what the commit does, as a valid conventional commit.
+- Each subject names what the commit does, as a valid conventional commit
+  written to the bar in `commit-subjects.md` (in this directory).
 
 Aim for a handful of commits split by area. If one file spans every concern,
 do not force an artificial split. Fewer honest commits beat many contrived
