@@ -1,3 +1,9 @@
+## v0.23.0 (2026-09-30)
+
+### Feat
+
+- **skills**: write commit subjects as changelog headlines
+
 ## v0.22.0 (2026-09-15)
 
 ### Feat
