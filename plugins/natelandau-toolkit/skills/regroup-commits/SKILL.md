@@ -1,10 +1,10 @@
 ---
-name: cleanup-branch
-description: Use when the user invokes /cleanup-branch to repackage the current branch's commits into fewer, logically grouped, reviewable commits without changing the resulting code. Creates a backup branch first, verifies the regrouped tree is byte-for-byte identical to the original, prints the new commit list, and offers to delete the backup. Local only; never pushes. User-invoked only.
+name: regroup-commits
+description: Use when the user invokes /regroup-commits to repackage the current branch's commits into fewer, logically grouped, reviewable commits without changing the resulting code. Creates a backup branch first, verifies the regrouped tree is byte-for-byte identical to the original, prints the new commit list, and offers to delete the backup. Local only; never pushes. User-invoked only.
 disable-model-invocation: true
 ---
 
-# /cleanup-branch
+# /regroup-commits
 
 Repackage the commits that the current feature branch adds on top of the trunk
 into a smaller set of logically grouped, reviewable commits. The files on disk
@@ -26,7 +26,7 @@ pushes. It changes how the work is committed, never the work.
 ## Workflow
 
 ```dot
-digraph cleanup_branch {
+digraph regroup_commits {
   rankdir=TB; node [shape=box];
   detect   [label="Step 0: detect branch, trunk,\nmerge-base, upstream"];
   refuse   [label="On trunk, dirty tree, or <=1 commit?\nStop and explain" shape=diamond];
@@ -58,7 +58,7 @@ digraph cleanup_branch {
 ### Step 0: Detect the situation
 
 ```bash
-git branch --show-current                                                  # the branch to clean up
+git branch --show-current                                                  # the branch to regroup
 gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null # trunk, if a remote exists
 git rev-parse --verify main >/dev/null 2>&1 && echo main || echo master    # trunk fallback
 git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null         # upstream, if pushed
@@ -91,7 +91,7 @@ safe=$(git branch --show-current | tr '/' '-')   # a slash would nest the ref
 git branch "backup/${safe}-${sha7}"
 ```
 
-If that name already exists, a prior cleanup ran on the same tip. Stop and ask
+If that name already exists, a prior regroup ran on the same tip. Stop and ask
 the user to remove the stale backup rather than overwrite it.
 
 ### Step 3: Regroup
@@ -109,7 +109,7 @@ the project's full gate once at the end. Then:
 - If it reported nothing to do, delete the backup (`git branch -D backup/...`)
   and stop. Tell the user the branch was already tidy.
 - If its closing gate is red, the regrouped history is still sound and the
-  failures predate the cleanup. Report them, keep the backup, skip the delete
+  failures predate the regroup. Report them, keep the backup, skip the delete
   offer in Step 4, and let the user decide. Do not fix the failures yourself.
 - If it rebuilt the history and the gate is green, continue to Step 4.
 
@@ -147,5 +147,5 @@ runs that themselves.
 | A `git commit` is blocked                         | Subject is not a valid conventional commit        | Fix the subject. `chore` is not allowed, and `--no-verify` does not bypass this gate   |
 | A `pre-commit` hook fails or reformats a commit   | A group commit staged only part of the tree       | Commit each group with `--no-verify`. The full gate runs once at the end              |
 | The closing gate is red                           | Pre-existing breakage. The tree is unchanged      | Report it, keep the backup, do not fix it here                                        |
-| Backup name already exists                        | A prior cleanup left a backup on the same tip     | Remove the stale backup, then re-run                                                  |
+| Backup name already exists                        | A prior regroup left a backup on the same tip     | Remove the stale backup, then re-run                                                  |
 | User wants the remote updated                     | History was rewritten locally                     | They run `git push --force-with-lease`. The hook blocks the agent from doing it       |
