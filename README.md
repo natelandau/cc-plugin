@@ -75,7 +75,7 @@ These skills load on demand when your task matches. You don't invoke them by nam
 
 ### Workflow commands
 
-These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. Most fire only when you invoke them. The exceptions are `/pr`, `/squash`, and `/fast-forward`, which Claude also runs on its own when you ask in plain words to open a PR, squash a branch into `main`, or merge a branch into `main`. The git workflows are local-only and never push unless they say so.
+These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. Most fire only when you invoke them. The exceptions are `/pr`, `/squash`, `/fast-forward`, and `/cleanup-branch`, which Claude also runs on its own when you ask in plain words to open a PR, squash a branch into `main`, merge a branch into `main`, or clean up after a merged PR. The git workflows are local-only and never push unless they say so.
 
 | Command                                | What it does                                                                                                                                                          |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -87,6 +87,7 @@ These run multi-step workflows. Some are slash commands, others are skills you t
 | `/regroup-commits`                     | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code.                                                              |
 | `/squash`                              | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible.                                                                     |
 | `/fast-forward`                        | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible.                                                       |
+| `/cleanup-branch`                      | After a PR merges on the remote, removes the local worktree and branch and fast-forwards `main`. Refuses a branch with work the merge left out.                       |
 
 ### Subagents
 
