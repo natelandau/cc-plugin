@@ -73,6 +73,10 @@ git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null  # origin/main, th
 - If the matching CLI is not installed or not authenticated for the host, stop.
   Ask the user to install it or log in (`gh auth login`, `tea login add`,
   `glab auth login`). Do not fall back to another forge's CLI.
+- Run the "Existing PR for branch" command. If the branch's PR is already
+  merged, stop before the prep rebases anything: the work has landed. Say so,
+  and offer to clean up the local branch and worktree and pull the trunk
+  instead of opening a new PR.
 
 #### Commands per forge
 
@@ -81,9 +85,20 @@ git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null  # origin/main, th
 
 | Operation              | GitHub (`gh`)                                                                          | Gitea / Forgejo (`tea`)                                                                            | GitLab (`glab`)                                                                                                            |
 | ---------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Existing PR for branch | `gh pr view --json url,state -q '.url + " (" + .state + ")"'`                          | `tea pr ls --head <branch> --output json --fields index,url,state`                                 | `glab mr list --source-branch <branch>`                                                                                    |
 | Create PR (ready)      | `gh pr create --base <base> --head <branch> --title "<title>" --body-file <body-file>` | `tea pr create --base <base> --head <branch> --title "<title>" --description "$(cat <body-file>)"` | `glab mr create --target-branch <base> --source-branch <branch> --title "<title>" --description "$(cat <body-file>)" --yes` |
 | Open as draft (opt-in) | add `--draft`                                                                          | append ` [WIP]` to the title (tea has no draft flag)                                               | add `--draft`                                                                                                              |
+
+Existing PR for branch. Each prints the PR with its state (open, merged, or
+closed), or reports none when the branch has no PR:
+
+- `gh`: `gh pr view <branch> --json url,state -q '.url + " (" + .state + ")"'`
+- `tea`: `tea pulls list` cannot filter by branch, so use the API (tea fills
+  in `{owner}` and `{repo}`). Match `.head.label`, because Gitea rewrites
+  `.head.ref` once the head branch is deleted:
+  `tea api 'repos/{owner}/{repo}/pulls?state=all&sort=recentupdate&limit=50' | jq 'first(.[] | select(.head.label == "<branch>") | {html_url, state, merged})'`
+- `glab`: `glab mr list` shows open MRs only. Run it twice:
+  `glab mr list --source-branch <branch>` for an open MR, and
+  `glab mr list --merged --source-branch <branch>` for a merged one.
 
 - `tea` and `glab` take the body inline through `--description`. Write the body
   to the temp file first, then pass `"$(cat <body-file>)"`.
@@ -277,7 +292,8 @@ Add `--draft` (`gh`, `glab`) or a `[WIP]` title prefix (`tea`) only when the
 user asked for a draft.
 
 Report the PR URL. State that the feature branch was pushed and the trunk was
-untouched. The merge is the user's or a reviewer's call.
+untouched. The merge is the user's or a reviewer's call. Add that once the PR
+merges, the local branch and worktree can be cleaned up and the trunk pulled.
 
 ## Failure modes
 
