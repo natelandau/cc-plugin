@@ -298,182 +298,43 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
-    # An inline interpreter script (heredoc, here-string, -c/-e code, or a
-    # stdin-fed interpreter) can write any path, so it is an unconfinable write
-    # on a protected branch. The hook keys off the launch line, never the body.
+    # Inline interpreter programs are not judged by their launch line: the
+    # program text decides what they write, and a launch-shape rule cannot see
+    # it. A redirect on the same command is still read like any other.
     Case(
-        id="python heredoc script on master blocked",
-        make_payload=lambda r: _bash(
-            'python3 - <<EOF\nopen("foo.py", "w").write("x")\nEOF', cwd=r["master"]
-        ),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
+        id="python heredoc script on master allowed",
+        make_payload=lambda r: _bash("python3 - <<'EOF'\nprint(1)\nEOF", cwd=r["master"]),
+        expect_exit=0,
     ),
     Case(
-        id="python heredoc without dash on master blocked",
-        make_payload=lambda r: _bash("python3 <<'EOF'\nprint(1)\nEOF", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="python -c on master blocked",
+        id="python -c on master allowed",
         make_payload=lambda r: _bash('python3 -c "print(1)"', cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
+        expect_exit=0,
     ),
     Case(
-        id="python bundled -c flag on master blocked",
-        make_payload=lambda r: _bash("python3 -uc 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
+        id="python fed by a pipe on master allowed",
+        make_payload=lambda r: _bash(
+            "cat data.json | python3 -c 'import json,sys'", cwd=r["master"]
+        ),
+        expect_exit=0,
     ),
     Case(
-        id="python here-string on master blocked",
-        make_payload=lambda r: _bash("python3 <<< 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
+        id="uv run python -c on master allowed",
+        make_payload=lambda r: _bash("uv run python -c 'print(1)'", cwd=r["master"]),
+        expect_exit=0,
     ),
     Case(
-        id="python fed by a pipe on master blocked",
-        make_payload=lambda r: _bash("echo 'print(1)' | python3", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="python stdin dash fed by a pipe on master blocked",
-        make_payload=lambda r: _bash("printf 'print(1)' | python3 -", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="uv run python heredoc on master blocked",
-        make_payload=lambda r: _bash("uv run python - <<'EOF'\nprint(1)\nEOF", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="uv run with option then python -c on master blocked",
-        make_payload=lambda r: _bash("uv run --with rich python -c 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="uv run stdin script on master blocked",
-        make_payload=lambda r: _bash("uv run - <<'EOF'\nprint(1)\nEOF", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="uv run bare heredoc on master blocked",
-        make_payload=lambda r: _bash("uv run <<'EOF'\nprint(1)\nEOF", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="python with flag then heredoc on master blocked",
-        make_payload=lambda r: _bash("python3 -u <<'EOF'\nprint(1)\nEOF", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="node -e on master blocked",
+        id="node -e on master allowed",
         make_payload=lambda r: _bash("node -e 'console.log(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
+        expect_exit=0,
     ),
     Case(
-        id="node --eval on master blocked",
-        make_payload=lambda r: _bash("node --eval 'console.log(1)'", cwd=r["master"]),
+        id="python -c redirected into the repo on master blocked",
+        make_payload=lambda r: _bash("python3 -c 'print(1)' > foo.py", cwd=r["master"]),
         expect_exit=2,
         stderr_contains=(BLOCK_FILE_MOD,),
     ),
-    Case(
-        id="node -p on master blocked",
-        make_payload=lambda r: _bash("node -p '1+1'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="ruby -e on master blocked",
-        make_payload=lambda r: _bash("ruby -e 'puts 1'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="perl -e on master blocked",
-        make_payload=lambda r: _bash("perl -e 'print 1'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="perl -ne on master blocked",
-        make_payload=lambda r: _bash("perl -ne 'print' foo.py", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="php -r on master blocked",
-        make_payload=lambda r: _bash("php -r 'echo 1;'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="deno eval on master blocked",
-        make_payload=lambda r: _bash("deno eval 'console.log(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="bun -e on master blocked",
-        make_payload=lambda r: _bash("bun -e 'console.log(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    # Head rewrites the guard already handles elsewhere must not slip this rule.
-    Case(
-        id="sudo python -c on master blocked",
-        make_payload=lambda r: _bash("sudo python3 -c 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="env python -c on master blocked",
-        make_payload=lambda r: _bash("env python3 -c 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="absolute-path python -c on master blocked",
-        make_payload=lambda r: _bash("/usr/bin/python3 -c 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="env-assignment python -c on master blocked",
-        make_payload=lambda r: _bash("PYTHONPATH=. python3 -c 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="versioned python -c on master blocked",
-        make_payload=lambda r: _bash("python3.12 -c 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="python -c chained after a safe clause on master blocked",
-        make_payload=lambda r: _bash("echo hi && python3 -c 'print(1)'", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    Case(
-        id="python -c with tmp redirect on master blocked",
-        make_payload=lambda r: _bash("python3 -c 'print(1)' > /tmp/out", cwd=r["master"]),
-        expect_exit=2,
-        stderr_contains=(BLOCK_FILE_MOD,),
-    ),
-    # Running a script file, a module, or a tool is an ordinary dev action; the
-    # inline-source signal is what marks an ad-hoc write.
+    # Running a script file, a module, or a tool is an ordinary dev action.
     Case(
         id="python script file on master allowed",
         make_payload=lambda r: _bash("python3 tool.py", cwd=r["master"]),
@@ -509,9 +370,6 @@ CASES: tuple[Case, ...] = (
         make_payload=lambda r: _bash("uv run --script tool.py", cwd=r["master"]),
         expect_exit=0,
     ),
-    # A heredoc after a positional program argument is data on the program's
-    # stdin, not the program itself: the interpreter reads its source from
-    # stdin only when no script or command is given.
     Case(
         id="uv run tool fed a heredoc on master allowed",
         make_payload=lambda r: _bash(
@@ -548,16 +406,6 @@ CASES: tuple[Case, ...] = (
     Case(
         id="interpreter name inside quotes on master allowed",
         make_payload=lambda r: _bash("echo 'python3 -c x'", cwd=r["master"]),
-        expect_exit=0,
-    ),
-    Case(
-        id="python heredoc on feat allowed",
-        make_payload=lambda r: _bash("python3 - <<'EOF'\nprint(1)\nEOF", cwd=r["feat"]),
-        expect_exit=0,
-    ),
-    Case(
-        id="python -c on feat allowed",
-        make_payload=lambda r: _bash("python3 -c 'print(1)'", cwd=r["feat"]),
         expect_exit=0,
     ),
     Case(
@@ -1628,13 +1476,8 @@ EXEMPT_CASES: tuple[ExemptCase, ...] = (
         expect_exit=0,
     ),
     ExemptCase(
-        id="inline interpreter script from an exempt cwd allowed",
-        make_payload=lambda r: _bash("python3 - <<'EOF'\nprint(1)\nEOF", cwd=r["exempt"]),
-        expect_exit=0,
-    ),
-    ExemptCase(
-        id="inline interpreter script from a master cwd still blocked",
-        make_payload=lambda r: _bash("python3 -c 'print(1)'", cwd=r["master"]),
+        id="unconfinable write from a master cwd still blocked",
+        make_payload=lambda r: _bash("sed -i s/a/b/ foo.py", cwd=r["master"]),
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
