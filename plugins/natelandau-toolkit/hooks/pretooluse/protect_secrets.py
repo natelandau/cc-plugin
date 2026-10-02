@@ -4,7 +4,8 @@ For Read/Edit/Write the file_path is matched against a list of sensitive
 file regexes (`.env`, SSH keys, AWS credentials, PEM/key files, etc.).
 For Bash the command is matched against a list of risky patterns
 (`cat .env`, env dumps, `scp` of secrets, deletion of credentials, etc.).
-Allowlisted templates like `.env.example` always pass through.
+Allowlisted templates like `.env.example` always pass through, and so does
+a file named only in a commit message or PR/issue title or body.
 
 Rule data (allowlist, sensitive-file rules, bash-command rules) lives in
 `protect_secrets.rules.toml` next to this file; the script loads it on
@@ -20,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lib import rules
+from lib import bash, rules
 from lib.io import Decision
 
 if TYPE_CHECKING:
@@ -135,10 +136,12 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     # path) short-circuits before any rule.
     if _is_allowlisted(fields["file_path"], allowlist):
         return None
-    # For Bash, scrub only the allowlisted template tokens from the command so
-    # a `.env.example` reference cannot suppress a separate secret access in
-    # the same compound command. Whole-command detection is otherwise intact.
-    fields["command"] = _scrub_allowlisted(fields["command"], allowlist)
+    # For Bash, drop commit-message and PR text first (a message naming
+    # `web/.env` touches no file), then the allowlisted template tokens so a
+    # `.env.example` reference cannot suppress a separate secret access in the
+    # same compound command. Message scrubbing must run first: the allowlist
+    # scrub collapses newlines, which heredoc detection needs.
+    fields["command"] = _scrub_allowlisted(bash.scrub_message_args(fields["command"]), allowlist)
 
     # One rule list serves every tool because each rule targets a named
     # field: a file_path rule can't match a Bash call (empty file_path),

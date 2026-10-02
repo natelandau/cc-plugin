@@ -22,6 +22,10 @@ routed through a variable (`S=/tmp/work; rm -rf "$S/out"`) reads as an opaque
 token to every path-matching rule. `resolve_assignments` replays the plain
 literal assignments a command makes to itself, so those rules judge the path
 that will actually be touched.
+
+Prose is the opposite problem: a commit message or PR body that mentions a
+file reads, to a path-matching rule, like a command that touches it.
+`scrub_message_args` removes that inert text so only executable shell remains.
 """
 
 from __future__ import annotations
@@ -83,10 +87,18 @@ def mask_quoted(command: str) -> str:
     Args:
         command: The Bash command string to mask.
     """
+    return _mask_quoted_from(command, quote="")[0]
+
+
+def _mask_quoted_from(command: str, quote: str) -> tuple[str, str]:
+    """Mask `command` as `mask_quoted` does, starting inside `quote` if it is set.
+
+    Return the masked text and the quote still open at its end, so a caller
+    walking a command line by line carries quote state across the newlines.
+    """
     out = list(command)
     i = 0
     n = len(command)
-    quote = ""  # the open quote char while inside a quote, else ""
     while i < n:
         ch = command[i]
         if quote:
@@ -114,7 +126,7 @@ def mask_quoted(command: str) -> str:
             i += 1
             continue
         i += 1
-    return "".join(out)
+    return "".join(out), quote
 
 
 # Suppression-context stack frames: True suppresses `>`/`<` (arithmetic or test),
@@ -566,3 +578,189 @@ def git_clause_dir(clause: str, cwd: str) -> str:
     """
     m = _GIT_C_DIR_RE.search(clause)
     return resolve_against(m.group(1), cwd) if m else cwd
+
+
+# A `git commit`/`git tag` or `gh pr|issue|release` clause: commands whose
+# flags carry prose (a commit message, a PR title or body) rather than paths.
+# Leading `VAR=val` assignments and git's `-c`/`-C` options are allowed.
+_MESSAGE_CMD_RE = re.compile(
+    r"\s*(?:\w+=\S*\s+)*"
+    r"(?:(?P<git>git(?:\s+-[cC]\s+\S+)*\s+(?:commit|tag))|gh\s+(?:pr|issue|release))\b"
+)
+
+# A flag value: a `"$(cat <<'TAG' ... TAG)"` heredoc (tried first, because its
+# body may hold quotes that would end a plain double-quoted match early), a
+# double-quoted string, or a single-quoted string.
+_MESSAGE_VALUE = (
+    r"(?P<val>"
+    r"\"\$\(\s*cat\s*<<-?[ \t]*(?P<hq>['\"\\]?)(?P<tag>\w+)['\"]?[ \t]*\n"
+    r"(?P<hbody>.*?)\n[ \t]*(?P=tag)[ \t]*\n?\s*\)\""
+    r"|\"(?P<dq>(?:\\.|[^\"\\])*)\""
+    r"|'[^']*'"
+    r")"
+)
+_MESSAGE_VALUE_RE = re.compile(_MESSAGE_VALUE, re.DOTALL)
+
+# `-[a-zA-Z]*m` covers bundled short flags (`-am`); the empty `\s*` covers a
+# value glued to its flag (`-m"msg"`).
+_GIT_MESSAGE_ARG_RE = re.compile(
+    r"(?<!\S)(?:-[a-zA-Z]*m|--message)(?:=|\s*)" + _MESSAGE_VALUE, re.DOTALL
+)
+_GH_MESSAGE_ARG_RE = re.compile(
+    r"(?<!\S)(?:-[tb]|--(?:title|body|subject|notes))(?:=|\s*)" + _MESSAGE_VALUE, re.DOTALL
+)
+
+# A heredoc operator; the lookarounds exclude a `<<<` here-string.
+_HEREDOC_OP_RE = re.compile(r"(?<!<)<<(?P<dash>-?)(?!<)[ \t]*(?P<q>['\"\\]?)(?P<tag>\w+)['\"]?")
+
+# Command substitution, the only way text in a message can run a command.
+_SUBSTITUTION_RE = re.compile(r"\$\(|`")
+
+_MESSAGE_CLAUSE_SPLIT = re.compile(r"&&|\|\||[;|&\n]")
+# A backtick opens a substitution whose command consumes a heredoc on its own.
+_LINE_CLAUSE_SPLIT = re.compile(r"&&|\|\||[;|&(`]")
+
+# Unquoted syntax that runs a nested command inside a message clause.
+_NESTED_COMMAND_RE = re.compile(r"\$\(|[<>]\(|`")
+
+
+def _heredoc_is_inert(quoted_tag: str, body: str) -> bool:
+    """Return whether a heredoc body is plain text the shell never executes.
+
+    A quoted delimiter disables expansion entirely; an unquoted one still runs
+    any `$(...)` or backtick substitution in the body.
+    """
+    return bool(quoted_tag) or not _SUBSTITUTION_RE.search(body)
+
+
+def _blank_message_heredocs(command: str) -> str:
+    """Return `command` with each `"$(cat <<TAG ... TAG)"` value overwritten by spaces.
+
+    Newlines are kept so the result splits into the same lines as `command`.
+    The body of such a value is not shell-quoted, so its apostrophes would
+    otherwise flip the quote state of every line after it.
+    """
+    out = command
+    for m in _MESSAGE_VALUE_RE.finditer(command):
+        if m.group("tag") is not None:
+            blank = re.sub(r"[^\n]", " ", m.group(0))
+            out = out[: m.start()] + blank + out[m.end() :]
+    return out
+
+
+def _scrub_stdin_heredocs(command: str) -> str:
+    """Drop inert heredoc bodies fed to a git/gh message command's stdin.
+
+    Handles `git commit -F - <<'EOF'` and `gh pr create --body-file - <<'EOF'`.
+    Walks the command line by line, carrying quote state across newlines and
+    skipping every heredoc body, because a body is not shell-quoted: an
+    apostrophe in it (`don't`) would otherwise open a quote that swallows the
+    rest of the command. A heredoc operator seen only inside a quote, or a
+    second operator on one line, means the walk can no longer tell body from
+    shell, so nothing after it is dropped.
+    """
+    lines = command.split("\n")
+    view = _blank_message_heredocs(command).split("\n")
+    out: list[str] = []
+    quote = ""
+    unsure = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        masked, quote = _mask_quoted_from(view[i], quote=quote)
+        i += 1
+        if unsure:
+            continue
+        ops = list(_HEREDOC_OP_RE.finditer(masked))
+        hidden = any(
+            view[i - 1][raw.start()] == "<" and masked[raw.start()] != "<"
+            for raw in _HEREDOC_OP_RE.finditer(line)
+        )
+        if hidden or len(ops) > 1:
+            unsure = True
+            continue
+        # Re-match on the raw line: masking hides the delimiter's own quotes.
+        op = _HEREDOC_OP_RE.match(line, ops[0].start()) if ops else None
+        if op is None:
+            continue
+        tag = op.group("tag")
+        end = next(
+            (
+                j
+                for j in range(i, len(lines))
+                if (lines[j].lstrip("\t") if op.group("dash") else lines[j]) == tag
+            ),
+            None,
+        )
+        if end is None:
+            continue
+        head = masked[: op.start()]
+        consumer_start = max((s.end() for s in _LINE_CLAUSE_SPLIT.finditer(head)), default=0)
+        body = "\n".join(lines[i:end])
+        if _MESSAGE_CMD_RE.match(line[consumer_start:]) and _heredoc_is_inert(op.group("q"), body):
+            out.append(lines[end])
+        else:
+            out.extend(lines[i : end + 1])
+        i = end + 1
+    return "\n".join(out)
+
+
+def _inert_value(m: re.Match[str]) -> bool:
+    """Return whether a matched message value is literal text, with no substitution to run."""
+    if m.group("tag") is not None:
+        # The shell ends the heredoc at the first delimiter line; a later one
+        # the regex matched up to leaves real commands inside the span.
+        tag = m.group("tag")
+        if any(ln.strip(" \t") == tag for ln in m.group("hbody").split("\n")):
+            return False
+        return _heredoc_is_inert(m.group("hq"), m.group("hbody"))
+    if m.group("dq") is not None:
+        return not _SUBSTITUTION_RE.search(m.group("dq"))
+    return True
+
+
+def scrub_message_args(command: str) -> str:
+    """Return `command` with the prose of commit messages and PR/issue text removed.
+
+    Use before matching a command against file-access rules, so a commit
+    message or PR body that merely names a file is not mistaken for a command
+    that touches it. Removes the values of `git commit`/`git tag`
+    `-m`/`--message` and of `gh pr|issue|release` `--title`/`--body`/
+    `--subject`/`--notes`, including the `"$(cat <<'EOF' ... EOF)"` form, plus
+    a heredoc fed to such a command's stdin. A value holding a live `$(...)`
+    or backtick substitution is kept, because the shell runs it.
+
+    Args:
+        command: The Bash command string to scrub.
+    """
+    command = _scrub_stdin_heredocs(command)
+    # Blank message heredocs before quote masking: quotes inside their body
+    # would otherwise unbalance the masked view and end the clause early.
+    pre = command
+    for m in _MESSAGE_VALUE_RE.finditer(command):
+        if m.group("tag") is not None:
+            pre = pre[: m.start()] + _MASK_FILL * (m.end() - m.start()) + pre[m.end() :]
+    masked = mask_quoted(pre)
+
+    seps = list(_MESSAGE_CLAUSE_SPLIT.finditer(masked))
+    starts = [0, *(s.end() for s in seps)]
+    ends = [*(s.start() for s in seps), len(command)]
+    spans: list[tuple[int, int]] = []
+    for start, end in zip(starts, ends, strict=True):
+        clause = command[start:end]
+        head = _MESSAGE_CMD_RE.match(clause)
+        # A nested command (`$(...)`, backticks) can itself take a message-shaped
+        # flag (`bash -cm '...'`) whose value is code, not prose.
+        if head is None or _NESTED_COMMAND_RE.search(masked, start, end):
+            continue
+        arg_re = _GIT_MESSAGE_ARG_RE if head.group("git") else _GH_MESSAGE_ARG_RE
+        for m in arg_re.finditer(clause):
+            # A flag-shaped string inside another quoted value is data, not a flag.
+            if masked[start + m.start()] != "-" or not _inert_value(m):
+                continue
+            spans.append((start + m.start("val"), start + m.end("val")))
+
+    for val_start, val_end in reversed(spans):
+        command = command[:val_start] + "''" + command[val_end:]
+    return command

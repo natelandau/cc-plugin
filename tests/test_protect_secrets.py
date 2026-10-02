@@ -358,6 +358,48 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("modify-secret",),
     ),
+    # Bash: a file named only in commit-message or PR prose is not accessed
+    Case(
+        id="commit message saying 'more web/.env' allowed",
+        payload=_bash("git commit -m 'fix: read more settings from web/.env'"),
+        expect_exit=0,
+    ),
+    Case(
+        id="commit message saying 'rm ... web/.env' allowed",
+        payload=_bash("git commit -m 'fix: rm stale keys, web/.env is now optional'"),
+        expect_exit=0,
+    ),
+    Case(
+        id="PR body heredoc naming web/.env allowed",
+        payload=_bash(
+            "gh pr create --title 'fix: lazy settings' --body \"$(cat <<'EOF'\n"
+            'Stop loading web/.env at import time.\nEOF\n)"'
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="commit heredoc on stdin naming web/.env allowed",
+        payload=_bash("git commit -F - <<'EOF'\nfix: cat less of web/.env\nEOF"),
+        expect_exit=0,
+    ),
+    Case(
+        id="commit message substitution reading .env blocked",
+        payload=_bash('git commit -m "$(cat web/.env)"'),
+        expect_exit=2,
+        stderr_contains=("read-secret",),
+    ),
+    Case(
+        id="cat .env chained after a commit blocked",
+        payload=_bash("git commit -m 'fix: web/.env' && cat web/.env"),
+        expect_exit=2,
+        stderr_contains=("read-secret",),
+    ),
+    Case(
+        id="quoted .env path still blocked",
+        payload=_bash("cat 'web/.env'"),
+        expect_exit=2,
+        stderr_contains=("read-secret",),
+    ),
     # Bash: process environ
     Case(
         id="cat /proc/self/environ blocked",
