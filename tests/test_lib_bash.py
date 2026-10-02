@@ -465,3 +465,100 @@ def test_resolve_command_agrees_with_resolve_assignments(bash: ModuleType) -> No
     # When resolving it as a whole and as clauses
     # Then splitting the whole yields exactly the clauses
     assert bash.split_clauses(bash.resolve_command(command)) == bash.resolve_assignments(command)
+
+
+# === scrub_message_args ===
+
+_HEREDOC_BODY = "Stop loading web/.env at import time.\nDon't cat it either."
+
+_SCRUBBED_CASES: tuple[tuple[str, str], ...] = (
+    ("git commit -m 'fix: read more from web/.env'", "git commit -m ''"),
+    ('git commit -m "fix: read more from web/.env"', "git commit -m ''"),
+    ("git commit -am 'fix: rm web/.env'", "git commit -am ''"),
+    ("git commit -m'fix: web/.env'", "git commit -m''"),
+    ("git commit --message='fix: web/.env'", "git commit --message=''"),
+    ("git commit -m 'a' -m 'cat web/.env'", "git commit -m '' -m ''"),
+    ("git -C /repo commit -m 'web/.env'", "git -C /repo commit -m ''"),
+    ("GIT_X=1 git commit -m 'web/.env'", "GIT_X=1 git commit -m ''"),
+    ("git tag -a v1 -m 'drop web/.env'", "git tag -a v1 -m ''"),
+    ("gh pr create --title 'fix: x' --body 'cat web/.env'", "gh pr create --title '' --body ''"),
+    ("gh pr edit 3 -t 'x' -b \"more web/.env\"", "gh pr edit 3 -t '' -b ''"),
+    ("gh issue create --body='web/.env'", "gh issue create --body=''"),
+    ("gh release create v1 --notes 'web/.env'", "gh release create v1 --notes ''"),
+    # The heredoc form agents use for multi-line messages; quotes in the body
+    # must not end the value early.
+    (f'git commit -m "$(cat <<\'EOF\'\n{_HEREDOC_BODY} "quoted"\nEOF\n)"', "git commit -m ''"),
+    (f'gh pr create --body "$(cat <<EOF\n{_HEREDOC_BODY}\nEOF\n)"', "gh pr create --body ''"),
+    # A heredoc fed to the message command's stdin.
+    (f"git commit -F - <<'EOF'\n{_HEREDOC_BODY}\nEOF", "git commit -F - <<'EOF'\nEOF"),
+    (
+        f"gh pr create --body-file - <<'EOF'\n{_HEREDOC_BODY}\nEOF\ngit push",
+        "gh pr create --body-file - <<'EOF'\nEOF\ngit push",
+    ),
+    # Only the message clause is scrubbed; the rest of the chain is untouched.
+    (
+        "git add a && git commit -m 'web/.env' && cat .env",
+        "git add a && git commit -m '' && cat .env",
+    ),
+)
+
+
+@pytest.mark.parametrize(("command", "expected"), _SCRUBBED_CASES)
+def test_scrub_message_args_removes_message_prose(
+    command: str, expected: str, bash: ModuleType
+) -> None:
+    """Verify message text that only names a file is removed before rule matching."""
+    # Given a git/gh command whose message mentions a file
+    # When scrubbing it
+    # Then only the message values are emptied
+    assert bash.scrub_message_args(command) == expected
+
+
+_KEPT_CASES: tuple[str, ...] = (
+    # A live substitution runs, so the value is real shell, not prose.
+    'git commit -m "$(cat web/.env)"',
+    'git commit -m "x `cat web/.env`"',
+    'git commit -m "$(cat <<EOF\n$(cat web/.env)\nEOF\n)"',
+    "git commit -F - <<EOF\n$(cat web/.env)\nEOF",
+    # A heredoc fed to an interpreter is code, not a message.
+    "bash <<'EOF'\ncat web/.env\nEOF",
+    "cat <<'EOF' | sh\ncat web/.env\nEOF",
+    # Message-shaped flags on other commands are not messages.
+    "cat -m '.env'",
+    "git log -m 'web/.env'",
+    "echo 'git commit -m x' && cat '.env'",
+    # A quoted file path is still a path.
+    "cat '.env'",
+    # No terminator: the body cannot be bounded, so nothing is dropped.
+    "git commit -F - <<'EOF'\ncat web/.env",
+    # The heredoc ends at its first delimiter; what follows runs in the substitution.
+    "git commit -m \"$(cat <<'EOF'\nfoo\nEOF\ncat web/.env\nEOF\n)\"",
+    # A nested command's message-shaped flag carries code.
+    "git commit -m x `bash -cm 'cat web/.env'`",
+    "git commit -m x $(bash -cm 'cat web/.env')",
+    "git commit -m x `bash <<'EOF'\ncat web/.env\nEOF\n`",
+    # A heredoc operator inside a multi-line quoted string is not a heredoc.
+    "echo \"x\ngit commit -F - <<'EOF'\n\" ; cat web/.env\nEOF",
+)
+
+
+@pytest.mark.parametrize("command", _KEPT_CASES)
+def test_scrub_message_args_keeps_executable_text(command: str, bash: ModuleType) -> None:
+    """Verify text the shell executes, or that is not a message, survives scrubbing."""
+    # Given a command whose file mention is live shell rather than message prose
+    # When scrubbing it
+    # Then it comes back byte for byte
+    assert bash.scrub_message_args(command) == command
+
+
+def test_scrub_message_args_ignores_heredoc_operator_inside_message_body(
+    bash: ModuleType,
+) -> None:
+    """Verify a stdin-heredoc lookalike inside a message body cannot swallow later commands."""
+    # Given a commit message body that contains a heredoc operator, followed by a real read
+    command = (
+        "git commit -m \"$(cat <<'EOF'\nbody\ngit commit -F - <<'X'\nEOF\n)\"\ncat web/.env\nX"
+    )
+    # When scrubbing it
+    # Then the message is emptied but the read after it survives
+    assert bash.scrub_message_args(command) == "git commit -m ''\ncat web/.env\nX"
