@@ -1,3 +1,20 @@
+## v0.24.0 (2026-10-02)
+
+### Feat
+
+- **protect-remote**: let trusted hosts skip the remote prompt
+- **skills**: add /cleanup-branch to tidy up after a merged PR
+
+### Fix
+
+- **branch-protection**: allow inline python -c and heredocs on main
+- **skills**: stop /pr from reopening a branch whose PR already merged
+- **hooks**: allow commit messages and PR text that name secret files (#19)
+
+### Refactor
+
+- **skills**: rename /cleanup-branch to /regroup-commits
+
 ## v0.23.0 (2026-09-30)
 
 ### Feat
