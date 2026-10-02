@@ -286,3 +286,133 @@ def test_builtin_ask_unaffected_without_project_block(remote_module: Any, tmp_pa
     assert decision.ask
     assert not decision.block
     assert "ssh-exec" in decision.reason
+
+
+def _trusting_cfg(*hosts: str, project_dir: str | None = None) -> Any:
+    from lib.config import Config
+
+    return Config(
+        profile="standard",
+        disabled_hooks=frozenset(),
+        hook_options={},
+        project_dir=project_dir,
+        trusted_remote_hosts=hosts,
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ssh nas",
+        "ssh -p 2222 admin@nas 'df -h'",
+        "scp build.tar nas:/srv/",
+        "scp -r nas:/srv/logs ./logs",
+        "sftp nas",
+        "rsync -avz --delete dist/ nas:/srv/www/",
+        "rsync -e 'ssh -p 2222' dist/ box.lan:/srv/",
+        "cat notes.txt | ssh nas 'cat >> notes.txt'",
+        "ssh nas uptime && ssh box.lan uptime",
+        "cd /tmp && scp f nas:/x",
+        "H=nas; ssh $H uptime",
+    ],
+)
+def test_trusted_host_passes_without_prompt(remote_module: Any, command: str) -> None:
+    """Verify commands that reach only trusted hosts run without the ask."""
+    decision = remote_module.evaluate(_bash(command), _trusting_cfg("nas", "*.lan"))
+    assert decision is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "rule_id"),
+    [
+        # an untrusted destination, alone or alongside a trusted one
+        ("ssh prod", "ssh-exec"),
+        ("ssh nas uptime && ssh prod uptime", "ssh-exec"),
+        ("scp nas:/a prod:/b", "scp"),
+        ("rsync -av nas:/a/ ./a/; rsync -av ./a/ prod:/a/", "rsync-remote"),
+        # a trusted host used as a hop to an untrusted one
+        ("ssh nas ssh prod", "ssh-exec"),
+        ("ssh nas 'rsync -a /srv/ prod:/srv/'", "rsync-remote"),
+        # shapes the parser will not read, so trust cannot apply
+        ("bash -c 'ssh nas'", "ssh-exec"),
+        ("echo 'ssh nas'", "ssh-exec"),
+        ("ssh -o ProxyCommand='nc relay 22' nas", "ssh-exec"),
+        ("ssh $TARGET", "ssh-exec"),
+        ("ssh nas -o HostName=prod 'rm -rf /srv'", "ssh-exec"),
+        ("ssh -o HostName=prod nas", "ssh-exec"),
+        ("export RSYNC_RSH=/tmp/wrapper; rsync -a src nas:/dst", "rsync-remote"),
+        # ansible's hosts live in an inventory the hook cannot read
+        ("ansible nas -m ping", "ansible-remote"),
+    ],
+)
+def test_untrusted_or_unreadable_target_still_asks(
+    remote_module: Any, command: str, rule_id: str
+) -> None:
+    """Verify trust waives the ask only when every remote target is a trusted host."""
+    decision = remote_module.evaluate(_bash(command), _trusting_cfg("nas", "*.lan"))
+    assert decision is not None, command
+    assert decision.ask
+    assert rule_id in decision.reason
+
+
+def test_trust_does_not_waive_a_project_block_rule(remote_module: Any, tmp_path: Path) -> None:
+    """Verify a project block on a host wins even when that host is trusted globally."""
+    # Given a project overlay that blocks `ssh prod` and a global trust for prod
+    proj = _project_rules(tmp_path, _PROJECT_REMOTE)
+    # When ssh-ing to prod
+    decision = remote_module.evaluate(
+        _bash("ssh prod 'deploy'"), _trusting_cfg("prod", project_dir=proj)
+    )
+    # Then the project block still fires
+    assert decision is not None
+    assert decision.block
+
+
+def test_trust_does_not_waive_a_project_ask_rule(remote_module: Any, tmp_path: Path) -> None:
+    """Verify a project ask rule that names no host keeps asking under trust."""
+    # Given a project ask rule for `stagectl` and a trusted host
+    proj = _project_rules(tmp_path, _PROJECT_REMOTE)
+    # When running stagectl after a trusted ssh
+    decision = remote_module.evaluate(
+        _bash("ssh nas uptime && stagectl restart"), _trusting_cfg("nas", project_dir=proj)
+    )
+    # Then the command still asks, reported under the first rule that matched it
+    assert decision is not None
+    assert decision.ask
+
+
+def test_trusted_host_from_global_config_end_to_end(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify the dispatcher reads trusted_remote_hosts from the global config file."""
+    import os
+    import subprocess
+
+    # Given a HOME whose global config trusts nas
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "natelandau-toolkit.toml").write_text(
+        'trusted_remote_hosts = ["nas"]\n', encoding="utf-8"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+    env["HOME"] = str(home)
+    env["NATELANDAU_TOOLKIT_STATE_DIR"] = str(tmp_path / "state")
+
+    def run(command: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(hooks_dir / "pretooluse.py")],
+            input=json.dumps(_bash(command)),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            cwd=str(tmp_path),
+            env=env,
+        )
+
+    # When ssh-ing to the trusted host, then to an untrusted one
+    trusted = run("ssh nas uptime")
+    untrusted = run("ssh prod uptime")
+
+    # Then only the untrusted host prompts
+    assert trusted.returncode == 0
+    assert "permissionDecision" not in trusted.stdout
+    assert json.loads(untrusted.stdout)["hookSpecificOutput"]["permissionDecision"] == "ask"

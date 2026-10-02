@@ -68,7 +68,8 @@ this file** (`ls hooks/pretooluse/` for the current set).
   (`minimal`|`standard`|`strict`) + `disabled_hooks` gate which hooks run; template at
   `hooks/natelandau-toolkit.toml.example`. Per-project additive
   `.../natelandau-toolkit/<hook>.rules.toml` may only ADD blocking rules and fails open
-  if malformed.
+  if malformed. `trusted_remote_hosts` (protect-remote) is global-only for the same
+  reason as exempt paths below.
 - **Exempt paths:** user-owned, never plugin-owned — the plugin dir is replaced
   on update, so nothing configurable may live in it. Two sources, unioned by
   `lib/exempt_paths.resolve()`: `exempt_paths` in the **global** config

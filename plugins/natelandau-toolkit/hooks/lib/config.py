@@ -6,11 +6,12 @@ natelandau-toolkit.toml. Scalars and lists are replaced by the higher
 level; [hooks.*] tables are deep-merged per key. Any read or parse error
 is swallowed so a broken config never blocks tool execution.
 
-`exempt_paths` is the one key read from the global layer alone. Every other
-key can only tighten a guard or pick which guards run; that one waives them
-for a directory tree, and the project layer is a file inside the very repo a
-guard protects. Honoring it there would let a repo exempt itself, and because
-that file is committed it would do so for everyone who clones it.
+`exempt_paths` and `trusted_remote_hosts` are read from the global layer
+alone. Every other key can only tighten a guard or pick which guards run;
+these two waive one, for a directory tree or a remote host, and the project
+layer is a file inside the very repo a guard protects. Honoring them there
+would let a repo exempt itself, and because that file is committed it would
+do so for everyone who clones it.
 """
 
 import os
@@ -39,6 +40,8 @@ class Config:
     # Directory trees whose contents skip the protected-branch and
     # commit-message guards. Global layer only; see the module docstring.
     exempt_paths: tuple[str, ...] = ()
+    # Hosts protect-remote lets through without a prompt. Global layer only.
+    trusted_remote_hosts: tuple[str, ...] = ()
 
     def option(self, hook_id: str, key: str, default: str) -> str:
         """Return a per-hook option value, or `default` when unset."""
@@ -131,6 +134,7 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
     # a repo's own committed config must never exempt that repo from the
     # guards protecting it.
     exempt_paths = _string_list(global_layer.get("exempt_paths"))
+    trusted_remote_hosts = _string_list(global_layer.get("trusted_remote_hosts"))
     if project_dir:
         proj_path = Path(project_dir) / ".claude" / CONFIG_NAME
         _apply(_read_toml(proj_path), acc)
@@ -148,4 +152,5 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
         hook_options={k: dict(v) for k, v in acc.hook_options.items()},
         project_dir=project_dir,
         exempt_paths=exempt_paths,
+        trusted_remote_hosts=trusted_remote_hosts,
     )

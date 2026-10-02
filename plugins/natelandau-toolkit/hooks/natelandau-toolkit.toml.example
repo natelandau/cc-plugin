@@ -26,6 +26,22 @@ disabled_hooks = []
 # ":"-separated, for roots that differ per machine:
 #   export NATELANDAU_TOOLKIT_EXEMPT_PATHS="$SHARED_CONTEXT_VAULT"
 
+# --- Trusted remote hosts -------------------------------------------------
+# Hosts the protect-remote hook lets through without a permission prompt.
+# Each entry is a hostname, ssh config alias, or IP as you type it in the
+# command, or a glob such as "*.lan". Matching ignores case and any user@
+# part. An entry made only of wildcards ("*") is ignored.
+#
+# A command runs without a prompt only when every ssh, sftp, scp, or rsync
+# in it reaches a trusted host. Anything the hook cannot read still prompts:
+# ansible, a host in a variable, `bash -c '...'`, an ssh run on a trusted
+# host that reaches another host, and options that run a local program
+# or redirect the connection (ProxyCommand, LocalCommand, HostName, scp -S,
+# rsync -e <not ssh>, RSYNC_RSH, ssh -F), before or after the destination.
+#
+# READ FROM THE GLOBAL FILE ONLY, for the same reason as exempt_paths.
+# trusted_remote_hosts = ["nas", "*.lan"]
+
 # --- Per-project additive rules -------------------------------------------
 # The protect-secrets, protect-system, protect-remote, and config-protection
 # hooks also read an optional project rules file of the

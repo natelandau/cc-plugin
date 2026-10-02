@@ -183,3 +183,39 @@ def test_exempt_paths_ignores_a_non_list_value(hooks_dir: Path, tmp_path: Path) 
 
     # Then nothing is exempt
     assert cfg.exempt_paths == ()
+
+
+def test_trusted_remote_hosts_read_from_the_global_layer(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify trusted_remote_hosts in the global config reaches the resolved Config."""
+    # Given a global config trusting two hosts, one non-string entry mixed in
+    home = tmp_path / "home"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        'trusted_remote_hosts = ["nas", "*.lan", 7]\n',
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(tmp_path / "proj"))
+
+    # Then the string entries are carried verbatim
+    assert cfg.trusted_remote_hosts == ("nas", "*.lan")
+
+
+def test_trusted_remote_hosts_ignored_in_the_project_layer(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a project config can neither add nor clear trusted hosts.
+
+    Trusting a host waives the protect-remote prompt, and the project layer is
+    a committed file inside the repository, so honoring it would let one repo
+    silence the prompt for everyone who clones it.
+    """
+    # Given a global list and a project config that tries to replace it
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(home / ".claude" / "natelandau-toolkit.toml", 'trusted_remote_hosts = ["nas"]\n')
+    _write(proj / ".claude" / "natelandau-toolkit.toml", 'trusted_remote_hosts = ["prod"]\n')
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then only the global list stands
+    assert cfg.trusted_remote_hosts == ("nas",)
