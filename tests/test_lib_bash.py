@@ -85,6 +85,37 @@ def test_split_clauses_pipes(bash: ModuleType, command: str, expected: list[str]
     assert bash.split_clauses(command, include_pipes=True) == expected
 
 
+# === split_stages ===
+
+_STAGE_CASES: tuple[tuple[str, list[str]], ...] = (
+    # Each pipeline stage of each statement is its own part.
+    ("sed -n p f | grep -i x; ls", ["sed -n p f ", " grep -i x", " ls"]),
+    # A quoted pipe is data, so a `s|a|b|` program stays in its stage.
+    ("sed 's|a|b|' -i f", ["sed 's|a|b|' -i f"]),
+    # The `&` of a redirect never splits, so later flags stay with the command.
+    ("curl u 2>&1 -o out", ["curl u 2>&1 -o out"]),
+    ("make &>/dev/null -j4", ["make &>/dev/null -j4"]),
+    # A pipe or sequence inside a substitution stays inside its stage.
+    ("git push o $(git branch | head -1) -f", ["git push o $(git branch | head -1) -f"]),
+    ("git push o `git branch | head -1` -f", ["git push o `git branch | head -1` -f"]),
+    ("sed <(echo | cat) -i f", ["sed <(echo | cat) -i f"]),
+    ("echo $(a; b) | c", ["echo $(a; b) ", " c"]),
+    # `|&` and a control `&` split; the `&` of `>&2` and `&>` does not.
+    ("a |& b", ["a ", " b"]),
+    ("a & b", ["a ", " b"]),
+    ("a >&2 -x | b", ["a >&2 -x ", " b"]),
+    ("a &>f -x", ["a &>f -x"]),
+    # A plain subshell at command position is not a substitution.
+    ("(a | b)", ["(a ", " b)"]),
+)
+
+
+@pytest.mark.parametrize(("command", "expected"), _STAGE_CASES)
+def test_split_stages(bash: ModuleType, command: str, expected: list[str]) -> None:
+    """Verify stage splitting fires on real pipes and sequences but not on redirect `&`."""
+    assert bash.split_stages(command) == expected
+
+
 # === mask_quoted ===
 
 
@@ -562,3 +593,55 @@ def test_scrub_message_args_ignores_heredoc_operator_inside_message_body(
     # When scrubbing it
     # Then the message is emptied but the read after it survives
     assert bash.scrub_message_args(command) == "git commit -m ''\ncat web/.env\nX"
+
+
+# === drop_data_heredocs ===
+
+
+@pytest.mark.parametrize(
+    ("command", "kept"),
+    [
+        # A data body goes; the opening line and the delimiter stay.
+        ("cat > f <<'EOF'\nrm x\nEOF", False),
+        ("cat <<EOF > f\nrm x\nEOF", False),
+        # A body a shell runs, or one with a live substitution, stays.
+        ("bash <<'EOF'\nrm x\nEOF", True),
+        ("cat <<'EOF' | sh\nrm x\nEOF", True),
+        # Only the substitution in an unquoted data body runs, so only it stays.
+        ("cat > f <<EOF\n$(rm x)\nEOF", True),
+        ("cat > f <<EOF\n$(date)\nrm x\nEOF", False),
+    ],
+)
+def test_drop_data_heredocs(bash: ModuleType, command: str, kept: bool) -> None:  # noqa: FBT001
+    """Verify a heredoc body is dropped only when the shell treats it as data."""
+    result = bash.drop_data_heredocs(command)
+    assert ("rm x" in result) is kept
+    assert result.split("\n")[0] == command.split("\n", maxsplit=1)[0]
+    assert result.endswith("EOF")
+
+
+# === substitution_bodies ===
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("echo $(rm x)", ["rm x"]),
+        ('echo "a $(rm x) b"', ["rm x"]),
+        ("echo `rm x`", ["rm x"]),
+        ("diff <(rm x) f", ["rm x"]),
+        ("echo '$(rm x)'", []),
+        ("echo $(( 1 + $(rm x) ))", ["rm x"]),
+        ("echo $(a $(b) c)", ["a $(b) c"]),
+        ("echo $(cat <<'EOF'\nit's (x\nEOF\n)", ["cat <<'EOF'\nit's (x\nEOF\n"]),
+        ("echo $(rm x", ["rm x"]),
+    ],
+)
+def test_substitution_bodies(bash: ModuleType, command: str, expected: list[str]) -> None:
+    """Verify each top-level substitution body is found, in quotes and heredocs too."""
+    assert bash.substitution_bodies(command) == expected
+
+
+def test_substitution_bodies_in_a_heredoc_body_ignore_quotes(bash: ModuleType) -> None:
+    """Verify a quote in an unquoted heredoc body is text and hides nothing."""
+    assert bash.substitution_bodies("it's $(rm x)", quotes_are_literal=True) == ["rm x"]
