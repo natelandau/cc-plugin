@@ -72,15 +72,9 @@ The HTML file:
 - Basic responsive styling, so it reads on a phone.
 - A filename that starts with today's date as `YYYY-MM-DD-`, so the files sort
   by time. Example: `.agent/explanations/2026-07-08-explanation-<slug>.html`.
-- A gitignored location, so the file never lands in version control. Choose in
-  this order:
-  1. `.agent/explanations/` inside the repo. Create the subdirectory if
-     needed.
-  2. Before you write there, confirm that the path is ignored with
-     `git check-ignore -q .agent/explanations` (exit 0 means ignored). If it
-     is not, add `.agent/` to `.gitignore` first, or use the next option.
-  3. If there is no repo, or no gitignored path inside it, write to a temp
-     directory outside the repo.
+- A gitignored location, so the file never lands in version control. Read
+  `../shared/agent-output-dir.md` (relative to this skill's base directory) and
+  follow it with `<kind>` set to `explanations`.
 
 Diagrams carry much of the load. Use them wherever they aid understanding, with
 discipline:

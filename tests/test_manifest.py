@@ -91,6 +91,10 @@ def _skill_files() -> list[Path]:
     return sorted((PLUGIN_ROOT / "skills").glob("*/SKILL.md"))
 
 
+def _skill_scripts() -> list[Path]:
+    return sorted((PLUGIN_ROOT / "skills").glob("*/scripts/*.py"))
+
+
 def _command_files() -> list[Path]:
     return sorted((PLUGIN_ROOT / "commands").glob("*.md"))
 
@@ -290,6 +294,44 @@ def test_skill_name_matches_directory(skill_path: Path) -> None:
         f"{skill_path}: frontmatter name {fields.get('name')!r} "
         f"!= directory {skill_path.parent.name!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "script", _skill_scripts(), ids=lambda p: f"{p.parent.parent.name}/{p.name}"
+)
+def test_skill_script_is_runnable_pep723(script: Path) -> None:
+    """Verify every skill script is an executable PEP 723 script.
+
+    Skill scripts must have the executable bit set and include both the uv
+    shebang and PEP 723 metadata block so they can be invoked as standalone
+    executables when agents run them.
+    """
+    # Given a skill script
+    text = script.read_text()
+
+    # When checked for PEP 723 compliance
+    # Then it has the correct uv shebang
+    assert text.startswith("#!/usr/bin/env -S uv run --script\n"), (
+        f"{script}: script must start with PEP 723 uv shebang"
+    )
+    # And the PEP 723 metadata block is present
+    assert "# /// script" in text, f"{script}: script missing PEP 723 metadata block"
+    # And the executable bit is set
+    assert os.access(script, os.X_OK), f"{script}: script must have executable bit set"
+
+
+def test_skill_scripts_are_discovered() -> None:
+    """Verify that skill scripts are discoverable by the parametrized test.
+
+    If the glob returns empty, the parametrized test silently runs zero cases,
+    hiding breakage. Fail explicitly here so a missing scripts directory or
+    moved scripts fail loudly at commit time.
+    """
+    # Given the skill scripts discovery function
+    scripts = _skill_scripts()
+
+    # Then at least one script exists
+    assert scripts, "no skill scripts found in plugins/natelandau-toolkit/skills/*/scripts/*.py"
 
 
 @pytest.mark.parametrize("command_path", _command_files(), ids=lambda p: p.name)
