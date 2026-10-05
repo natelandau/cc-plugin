@@ -71,6 +71,7 @@ These skills load on demand when your task matches. You don't invoke them by nam
 | `technical-writer`  | READMEs, changelogs, guides, and other user-facing prose. Governs document structure and applies ASD-STE100 Simplified Technical English to every sentence. |
 | `tortoise-orm`      | Tortoise ORM v1.x models, queries, relations, and migrations.                                                                                               |
 | `tufte-viz`         | Designing or critiquing data visualizations with Tufte's principles.                                                                                        |
+| `walkthrough`       | Seeing the UI an agent built: stills and clips of web, iOS, macOS, or Android front ends in a local HTML walkthrough.                                       |
 | `zensical`          | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids.                                                             |
 
 ### Workflow commands

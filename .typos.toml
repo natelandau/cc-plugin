@@ -3,6 +3,7 @@
 
     [default.extend-words]
         nin = "nin"
+        udid = "udid"
 
 [files]
     extend-exclude = ["*_cache", ".venv"]
