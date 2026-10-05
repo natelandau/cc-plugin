@@ -916,14 +916,13 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("Cannot modify files",),
     ),
-    # Documented boundary: a mutation hidden inside a command substitution is
-    # deliberately NOT recursed into (the hook guards a cooperating agent, not an
-    # adversarial one), so a literal `$(rm ...)` passes. Locked so a future change
-    # to this behavior is intentional.
+    # A command substitution runs its body, so a write hidden in one is judged
+    # like any other command.
     Case(
-        id="command-sub hidden rm on master allowed (out of scope)",
+        id="command-sub hidden rm on master blocked",
         make_payload=lambda r: _bash("echo $(rm foo.py)", cwd=r["master"]),
-        expect_exit=0,
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
     ),
     # Safety: a `..` segment is resolved to its real destination and judged
     # there, so a traversal that lands back inside the protected repo is blocked
@@ -1197,6 +1196,797 @@ CASES: tuple[Case, ...] = (
         make_payload=lambda r: _bash(f"rm '{r['master']}/foo.py'", cwd=r["feat"]),
         expect_exit=2,
         stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # === Pipeline stages: a flag rule reads only the stage of the command it
+    # names, so a flag on a later stage (`grep -i`, `grep -o`, `grep -f`) is not
+    # credited to an earlier `sed`/`perl`/`curl`/`git push`. ===
+    Case(
+        id="sed -n piped to grep -i on master allowed",
+        make_payload=lambda r: _bash(
+            "sed -n 1,80p web/app.ts 2>/dev/null | grep -n -i -E 'video|screenshot'",
+            cwd=r["master"],
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="cd then read-only grep and sed pipelines on master allowed",
+        make_payload=lambda r: _bash(
+            f"cd {r['master']}; grep -rIl -i -E 'screenshot|recordvideo' "
+            "--exclude-dir=node_modules . 2>/dev/null | head -20; "
+            "sed -n 1,80p web/app.ts 2>/dev/null | grep -n -i -E 'video|screenshot'",
+            cwd=r["master"],
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="detached worktree add then sed piped to grep -i on master allowed",
+        make_payload=lambda r: _bash(
+            f"git -C {r['master']} worktree add --detach .worktrees/eval abc1234 2>&1 "
+            f"| tail -2; sed -n 1,80p {r['master']}/CLAUDE.md | grep -n -i -E 'worktree'",
+            cwd=r["master"],
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="perl read piped to grep -i on master allowed",
+        make_payload=lambda r: _bash("perl -ne 'print' foo.txt | grep -i x", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="curl to stdout piped to grep -o on master allowed",
+        make_payload=lambda r: _bash(
+            "curl -s https://example.com | grep -o 'href'", cwd=r["master"]
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="git push piped to grep -f not read as a force push",
+        make_payload=lambda r: _bash("git push origin feat 2>&1 | grep -f pats", cwd=r["feat"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="sed -i in a later pipeline stage on master blocked",
+        make_payload=lambda r: _bash("cat foo.txt | sed -i 's/a/b/' foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="sed -i with a quoted pipe delimiter on master blocked",
+        make_payload=lambda r: _bash("sed 's|a|b|' -i foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="rm as a later pipeline stage on master blocked",
+        make_payload=lambda r: _bash("echo y | rm -i foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="curl -o after a 2>&1 dup on master blocked",
+        make_payload=lambda r: _bash(
+            "curl -s https://example.com 2>&1 -o out.html", cwd=r["master"]
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="git push --force piped to tail still blocked",
+        make_payload=lambda r: _bash("git push --force origin feat 2>&1 | tail -2", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Force push",),
+    ),
+    # === `git worktree add` creates a separate checkout and leaves the main
+    # checkout's files untouched, with or without a new branch. ===
+    Case(
+        id="detached worktree add on master allowed",
+        make_payload=lambda r: _bash(
+            "git worktree add --detach .worktrees/eval abc1234", cwd=r["master"]
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="worktree add at a commit-ish on master allowed",
+        make_payload=lambda r: _bash("git worktree add .worktrees/eval abc1234", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # === chmod's mode and chown's owner operand are not paths: only the files
+    # after them are write targets, each judged by its own repo's branch. ===
+    Case(
+        id="chmod +x on a feat-repo file from a master cwd allowed",
+        make_payload=lambda r: _bash(f"chmod +x {r['feat']}/scripts/run.sh", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="script run then chmod +x into feat repo from a master cwd allowed",
+        make_payload=lambda r: _bash(
+            f'{r["outside"]}/preflight.py ios web; echo "exit $?"; '
+            f"chmod +x {r['feat']}/scripts/run.sh",
+            cwd=r["master"],
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="chmod octal mode on a feat-repo file from a master cwd allowed",
+        make_payload=lambda r: _bash(f"chmod -R 755 {r['feat']}/scripts", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="chmod symbolic mode list on a feat-repo file from a master cwd allowed",
+        make_payload=lambda r: _bash(f"chmod u+x,go-w {r['feat']}/run.sh", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="chown owner:group on a feat-repo file from a master cwd allowed",
+        make_payload=lambda r: _bash(f"chown -R nate:staff {r['feat']}/run.sh", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="chmod +x on an absolute master-repo file from a feat cwd blocked",
+        make_payload=lambda r: _bash(f"chmod +x {r['master']}/foo.py", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="chmod +x on a relative file on master blocked",
+        make_payload=lambda r: _bash("chmod +x foo.py", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="chmod --reference keeps its first operand as a target",
+        make_payload=lambda r: _bash(
+            f"chmod --reference=ref.txt {r['master']}/foo.py", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="chown --reference keeps its first operand as a target",
+        make_payload=lambda r: _bash(
+            f"chown --reference=ref.txt {r['master']}/foo.py", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="chown owner on an absolute master-repo file from a feat cwd blocked",
+        make_payload=lambda r: _bash(f"chown nate {r['master']}/foo.py", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # === In-place flags are read in every spelling: bundled short flags
+    # (`-Ei`, `-ni`, `-pi`) and sed's long `--in-place`. ===
+    *(
+        Case(
+            id=f"{cmd.split()[0]} in-place form {cmd.split()[1]} on master blocked",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            "sed -Ei 's/a/b/' foo.py",
+            "sed -ni 's/a/b/p' foo.py",
+            "sed --in-place 's/a/b/' foo.py",
+            "sed --in-place=.bak 's/a/b/' foo.py",
+            "perl -pi -e 's/a/b/' foo.py",
+            "perl -0777pi -e 's/a/b/' foo.py",
+        )
+    ),
+    # A perl `-M` module name that contains an `i` is not an in-place flag.
+    Case(
+        id="perl -MList::Util read on master allowed",
+        make_payload=lambda r: _bash("perl -MList::Util=sum -ne 'print' foo.txt", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # === Deleting a whole repo on a protected branch is a write to every
+    # tracked file in it, and it stays blocked even when the repo lives under a
+    # temp dir: under the minimal profile, or with confirm-recursive-rm
+    # disabled, this is the only hook that guards a repo delete. ===
+    Case(
+        id="rm -rf of a whole repo root on master blocked",
+        make_payload=lambda r: _bash(f"rm -rf {r['master']}", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="list then rm -rf of a whole repo root on master blocked",
+        make_payload=lambda r: _bash(
+            f"find {r['master']} -not -path '*/.git/*' | head; "
+            f"rm -rf {r['master']} && echo removed",
+            cwd=r["outside"],
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # === A pipe inside a command substitution or process substitution does
+    # not end the outer stage, so flags after it stay with the outer command. ===
+    *(
+        Case(
+            id=f"destructive flag after a piped substitution blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["feat"]),
+            expect_exit=2,
+            stderr_contains=("BLOCKED [branch-protection]",),
+        )
+        for cmd in (
+            "git push origin $(git branch --show-current | head -1) --force",
+            "git push origin $(git branch --show-current | head -1) -f",
+            "git push origin `git branch --show-current | head -1` --force",
+            "git reset $(git merge-base HEAD main | cat) --hard",
+            "git clean $(echo -d | cat) -f",
+        )
+    ),
+    *(
+        Case(
+            id=f"in-place flag after a piped substitution on master blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            "sed -e $(echo s/a/b/ | cat) -i foo.py",
+            "sed -e `echo s/a/b/ | cat` -i foo.py",
+            "sed -e s/a/b/ <(echo | cat) -i foo.py",
+            "curl -s $(echo http://x | cat) -o foo.py",
+        )
+    ),
+    Case(
+        id="sed -i inside a command substitution on master still blocked",
+        make_payload=lambda r: _bash("x=$(echo a | sed -i 's/a/b/' foo.py)", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="rm after a sequence inside a substitution on master still blocked",
+        make_payload=lambda r: _bash("echo $(true; rm foo.py)", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # GNU accepts `--ref` (any unambiguous prefix of `--reference`), and then
+    # every operand is a file.
+    Case(
+        id="chown --ref prefix keeps its first operand as a target",
+        make_payload=lambda r: _bash(
+            f"chown --ref={r['feat']}/foo.py {r['master']}/foo.py", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="cd then chown --ref on a relative master file blocked",
+        make_payload=lambda r: _bash(f"cd {r['master']} && chown --ref=x foo.py", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="chmod --refer prefix keeps its first operand as a target",
+        make_payload=lambda r: _bash(f"cd {r['master']} && chmod --refer=x 755", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # === A statement that starts with git still has its redirects and its
+    # other pipeline stages judged as file writes. ===
+    *(
+        Case(
+            id=f"git statement with a write on master blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            "git show HEAD:foo.py > foo.py",
+            "git ls-files | xargs rm",
+            "git ls-files | xargs perl -pi -e 's/a/b/'",
+            "git diff | tee foo.py",
+        )
+    ),
+    Case(
+        id="git commit as a later pipeline stage on master blocked",
+        make_payload=lambda r: _bash("echo x | git commit -F -", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_COMMIT,),
+    ),
+    Case(
+        id="git log piped to head on master allowed",
+        make_payload=lambda r: _bash("git log --oneline | head -5", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="git diff redirected outside any repo from master allowed",
+        make_payload=lambda r: _bash(f"git diff > {r['outside']}/x.patch", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # === A writer in a later pipeline stage is judged by its own targets, and
+    # `|&` and a control `&` end a stage like `|` does. ===
+    Case(
+        id="later-stage rm into a master repo from a feat cwd blocked",
+        make_payload=lambda r: _bash(f"echo y | rm {r['master']}/foo.py", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="later-stage recursive delete of a master repo from a feat cwd blocked",
+        make_payload=lambda r: _bash(f"true | rm -rf {r['master']}", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="later-stage rm into a feat repo from a master cwd allowed",
+        make_payload=lambda r: _bash(f"echo y | rm {r['feat']}/foo.py", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    *(
+        Case(
+            id=f"writer after |& or & on master blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            "cat foo.py |& rm foo.py",
+            "cat foo.py |& wget -O foo.py http://x",
+            "cat foo.py |& truncate -s0 foo.py",
+            "echo x & rm foo.py",
+        )
+    ),
+    *(
+        Case(
+            id=f"force push after |& or & blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["feat"]),
+            expect_exit=2,
+            stderr_contains=("Force push",),
+        )
+        for cmd in (
+            "echo x |& git push --force origin feat",
+            "echo x & git push --force origin feat",
+        )
+    ),
+    Case(
+        id="git commit after a control & on master blocked",
+        make_payload=lambda r: _bash("echo x & git commit -m x", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_COMMIT,),
+    ),
+    # === More in-place spellings: BSD `-I`, `gsed`, GNU long-option prefixes,
+    # perl's `-g`, and a flag written inside quotes. ===
+    *(
+        Case(
+            id=f"in-place spelling on master blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            "sed -I '' 's/a/b/' foo.py",
+            "gsed -i 's/a/b/' foo.py",
+            "sed --i 's/a/b/' foo.py",
+            "sed --in 's/a/b/' foo.py",
+            "perl -gpi -e 's/a/b/' foo.py",
+            "sed \"-i\" 's/a/b/' foo.py",
+            "sed '-i' 's/a/b/' foo.py",
+            "perl '-pi' -e 's/a/b/' foo.py",
+        )
+    ),
+    Case(
+        id="sed program text containing -i on master allowed",
+        make_payload=lambda r: _bash("sed -n 's/ -i/x/p' foo.txt", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="quoted force flag on git push blocked",
+        make_payload=lambda r: _bash("git push '-f' origin feat", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Force push",),
+    ),
+    # === Destructive commands with a pipeline around them stay blocked. ===
+    Case(
+        id="git clean -fdx piped to grep blocked",
+        make_payload=lambda r: _bash("git clean -fdx 2>&1 | grep -n x", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("git clean -f",),
+    ),
+    Case(
+        id="force push as a later pipeline stage blocked",
+        make_payload=lambda r: _bash("echo x | git push --force origin feat", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Force push",),
+    ),
+    # === cp, ln, and install write only their destination: the last operand,
+    # or the `-t`/`--target-directory` value. A source in a protected repo is
+    # only read. When the options cannot be parsed, every operand is judged. ===
+    *(
+        Case(
+            id=f"copy-like command reading a master file allowed: {cmd_id}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd(r), cwd=r["feat"]),
+            expect_exit=0,
+        )
+        for cmd_id, cmd in (
+            ("cp src dst", lambda r: f"cp {r['master']}/foo.py {r['outside']}/foo.py"),
+            ("cp -t dir src", lambda r: f"cp -t {r['outside']} {r['master']}/foo.py"),
+            ("ln -s target link", lambda r: f"ln -s {r['master']}/foo.py {r['outside']}/link"),
+            (
+                "install -m 755",
+                lambda r: f"install -m 755 {r['master']}/foo.py {r['outside']}/foo",
+            ),
+            (
+                "install -o -g",
+                lambda r: f"install -o nate -g staff {r['master']}/foo.py {r['outside']}/foo",
+            ),
+        )
+    ),
+    *(
+        Case(
+            id=f"copy-like command writing into master blocked: {cmd_id}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd(r), cwd=r["feat"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd_id, cmd in (
+            ("cp src dst", lambda r: f"cp {r['outside']}/x {r['master']}/foo.py"),
+            ("cp many srcs", lambda r: f"cp {r['outside']}/a {r['outside']}/b {r['master']}"),
+            ("cp -t", lambda r: f"cp -t {r['master']} {r['outside']}/x"),
+            ("cp -tDIR", lambda r: f"cp -t{r['master']} {r['outside']}/x"),
+            (
+                "cp --target-directory=",
+                lambda r: f"cp --target-directory={r['master']} {r['outside']}/x",
+            ),
+            (
+                "cp --target-directory DIR",
+                lambda r: f"cp --target-directory {r['master']} {r['outside']}/x",
+            ),
+            ("cp --target abbreviation", lambda r: f"cp --target {r['master']} {r['outside']}/x"),
+            ("cp -S suffix", lambda r: f"cp -S .bak {r['outside']}/x {r['master']}/foo.py"),
+            ("ln -s target link", lambda r: f"ln -s {r['outside']}/x {r['master']}/link"),
+            ("ln -s one operand", lambda r: f"cd {r['master']} && ln -s {r['outside']}/x"),
+            (
+                "install -m",
+                lambda r: f"install -m 755 {r['outside']}/x {r['master']}/foo.py",
+            ),
+            ("install -m0755", lambda r: f"install -m0755 {r['outside']}/x {r['master']}/foo.py"),
+            ("install -d", lambda r: f"install -d {r['outside']}/a {r['master']}/newdir"),
+            (
+                "install unknown -B",
+                lambda r: f"install -B .bak {r['master']}/foo.py {r['outside']}/y",
+            ),
+            ("cp unparsable single operand", lambda r: f"cd {r['master']} && cp foo.py"),
+        )
+    ),
+    # === A heredoc body is data unless a shell runs it, so its lines are not
+    # read as commands. The command that opens the heredoc is still judged. ===
+    *(
+        Case(
+            id=f"heredoc body read as data allowed: {cmd_id}",
+            make_payload=lambda r, cmd=cmd, cwd=cwd: _bash(cmd(r), cwd=r[cwd]),
+            expect_exit=0,
+        )
+        for cmd_id, cwd, cmd in (
+            (
+                "gitignored target on master",
+                "master",
+                lambda _r: (
+                    "cat > ignored_dir/x.md <<'EOF'\nrm -rf foo.py\nsed -i s/a/b/ foo.py\nEOF"
+                ),
+            ),
+            (
+                "target outside any repo",
+                "master",
+                lambda r: f"cat > {r['outside']}/x.md <<'EOF'\nrm foo.py\nEOF",
+            ),
+            (
+                "unquoted tag with no substitution",
+                "master",
+                lambda r: f"cat <<EOF > {r['outside']}/x.md\nchmod +x foo.py\nEOF",
+            ),
+            (
+                "destructive text in a note",
+                "feat",
+                lambda r: f"cat > {r['outside']}/n.md <<'EOF'\ngit push --force\nEOF",
+            ),
+        )
+    ),
+    *(
+        Case(
+            id=f"heredoc still judged blocked: {cmd_id}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd(r), cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd_id, cmd in (
+            ("redirect into a tracked file", lambda _r: "cat > foo.py <<'EOF'\nprint(1)\nEOF"),
+            ("body run by bash", lambda _r: "bash <<'EOF'\nrm foo.py\nEOF"),
+            ("body run by sudo sh -s", lambda _r: "sudo sh -s <<'EOF'\nrm foo.py\nEOF"),
+            ("body piped into bash", lambda _r: "cat <<'EOF' | bash\nrm foo.py\nEOF"),
+            (
+                "command after the delimiter",
+                lambda r: f"cat > {r['outside']}/x <<'EOF'\nhi\nEOF\nrm foo.py",
+            ),
+        )
+    ),
+    Case(
+        id="heredoc body run by bash with a force push blocked",
+        make_payload=lambda r: _bash(
+            "bash <<'EOF'\ngit push --force origin feat\nEOF", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=("Force push",),
+    ),
+    Case(
+        id="heredoc body run by sudo -u bob bash blocked",
+        make_payload=lambda r: _bash("sudo -u bob bash <<'EOF'\nrm foo.py\nEOF", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="heredoc body run by a quoted bash path blocked",
+        make_payload=lambda r: _bash("'/bin/bash' <<'EOF'\nrm foo.py\nEOF", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # === cp/ln/install: fd duplications, input redirects, and comments are not
+    # operands, and a destination that expands (`$VAR`, `$( )`, backticks) is
+    # not trusted, so every operand is judged. ===
+    *(
+        Case(
+            id=f"copy destination with trailing shell syntax blocked: {suffix}",
+            make_payload=lambda r, cmd=cmd, suffix=suffix: _bash(
+                f"{cmd} {r['outside']}/x {r['master']}/foo.py {suffix}", cwd=r["feat"]
+            ),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd, suffix in (
+            ("cp", "2>&1"),
+            ("cp", "2>&1 | tail -1"),
+            ("ln -sf", "2>&1"),
+            ("install -m 644", "2>&1"),
+            ("cp", ">&2"),
+            ("cp", "< /dev/null"),
+            ("cp", "</dev/null"),
+            ("cp", "<<< hi"),
+            ("cp", "# copy it"),
+            ("cp", "$(true)"),
+            ("cp", "`true`"),
+            ("cp", "$UNSET_VAR"),
+        )
+    ),
+    Case(
+        id="unknown long option on cp judges every operand",
+        make_payload=lambda r: _bash(
+            f"cp --frobnicate {r['master']}/foo.py {r['outside']}/x", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="cp --strip prefix of a valueless option on master target blocked",
+        make_payload=lambda r: _bash(
+            f"cp --strip {r['outside']}/x {r['master']}/foo.py", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    Case(
+        id="fd dup is not a path for rm on master",
+        make_payload=lambda r: _bash("rm /tmp/nothing-here 2>&1", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="fd dup is not a path for cp out of master",
+        make_payload=lambda r: _bash(f"cp foo.py {r['outside']}/y 2>&1", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    Case(
+        id="cp into a tracked file with a comment on master blocked",
+        make_payload=lambda r: _bash(f"cp {r['outside']}/x foo.py # c", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # === A heredoc body is dropped only for a known data sink (a lone `cat` or
+    # `tee`, a non-shell interpreter, a commit/PR message command). Any other
+    # consumer may run it as shell, so its body is judged. ===
+    *(
+        Case(
+            id=f"heredoc body fed to a possible shell blocked: {cmd!r}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            "cat <<'EOF'|sh\nrm foo.py\nEOF",
+            "cat <<'EOF' |\nrm foo.py\nEOF\nsh",
+            "sudo -s <<'EOF'\nrm foo.py\nEOF",
+            "su <<'EOF'\nrm foo.py\nEOF",
+            "script -q /dev/null <<'EOF'\nrm foo.py\nEOF",
+            "csh <<'EOF'\nrm foo.py\nEOF",
+            "tcsh <<'EOF'\nrm foo.py\nEOF",
+            "$SHELL <<'EOF'\nrm foo.py\nEOF",
+            "\"$SHELL\" -s <<'EOF'\nrm foo.py\nEOF",
+            "eval $(cat <<'EOF'\nrm foo.py\nEOF\n)",
+            "exec 3<<'EOF'\nrm foo.py\nEOF\nsh <&3",
+            "cat <<'EOF' > /tmp/s.sh && sh /tmp/s.sh\nrm foo.py\nEOF",
+            "cat > /tmp/s.sh <<'EOF'\nrm foo.py\nEOF\nbash /tmp/s.sh",
+            "ssh localhost <<'EOF'\nrm foo.py\nEOF",
+        )
+    ),
+    *(
+        Case(
+            id=f"heredoc body fed to a data sink allowed: {cmd!r}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=0,
+        )
+        for cmd in (
+            "cat > /tmp/n.md <<'EOF'\nrm -rf foo.py\nEOF",
+            "cat <<'EOF' > /tmp/n.md\nit's sed -i\nEOF",
+            "tee /tmp/n.md <<'EOF' >/dev/null\nrm foo.py\nEOF",
+            "python3 - <<'EOF'\nrm foo.py\nEOF",
+        )
+    ),
+    Case(
+        id="heredoc to cat with a &> redirect on master allowed",
+        make_payload=lambda r: _bash("cat <<'EOF' &>/tmp/n.md\nrm foo.py\nEOF", cwd=r["master"]),
+        expect_exit=0,
+    ),
+    # === Command substitutions (`$( )`, backticks, `<( )`) run their bodies, so
+    # each body is judged as a command, also inside double quotes and inside an
+    # unquoted heredoc body. Only the substitution of a data heredoc runs. ===
+    *(
+        Case(
+            id=f"write in a substitution on master blocked: {cmd!r}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            'echo "$(rm foo.py)"',
+            "echo `rm foo.py`",
+            'echo "x $(sed -i s/a/b/ foo.py)"',
+            "diff <(rm foo.py) /dev/null",
+            "echo $(( $(rm foo.py) + 1 ))",
+            "cd $(rm foo.py; echo .)",
+            "cat > /tmp/x <<EOF\n$(rm foo.py)\nEOF",
+            "cat > /tmp/x <<EOF\n`rm foo.py`\nEOF",
+            "cat > /tmp/x <<EOF\nhi $(rm foo.py)\nEOF",
+            "cat > /tmp/x <<EOF\nit's $(rm foo.py)\nEOF",
+            "eval \"$(cat <<'EOF'\nrm foo.py\nEOF\n)\"",
+            "$(cat <<'EOF'\nrm foo.py\nEOF\n)",
+        )
+    ),
+    Case(
+        id="force push in a substitution blocked",
+        make_payload=lambda r: _bash("echo $(git push --force origin feat)", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("Force push",),
+    ),
+    *(
+        Case(
+            id=f"substitution that only reads on master allowed: {cmd_id}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd(r), cwd=r["master"]),
+            expect_exit=0,
+        )
+        for cmd_id, cmd in (
+            ("branch name", lambda _r: "echo $(git branch --show-current)"),
+            ("single-quoted text", lambda _r: "echo '$(rm foo.py)'"),
+            (
+                "data heredoc with a harmless substitution",
+                lambda r: f"cat > {r['outside']}/x <<EOF\n$(date)\nrm foo.py\nEOF",
+            ),
+            (
+                "commit message heredoc into a feat repo",
+                lambda r: (
+                    f"git -C {r['feat']} commit -m \"$(cat <<'EOF'\nfix: x\n\n"
+                    "rm -rf foo.py and sed -i stuff, it's fine\nEOF\n)\""
+                ),
+            ),
+            (
+                "PR body heredoc",
+                lambda _r: "gh pr create --title x --body \"$(cat <<'EOF'\nrm foo.py\nEOF\n)\"",
+            ),
+        )
+    ),
+    Case(
+        id="assignment of a message heredoc substitution on master allowed",
+        make_payload=lambda r: _bash(
+            "MSG=$(cat <<'EOF'\nrm foo.py, it's done\nEOF\n)", cwd=r["master"]
+        ),
+        expect_exit=0,
+    ),
+    Case(
+        id="cp destination printed by a substitution into master blocked",
+        make_payload=lambda r: _bash(
+            f"cp {r['outside']}/x $(echo {r['master']}/foo.py)", cwd=r["feat"]
+        ),
+        expect_exit=2,
+        stderr_contains=(BLOCK_FILE_MOD,),
+    ),
+    # === A control `&` ends a statement, so a `cd` after a background job moves
+    # the effective cwd. A backgrounded `cd`, or one in a pipeline, runs in a
+    # subshell and moves nothing. ===
+    *(
+        Case(
+            id=f"cd after a background job into master blocked: {cmd_id}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd(r), cwd=r["feat"]),
+            expect_exit=2,
+            stderr_contains=("BLOCKED [branch-protection]",),
+        )
+        for cmd_id, cmd in (
+            ("rm", lambda r: f"echo x & cd {r['master']} && rm foo.py"),
+            ("rm after ;", lambda r: f"sleep 1 & cd {r['master']}; rm foo.py"),
+            ("sed -i", lambda r: f"sleep 1 & cd {r['master']} && sed -i 's/a/b/' foo.py"),
+            ("commit", lambda r: f"sleep 1 & cd {r['master']} && git commit -m x"),
+            ("no space", lambda r: f"echo x &cd {r['master']} && rm foo.py"),
+        )
+    ),
+    *(
+        Case(
+            id=f"cd in a subshell does not move the cwd: {cmd_id}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd(r), cwd=r["feat"]),
+            expect_exit=0,
+        )
+        for cmd_id, cmd in (
+            ("backgrounded cd", lambda r: f"cd {r['master']} & rm foo.py"),
+            ("cd in a pipeline", lambda r: f"cd {r['master']} | rm foo.py"),
+        )
+    ),
+    *(
+        Case(
+            id=f"quoted force refspec blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["feat"]),
+            expect_exit=2,
+            stderr_contains=("Force push via refspec",),
+        )
+        for cmd in ("git push origin '+feat'", 'git push origin "+feat:feat"')
+    ),
+    # === git subcommands that rewrite or remove tracked files in the working
+    # tree are file writes on a protected branch. Index-only, dry-run, and
+    # read-only forms are not. ===
+    *(
+        Case(
+            id=f"git working-tree write on master blocked: {cmd}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=2,
+            stderr_contains=(BLOCK_FILE_MOD,),
+        )
+        for cmd in (
+            "git rm foo.py",
+            "git rm -r src",
+            "git mv foo.py bar.py",
+            "git checkout HEAD -- foo.py",
+            "git checkout -- foo.py",
+            "git restore foo.py",
+            "git restore --source=HEAD~1 foo.py",
+            "git restore -W foo.py",
+            "git restore --staged --worktree foo.py",
+        )
+    ),
+    *(
+        Case(
+            id=f"git index-only or read-only form on master allowed: {cmd!r}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["master"]),
+            expect_exit=0,
+        )
+        for cmd in (
+            "git restore --staged foo.py",
+            "git rm --cached foo.py",
+            "git rm -n foo.py",
+            "git rm --dry-run foo.py",
+            "git mv -n foo.py bar.py",
+            "git stash list",
+            "git stash show -p",
+            # Stashing parks uncommitted edits where they stay recoverable, which is
+            # how stray work moves off trunk; only pop and apply write the tree.
+            "git stash",
+            "git stash push -m x",
+            "git stash -u",
+            "git stash save x",
+            "git checkout feat",
+            "git commit --dry-run -m x",
+            "git commit --dry-run -F - <<'EOF'\nmsg\nEOF",
+        )
+    ),
+    Case(
+        id="git rm in a feat repo allowed",
+        make_payload=lambda r: _bash("git rm foo.py", cwd=r["feat"]),
+        expect_exit=0,
     ),
 )
 

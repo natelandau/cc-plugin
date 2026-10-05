@@ -3,8 +3,9 @@
 Several PreToolUse hooks need to split a command into independently-checkable
 clauses before applying their rules. They previously each carried their own
 split regex, which let the notion of a "clause" drift between hooks. This
-module is the single seam, parameterized for the two operator sets the hooks
-actually need.
+module is the single seam, parameterized for the three operator sets the
+hooks actually need: statements, statements plus pipes and background jobs,
+and pipeline stages.
 
 Splitting is quote-aware: a `&&`, `;`, `|`, or redirect `>` that lives inside
 single or double quotes (an `awk 'c>=2'` program, an `echo "a && b"` literal)
@@ -33,8 +34,12 @@ from __future__ import annotations
 import re
 import shlex
 from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
 
 from lib.paths import expand_user
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Sequence operators that end one statement and begin the next. A bare newline
 # is one of them, so the lines of a multi-line script are separate clauses; a
@@ -46,6 +51,12 @@ _SEQUENCE_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\n)\s*")
 # Sequence operators plus a single pipe and a background `&`, so each pipeline
 # stage and backgrounded command is its own clause.
 _PIPELINE_SPLIT = re.compile(r"&&|\|\||[;|&\n]")
+
+# Sequence operators, a pipe (`|` or `|&`), and a control `&` that backgrounds a
+# command. The `&` of a redirect (`2>&1`, `>&2`, `&>file`) is not a separator:
+# splitting there would cut a command's later flags (`curl url 2>&1 -o out`)
+# away from its name.
+_STAGE_SPLIT = re.compile(r"&&|\|\||\|&|[;|\n]|(?<![<>&])&(?![>&])")
 
 # A backslash before a newline continues the same command; the shell removes
 # both before parsing. Only a *bare* newline separates statements.
@@ -236,7 +247,9 @@ def mask_comparisons(masked: str) -> str:
     return "".join(out)
 
 
-def _split_with_separators(command: str, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
+def _split_with_separators(
+    command: str, pattern: re.Pattern[str], *, top_level_only: bool = False
+) -> list[tuple[str, str]]:
     """Split `command` on `pattern`, pairing each clause with the operator ahead of it.
 
     The separator is what `split_clauses` throws away, and it is needed for two
@@ -250,7 +263,10 @@ def _split_with_separators(command: str, pattern: re.Pattern[str]) -> list[tuple
     inside quotes never splits, while the clauses are sliced verbatim out of
     the original string.
     """
-    masked = mask_quoted(command)
+    # Blanking substitutions first keeps an operator inside `$( )`, backticks,
+    # or `<( )` from splitting, and keeps a quote inside a heredoc there from
+    # unbalancing the quote mask.
+    masked = mask_quoted(blank_substitutions(command) if top_level_only else command)
     parts: list[tuple[str, str]] = []
     last = 0
     separator = ""
@@ -288,6 +304,60 @@ def split_clauses(command: str, *, include_pipes: bool = False) -> list[str]:
     """
     pattern = _PIPELINE_SPLIT if include_pipes else _SEQUENCE_SPLIT
     return [clause for _, clause in _split_with_separators(command, pattern)]
+
+
+# Statement separators: `&&`, `||`, `;`, a newline, and a control `&` that
+# backgrounds the statement before it. The `&` of `2>&1`, `>&2`, `&>`, and `|&`
+# is not one.
+_STATEMENT_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\n|(?<![<>&|])&(?![>&]))\s*")
+
+
+def split_statements(command: str) -> list[tuple[str, str]]:
+    """Split a Bash command into statements, each paired with the operator after it.
+
+    Use to walk a command statement by statement when each statement's
+    substitutions are judged on their own: a newline or `;` inside
+    `MSG=$(cat <<'EOF' ...)` stays in its statement, so the substitution
+    arrives whole. Splits on `&&`, `||`, `;`, newlines, and a control `&`.
+    The operator after a statement is stripped of whitespace, and is empty for
+    the last one; `&` there means the statement runs in the background, in a
+    subshell of its own.
+
+    Args:
+        command: The Bash command string to split.
+    """
+    parts = _split_with_separators(command, _STATEMENT_SPLIT, top_level_only=True)
+    return [
+        (clause, parts[i + 1][0].strip() if i + 1 < len(parts) else "")
+        for i, (_, clause) in enumerate(parts)
+    ]
+
+
+def split_stages(command: str, *, top_level_only: bool = True) -> list[str]:
+    """Split a Bash command into its pipeline stages across every statement.
+
+    Use when a rule pairs a command name with one of its flags (`sed ... -i`),
+    so the flag is read only from the stage that runs that command and a
+    `grep -i` later in the pipeline is never credited to the `sed`. A `|&`
+    pipe and a control `&` split, but unlike `split_clauses(include_pipes=True)`
+    the `&` of a redirect (`2>&1`, `>&2`, `&>file`) does not, so it keeps a
+    stage whole. Splitting is quote-aware, as in `split_clauses`.
+
+    By default an operator inside a command or process substitution does not
+    split, so in `git push o $(git branch | head -1) --force` the `--force`
+    stays in the `git push` stage. Pass `top_level_only=False` to also split
+    inside substitutions, which puts each nested command at the head of a
+    stage of its own.
+
+    Args:
+        command: The Bash command string to split.
+        top_level_only: Split only at operators outside every substitution.
+            Defaults to True.
+    """
+    return [
+        stage
+        for _, stage in _split_with_separators(command, _STAGE_SPLIT, top_level_only=top_level_only)
+    ]
 
 
 # A shell variable reference, braced or bare. Positional and special parameters
@@ -648,16 +718,295 @@ def _blank_message_heredocs(command: str) -> str:
     return out
 
 
+class _Heredoc(NamedTuple):
+    """One heredoc as `_rewrite_heredocs` sees it.
+
+    `consumer` is the raw opening line from the command that reads the
+    heredoc onward; `masked_line` is the whole opening line, quote-masked;
+    `op_end` is where the heredoc operator ends in it; `rest` is the command
+    text after the delimiter line.
+    """
+
+    consumer: str
+    masked_line: str
+    head_separator: str
+    op_end: int
+    quoted_tag: str
+    body: str
+    rest: str
+
+
 def _scrub_stdin_heredocs(command: str) -> str:
     """Drop inert heredoc bodies fed to a git/gh message command's stdin.
 
     Handles `git commit -F - <<'EOF'` and `gh pr create --body-file - <<'EOF'`.
+    """
+    return _rewrite_heredocs(
+        command,
+        lambda h: (
+            []
+            if _MESSAGE_CMD_RE.match(h.consumer) and _heredoc_is_inert(h.quoted_tag, h.body)
+            else None
+        ),
+    )
+
+
+# Commands that read a heredoc as data: they copy it (`cat`, `tee`) or run it
+# as a program in a language other than shell, whose body the hook does not
+# judge. Any other consumer may run its stdin as shell (`sh`, `su`, `sudo -s`,
+# `script`, `exec 3<<`, `$SHELL`), so its body is kept and judged.
+_DATA_SINKS = frozenset({"cat", "tee", "node", "ruby", "perl"})
+_PYTHON_RE = re.compile(r"^python\d*(?:\.\d+)?$")
+# Launchers allowed in front of a data sink, when given no flags of their own.
+_SINK_LAUNCHERS = frozenset({"sudo", "env"})
+# Syntax after a heredoc operator that sends the body, or the command's output,
+# somewhere other than a plain sink: a pipe, a list, a background job, a
+# subshell, or a substitution.
+_SINK_TAIL_FORBIDDEN = re.compile(r"[|;&()`]")
+_FD_DUP_RE = re.compile(r"\d*[<>]&\d*-?|&>>?")
+
+
+def _sink_head(consumer_masked: str) -> str:
+    """Return the command name of a heredoc consumer, past env assignments and a bare launcher."""
+    words = consumer_masked.split()
+    i = 0
+    while i < len(words) and _ENV_ASSIGN_WORD.match(words[i]):
+        i += 1
+    if i < len(words) and words[i] in _SINK_LAUNCHERS:
+        i += 1
+        if i < len(words) and words[i].startswith("-"):
+            return ""
+    if i + 1 < len(words) and words[i] == "uv" and words[i + 1] == "run":
+        i += 2
+    return words[i].rsplit("/", 1)[-1] if i < len(words) else ""
+
+
+_ENV_ASSIGN_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _is_data_heredoc(h: _Heredoc) -> bool:
+    """Return whether the shell hands this heredoc's body to a command that reads it as data."""
+    if _MESSAGE_CMD_RE.match(h.consumer):
+        return True
+    if h.head_separator in ("(", "`"):
+        return False
+    tail = _FD_DUP_RE.sub(" ", h.masked_line[h.op_end :])
+    if _SINK_TAIL_FORBIDDEN.search(tail):
+        return False
+    consumer_masked = h.masked_line[len(h.masked_line) - len(h.consumer) :]
+    head = _sink_head(consumer_masked)
+    if head not in _DATA_SINKS and not _PYTHON_RE.match(head):
+        return False
+    # A file the heredoc writes and a later line runs (`bash /tmp/s.sh`) makes
+    # the body a script, so any later mention of a written name keeps it.
+    for word in h.consumer.split()[1:]:
+        if "<<" in word or word.startswith("-"):
+            continue
+        name = Path(strip_quotes(word.lstrip("<>|&0123456789"))).name
+        if name and re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w.-])", h.rest):
+            return False
+    return True
+
+
+def substitution_bodies(command: str, *, quotes_are_literal: bool = False) -> list[str]:
+    """Return the body of each top-level command or process substitution in `command`.
+
+    Use to judge the commands a substitution runs: `$( )` and backticks run in
+    unquoted text and inside double quotes, `<( )` and `>( )` in unquoted text,
+    and nothing runs inside single quotes. A nested substitution stays inside
+    its parent's body, for the caller to recurse into. An unclosed
+    substitution takes the rest of the command, so text cannot hide past it.
+
+    Args:
+        command: The Bash command string to scan.
+        quotes_are_literal: Treat quote characters as plain text, as the shell
+            does in an unquoted heredoc body. Defaults to False.
+    """
+    return [
+        command[body_start:body_end]
+        for _, body_start, body_end, _ in _substitution_spans(
+            command, quotes_are_literal=quotes_are_literal
+        )
+    ]
+
+
+def blank_substitutions(command: str) -> str:
+    """Return `command` with each top-level substitution, delimiters included, overwritten.
+
+    Use to read the words of a statement itself, so the spaces and newlines
+    inside `MSG=$(cat <<'EOF' ...)` do not split it into words. Offsets are
+    kept.
+
+    Args:
+        command: The Bash command string to blank.
+    """
+    out = list(command)
+    for start, _, _, end in _substitution_spans(command, quotes_are_literal=False):
+        out[start:end] = _MASK_FILL * (end - start)
+    return "".join(out)
+
+
+def _substitution_spans(
+    command: str, *, quotes_are_literal: bool
+) -> list[tuple[int, int, int, int]]:
+    """Return `(start, body_start, body_end, end)` for each top-level substitution."""
+    spans: list[tuple[int, int, int, int]] = []
+    in_double = False
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == "'" and not in_double and not quotes_are_literal:
+            close = command.find("'", i + 1)
+            i = n if close < 0 else close + 1
+            continue
+        if ch == '"' and not quotes_are_literal:
+            in_double = not in_double
+            i += 1
+            continue
+        if ch == "`":
+            close = _closing_backtick(command, i + 1)
+            spans.append((i, i + 1, close, min(close + 1, n)))
+            i = close + 1
+            continue
+        if command.startswith("$((", i):
+            i += 3
+            continue
+        if command.startswith("$(", i) or (not in_double and command.startswith(("<(", ">("), i)):
+            close = _closing_paren(command, i + 2)
+            spans.append((i, i + 2, close, min(close + 1, n)))
+            i = close + 1
+            continue
+        i += 1
+    return spans
+
+
+def _closing_backtick(command: str, start: int) -> int:
+    """Return the index of the unescaped backtick that closes one opened before `start`."""
+    i = start
+    while i < len(command):
+        if command[i] == "\\":
+            i += 2
+            continue
+        if command[i] == "`":
+            return i
+        i += 1
+    return len(command)
+
+
+def _closing_paren(command: str, start: int) -> int:
+    """Return the index of the `)` that closes a `(` opened just before `start`.
+
+    Skips quoted text, escapes, and heredoc bodies, whose quotes and parens are
+    data. Returns `len(command)` when nothing closes it.
+    """
+    depth = 1
+    i = start
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch in "'\"":
+            close = command.find(ch, i + 1) if ch == "'" else _closing_double(command, i + 1)
+            i = n if close < 0 else close + 1
+            continue
+        if command.startswith("<<", i) and not command.startswith("<<<", i):
+            op = _HEREDOC_OP_RE.match(command, i)
+            if op is not None:
+                i = _after_heredoc(command, op)
+                continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return n
+
+
+def _closing_double(command: str, start: int) -> int:
+    """Return the index of the `"` that closes a double quote opened before `start`, or -1."""
+    i = start
+    while i < len(command):
+        if command[i] == "\\":
+            i += 2
+            continue
+        if command[i] == '"':
+            return i
+        i += 1
+    return -1
+
+
+def _after_heredoc(command: str, op: re.Match[str]) -> int:
+    """Return the index just past the delimiter line of the heredoc `op` opens."""
+    line_end = command.find("\n", op.end())
+    if line_end < 0:
+        return len(command)
+    tag = op.group("tag")
+    pos = line_end + 1
+    while pos <= len(command):
+        nxt = command.find("\n", pos)
+        line = command[pos : len(command) if nxt < 0 else nxt]
+        if (line.lstrip("\t") if op.group("dash") else line) == tag:
+            return len(command) if nxt < 0 else nxt
+        if nxt < 0:
+            break
+        pos = nxt + 1
+    return len(command)
+
+
+def drop_data_heredocs(command: str) -> str:
+    """Return `command` with each heredoc body that the shell treats as data removed.
+
+    Use before reading a command line by line for commands, so the text of a
+    file written with `cat > notes.md <<'EOF'` is not mistaken for commands
+    to run. A body is dropped only when its consumer is a known data sink: a
+    single `cat` or `tee` stage (optionally after a bare `sudo` or `env`), a
+    non-shell interpreter (`python3 -`, `node`), or a commit or PR message
+    command, with no pipe, list, or substitution after the heredoc operator,
+    and no later mention of a file it writes. Every other body stays. When an
+    unquoted tag lets a data body run `$(...)` or backtick substitutions, only
+    their bodies stay, each as its own line. The line that opens the heredoc,
+    with its redirects, always stays, and so does the delimiter line.
+
+    Args:
+        command: The Bash command string to scrub.
+    """
+    return _rewrite_heredocs(command, _data_heredoc_commands)
+
+
+def _data_heredoc_commands(h: _Heredoc) -> list[str] | None:
+    """Return the lines of a data heredoc body that still run, or None to keep the body.
+
+    A data body runs nothing, except the substitutions of an unquoted tag,
+    which run when the shell expands the body.
+    """
+    if not _is_data_heredoc(h):
+        return None
+    if h.quoted_tag:
+        return []
+    return [
+        line
+        for body in substitution_bodies(h.body, quotes_are_literal=True)
+        for line in body.split("\n")
+    ]
+
+
+def _rewrite_heredocs(command: str, rewrite: Callable[[_Heredoc], list[str] | None]) -> str:
+    """Replace each heredoc body for which `rewrite` returns lines; keep it on None.
+
     Walks the command line by line, carrying quote state across newlines and
     skipping every heredoc body, because a body is not shell-quoted: an
     apostrophe in it (`don't`) would otherwise open a quote that swallows the
     rest of the command. A heredoc operator seen only inside a quote, or a
     second operator on one line, means the walk can no longer tell body from
-    shell, so nothing after it is dropped.
+    shell, so nothing after it is rewritten.
     """
     lines = command.split("\n")
     view = _blank_message_heredocs(command).split("\n")
@@ -696,12 +1045,23 @@ def _scrub_stdin_heredocs(command: str) -> str:
         if end is None:
             continue
         head = masked[: op.start()]
-        consumer_start = max((s.end() for s in _LINE_CLAUSE_SPLIT.finditer(head)), default=0)
-        body = "\n".join(lines[i:end])
-        if _MESSAGE_CMD_RE.match(line[consumer_start:]) and _heredoc_is_inert(op.group("q"), body):
-            out.append(lines[end])
-        else:
+        separators = list(_LINE_CLAUSE_SPLIT.finditer(head))
+        consumer_start = separators[-1].end() if separators else 0
+        replacement = rewrite(
+            _Heredoc(
+                consumer=line[consumer_start:],
+                masked_line=masked,
+                head_separator=separators[-1].group() if separators else "",
+                op_end=op.end(),
+                quoted_tag=op.group("q"),
+                body="\n".join(lines[i:end]),
+                rest="\n".join(lines[end + 1 :]),
+            )
+        )
+        if replacement is None:
             out.extend(lines[i : end + 1])
+        else:
+            out.extend([*replacement, lines[end]])
         i = end + 1
     return "\n".join(out)
 

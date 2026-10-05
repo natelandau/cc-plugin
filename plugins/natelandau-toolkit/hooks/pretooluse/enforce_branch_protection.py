@@ -12,6 +12,14 @@ file's branch, file-modifying Bash commands use each write target's branch, and
 git commit/merge use the repo named by `git -C <path>` / `cd <path> &&`. So a
 write into a repo on main is caught wherever the shell sits, and a write into a
 feature branch (or a different repo, or no repo) passes even from a main cwd.
+A git statement is not exempt from the file-write checks: its redirects and its
+other pipeline stages (`git ls-files | xargs rm`) are judged like any write.
+The body of every command or process substitution (`$( )`, backticks, `<( )`)
+runs, so it is judged as a command of its own, inside double quotes too
+(`echo "$(rm foo.py)"` is a write).
+A heredoc body is read as commands unless a known data sink consumes it
+(`cat > notes.md <<'EOF'`, `python3 - <<'EOF'`, a commit message); see
+`lib.bash.drop_data_heredocs`.
 
 A write whose target cannot be read off the command (`sed -i`, `wget`) is
 judged by the branch of the effective working directory instead, so it is
@@ -32,7 +40,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -83,12 +91,29 @@ _GIT_OPTS = r"(?:-[cC]\s+\S+\s+)*"
 GIT_COMMIT_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}commit\b")
 GIT_MERGE_PULL_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}(?:merge|pull)\b")
 GIT_MERGE_SQUASH_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}merge\s+--squash\b")
-# Git subcommands that mutate the working tree (not history): apply a patch, a
-# mailbox of patches, or pop/apply a stash. On a protected branch these dirty
-# tracked files just like an edit, so they get the file-mod deny.
+# Git subcommands that mutate the working tree (not history): apply a patch or
+# a mailbox of patches, pop or apply a stash, remove or move tracked files,
+# or restore files from the index or a commit (`git restore`, `git checkout
+# -- <path>`). On a protected branch these change tracked files just like an
+# edit, so they get the file-mod deny.
 GIT_WORKTREE_WRITE_RE = re.compile(
-    rf"^\s*git\s+{_GIT_OPTS}(?:apply\b|am\b|stash\s+(?:pop|apply)\b)"
+    rf"^\s*git\s+{_GIT_OPTS}(?:apply\b|am\b|rm\b|mv\b|restore\b"
+    r"|stash\s+(?:pop|apply)\b"
+    r"|checkout\b(?=.*\s--(?:\s|$)))"
 )
+# Forms of those subcommands that leave the working tree alone: `git rm
+# --cached` and `git restore --staged` (without `--worktree`/`-W`) change only
+# the index, and `git rm -n`/`git mv -n` are dry runs.
+GIT_INDEX_ONLY_RES = (
+    re.compile(rf"^\s*git\s+{_GIT_OPTS}rm\b.*\s--cached\b"),
+    re.compile(
+        rf"^\s*git\s+{_GIT_OPTS}restore\b"
+        r"(?!.*(?:--worktree\b|\s-[A-Za-z]*W))(?=.*(?:--staged\b|\s-[A-Za-z]*S))"
+    ),
+    re.compile(rf"^\s*git\s+{_GIT_OPTS}(?:rm|mv)\b.*\s(?:--dry-run\b|-[A-Za-z]*n\b)"),
+)
+# `git commit --dry-run` reports what a commit would do and writes nothing.
+GIT_DRY_RUN_RE = re.compile(r"(?:^|\s)--dry-run\b")
 # Flags that make a working-tree-write git clause actually read-only: `git apply`
 # inspection flags (check/stat/numstat/summary) and `git am` control flags that
 # do not apply a patch (abort/quit/show-current-patch). Anchored to a flag
@@ -116,8 +141,9 @@ class CommandRule:
     rule type because its matcher carries `match_full`/`exclude` semantics
     and the bypass logic lives alongside the data in this module.
 
-    `pattern` is a regex tested against each compound sub-part of a command
-    by default (split on `&&`, `||`, `;`). Set `match_full=True` to test
+    `pattern` is a regex tested against each pipeline stage of a command by
+    default (split on `&&`, `||`, `;`, `|`), so a flag is read only from the
+    stage that runs the command it belongs to. Set `match_full=True` to test
     against the entire command string instead -- needed for patterns that
     span operators (e.g. output redirects).
 
@@ -202,8 +228,12 @@ DESTRUCTIVE_RULES: tuple[CommandRule, ...] = (
 
 PROTECTED_FILE_MOD_RULES: tuple[CommandRule, ...] = (
     CommandRule(pattern=r"^\s*(rm|rmdir|mv|cp|touch|mkdir|chmod|chown|ln|install)\b"),
-    CommandRule(pattern=r"\bsed\b.*\s-i"),
-    CommandRule(pattern=r"\bperl\b.*\s-i"),
+    # In-place edits in every spelling: bundled short flags (`sed -Ei`,
+    # `perl -pi`), BSD sed's `-I`, `gsed`, and any GNU prefix of `--in-place`
+    # (`--i`, `--in`). The perl cluster admits only valueless switches before
+    # the `i`, so a module name in `-MList::Util` is not read as one.
+    CommandRule(pattern=r"\bg?sed\b.*\s(?:-[a-zA-Z]*[iI]|--i[\w-]*)"),
+    CommandRule(pattern=r"\bperl\b.*\s-[acgnlpswWtTuUX0-9]*i"),
     CommandRule(pattern=r"\bcurl\b.*\s-[oO]\b"),
     CommandRule(pattern=r"^\s*wget\b"),
     CommandRule(pattern=r"\btee\b"),
@@ -306,15 +336,18 @@ def match_rules(
 ) -> str | None:
     """Return the first matching rule's reason, or None.
 
-    For per-part rules, split the command on compound operators and test
-    each sub-part. For full-command rules, test the entire string.
+    For per-part rules, split the command into pipeline stages and test each
+    stage, so `sed -n p f | grep -i x` never reads grep's `-i` as sed's. For
+    full-command rules, test the entire string.
 
     Args:
         command: The bash command string to check.
         rules: The rule tuple to match against.
-        skip_git_parts: Skip sub-command parts that start with git/gh.
+        skip_git_parts: Skip stages that start with git/gh.
     """
-    parts = bash.split_clauses(command)  # loop-invariant; split once, not per rule
+    # Top-level stages keep a flag with its command across a piped substitution.
+    # The commands inside a substitution are judged on their own by the caller.
+    parts = bash.split_stages(command)
     for rule in rules:
         if rule.match_full:
             if re.search(rule.pattern, command) and not _is_excluded(rule, command):
@@ -392,6 +425,21 @@ def is_squash_merge_in_progress(command: str, git_dir: Path | None) -> bool:
 # === Checks ===
 
 
+# A whole word that is a quoted flag or force refspec (`"-i"`, `'-f'`,
+# `'+main'`). The shell strips the quotes, so the command receives it plain.
+_QUOTED_FLAG_RE = re.compile(r"""(?<!\S)(["'])([-+][^\s"']*)\1(?!\S)""")
+
+
+def _unquote_flags(command: str) -> str:
+    """Return `command` with the quotes around a whole-word flag or refspec blanked to spaces.
+
+    The flag rules read a quoted span as data, so `sed "-i" ...` would hide
+    its in-place flag. Blanking each quote to a space keeps every byte offset,
+    so a target sliced by offset from the result is the same path.
+    """
+    return _QUOTED_FLAG_RE.sub(lambda m: f" {m.group(2)} ", command)
+
+
 def check_destructive(command: str) -> str | None:
     """Return a block reason if the command is destructive, else None."""
     return match_rules(command, DESTRUCTIVE_RULES)
@@ -402,6 +450,15 @@ def check_destructive(command: str) -> str | None:
 # `> /tmp/log` and `2>/tmp/log` both yield `/tmp/log` while an fd dup like
 # `2>&1` yields no path (the target class excludes `&`).
 _REDIRECT_TARGET_RE = re.compile(r"(?:\d*|&)>>?\|?\s*([^\s|;&<>]+)")
+
+# Shell syntax in a stage that is neither a command word nor an output target:
+# an fd duplication or close (`2>&1`, `>&2`, `<&3`, `2>&-`), a here-string or
+# heredoc operator with its word, an input redirect with its file, and an
+# unquoted comment. Blanked before operands are read, so `rm x 2>&1` does not
+# read `2>&1` as a path and `cp a b 2>&1` keeps `b` as its last operand.
+_NON_OPERAND_RE = re.compile(
+    r"\d*[<>]&\d*-?|<<<\s*\S+|\d*<<-?\s*\S+|\d*<(?![<(])\s*\S+|(?:^|(?<=\s))#.*"
+)
 
 # Commands whose non-flag arguments name files they create or modify, so those
 # args are write targets the exempt-path carve-out can confine. A command
@@ -457,8 +514,272 @@ def _command_index(word_spans: list[re.Match[str]]) -> int:
     return n
 
 
+# A chmod MODE operand: octal (`755`) or a comma-joined symbolic list
+# (`+x`, `u+x,go-w`, `a=r`). A mode written with a leading `-` (`-x`) is
+# already dropped with the flags.
+_CHMOD_MODE_RE = re.compile(
+    r"^(?:[0-7]{1,4}|[ugoa]*(?:[-+=](?:[rwxXst]*|[ugo]))+)(?:,[ugoa]*(?:[-+=](?:[rwxXst]*|[ugo]))+)*$"
+)
+
+
+# `--reference` or any GNU-accepted prefix of it; `--ref` is the shortest
+# that no other chmod/chown option shares.
+_REFERENCE_RE = re.compile(r"(?:^|\s)--ref")
+
+
+def _drop_mode_operand(head: str, operands: list[str], clause: str) -> list[str]:
+    """Drop the leading chmod MODE or chown OWNER operand, which names no file.
+
+    Read as a path, `+x` or `nate:staff` resolves into the cwd's repo, so a
+    chmod aimed at a file in another repo is judged by the shell's branch.
+    With `--reference` (or a GNU prefix of it, `--ref`), every operand is a
+    file, so none is dropped. A chmod
+    operand is dropped only when it is shaped like a mode, so a mode spelled
+    `-x` (skipped as a flag) cannot shift a real file into the mode slot.
+    """
+    if not operands or head not in ("chmod", "chown") or _REFERENCE_RE.search(clause):
+        return operands
+    if head == "chmod" and not _CHMOD_MODE_RE.match(bash.strip_quotes(operands[0])):
+        return operands
+    return operands[1:]
+
+
 def _clause_write_targets(clause: str) -> list[str] | None:
-    """Return the file paths a single Bash clause writes, or None if it can't be confined.
+    """Return the file paths a Bash statement writes, or None if it can't be confined.
+
+    Collect the targets of each pipeline stage on its own, so a writer in a
+    later stage (`echo y | rm /repo/foo.py`) is judged by its own operands,
+    not by the shell's directory. One unconfinable stage makes the whole
+    statement unconfinable.
+    """
+    targets: list[str] = []
+    for stage in bash.split_stages(clause):
+        stage_targets = _stage_write_targets(stage.strip())
+        if stage_targets is None:
+            return None
+        targets.extend(stage_targets)
+    return targets
+
+
+# Short options of cp/ln/install that take a value (attached or as the next
+# word), and the valueless short options of the GNU and BSD versions. A short
+# option outside both sets makes the command unparsable. BSD install's `-S` is
+# valueless, so reading it as GNU's `-S SUFFIX` can only swallow an operand and
+# fall back to judging every operand.
+_COPY_VALUE_SHORT = {"cp": "St", "ln": "St", "install": "Smogt"}
+_COPY_FLAG_SHORT = {"cp": "abcdfHilLnNPpRrsTuvxXZ", "ln": "bdFfhiLnPrsTvw", "install": "bcCdDpsvZ"}
+# Long options of cp/ln/install, each mapped to whether it requires a value.
+# An option whose value is optional (`--backup[=CONTROL]`) takes it only after
+# `=`, so it maps to False. GNU also accepts a required value as the next word
+# and any unambiguous prefix of a name (`--target`); a name that matches none
+# of these, or more than one, makes the command unparsable.
+_COPY_LONG: dict[str, dict[str, bool]] = {
+    "cp": {
+        **dict.fromkeys(
+            (
+                "--archive",
+                "--attributes-only",
+                "--backup",
+                "--copy-contents",
+                "--debug",
+                "--dereference",
+                "--force",
+                "--interactive",
+                "--link",
+                "--no-dereference",
+                "--no-clobber",
+                "--no-target-directory",
+                "--one-file-system",
+                "--parents",
+                "--preserve",
+                "--recursive",
+                "--reflink",
+                "--remove-destination",
+                "--strip-trailing-slashes",
+                "--symbolic-link",
+                "--update",
+                "--verbose",
+                "--keep-directory-symlink",
+                "--context",
+            ),
+            False,
+        ),
+        **dict.fromkeys(("--target-directory", "--suffix", "--sparse", "--no-preserve"), True),
+    },
+    "ln": {
+        **dict.fromkeys(
+            (
+                "--backup",
+                "--directory",
+                "--force",
+                "--interactive",
+                "--logical",
+                "--no-dereference",
+                "--no-target-directory",
+                "--physical",
+                "--relative",
+                "--symbolic",
+                "--verbose",
+            ),
+            False,
+        ),
+        **dict.fromkeys(("--target-directory", "--suffix"), True),
+    },
+    "install": {
+        **dict.fromkeys(
+            (
+                "--backup",
+                "--compare",
+                "--debug",
+                "--directory",
+                "--preserve-timestamps",
+                "--strip",
+                "--no-target-directory",
+                "--verbose",
+                "--preserve-context",
+                "--context",
+            ),
+            False,
+        ),
+        **dict.fromkeys(
+            (
+                "--target-directory",
+                "--suffix",
+                "--mode",
+                "--owner",
+                "--group",
+                "--strip-program",
+            ),
+            True,
+        ),
+    },
+}
+# A destination holding one of these is expanded by the shell (`$D`, `$(..)`,
+# a backtick, a glob, a brace list), so the hook cannot read the real path.
+_UNREADABLE_PATH_CHARS = frozenset("$`*?[{")
+
+
+@dataclass(slots=True)
+class _CopyArgs:
+    """The parsed arguments of a cp/ln/install command.
+
+    The sources of a copy or link are only read, so judging them as writes
+    blocks a copy out of a protected repo. `destinations` names what the
+    command writes, or None when its options cannot be parsed.
+    """
+
+    head: str
+    operands: list[str] = field(default_factory=list)
+    target_dir: str | None = None
+    creates_dirs: bool = False
+
+    def parse(self, words: list[str]) -> bool:
+        """Read `words` (the arguments after the command name); return False if unparsable."""
+        options_done = False
+        i = 0
+        while i < len(words):
+            word = words[i]
+            nxt = words[i + 1] if i + 1 < len(words) else None
+            i += 1
+            if options_done or not word.startswith("-") or word == "-":
+                self.operands.append(word)
+                continue
+            if word == "--":
+                options_done = True
+                continue
+            used = self._long(word, nxt) if word.startswith("--") else self._short(word, nxt)
+            if used is None:
+                return False
+            i += used
+        return True
+
+    def _long(self, word: str, nxt: str | None) -> int | None:
+        """Apply one long option; return how many following words it used, or None."""
+        name, eq, value = word.partition("=")
+        options = _COPY_LONG[self.head]
+        matches = [name] if name in options else [opt for opt in options if opt.startswith(name)]
+        if len(matches) != 1:
+            return None
+        option = matches[0]
+        if option == "--directory" and self.head == "install":
+            self.creates_dirs = True
+        if not options[option]:
+            return 0
+        used = 0
+        if not eq:
+            if nxt is None:
+                return None
+            value, used = nxt, 1
+        if option == "--target-directory":
+            self.target_dir = value
+        return used
+
+    def _short(self, word: str, nxt: str | None) -> int | None:
+        """Apply one short-option cluster; return how many following words it used, or None."""
+        cluster = word[1:]
+        for j, flag in enumerate(cluster):
+            if flag in _COPY_VALUE_SHORT[self.head]:
+                value, used = cluster[j + 1 :], 0
+                if not value:
+                    if nxt is None:
+                        return None
+                    value, used = nxt, 1
+                if flag == "t":
+                    self.target_dir = value
+                return used
+            if flag not in _COPY_FLAG_SHORT[self.head]:
+                return None
+            if self.head == "install" and flag == "d":
+                self.creates_dirs = True
+        return 0
+
+    @property
+    def destinations(self) -> list[str] | None:
+        """Return the written paths, or None when they cannot be told apart from sources.
+
+        That is every operand for `install -d`, else the target directory, else
+        the last operand, else a lone `ln` operand's basename in the cwd.
+        """
+        if self.creates_dirs:
+            return self.operands
+        if self.target_dir is not None:
+            chosen = [self.target_dir]
+        elif len(self.operands) > 1:
+            chosen = [self.operands[-1]]
+        elif self.head == "ln" and self.operands:
+            chosen = [Path(bash.strip_quotes(self.operands[0])).name]
+        else:
+            return None
+        if any(_UNREADABLE_PATH_CHARS & set(path) for path in chosen):
+            return None
+        return chosen
+
+
+def _copy_destinations(head: str, words: list[str]) -> list[str] | None:
+    """Return the paths a cp/ln/install writes, or None to judge every operand instead."""
+    args = _CopyArgs(head)
+    return args.destinations if args.parse(words) else None
+
+
+def _operand_paths(operand: str) -> list[str]:
+    """Return the paths an operand may name: itself, plus the paths its substitutions mention.
+
+    The hook cannot run `$(echo /repo/foo.py)` to learn the path it prints, so
+    every path-like word in a substitution body is judged as well. Over-matching
+    costs a false block, never a missed write.
+    """
+    paths = [operand]
+    for body in bash.substitution_bodies(operand):
+        paths.extend(
+            word.strip("\"'()`")
+            for word in body.split()
+            if "/" in word and not word.startswith("-")
+        )
+    return paths
+
+
+def _stage_write_targets(clause: str) -> list[str] | None:
+    """Return the file paths a single pipeline stage writes, or None if it can't be confined.
 
     Collects the paths the clause would create or modify: redirect targets
     (`> path`) and the positional args of a `_FILE_MOD_CMDS` write (`rm a b`,
@@ -473,9 +794,10 @@ def _clause_write_targets(clause: str) -> list[str] | None:
     # in `awk 'c>=2'` or `grep 'a>b'`) is never read as a redirect; mask_quoted
     # preserves byte offsets, so each target is sliced back out of the original.
     # mask_comparisons additionally blanks a `>` that is an arithmetic/test
-    # comparison (`(( a > b ))`, `[[ 5 > 3 ]]`) while leaving a real redirect
-    # inside a command substitution (`$(cat x > f)`) intact.
-    masked = bash.mask_comparisons(bash.mask_quoted(clause))
+    # comparison (`(( a > b ))`, `[[ 5 > 3 ]]`). Substitutions are blanked
+    # first: their bodies (`$(cat x > f)`) run as commands of their own and are
+    # judged separately, so their text is not this stage's operands.
+    masked = bash.mask_comparisons(bash.mask_quoted(bash.blank_substitutions(clause)))
     targets: list[str] = [
         clause[m.start(1) : m.end(1)] for m in _REDIRECT_TARGET_RE.finditer(masked)
     ]
@@ -486,6 +808,7 @@ def _clause_write_targets(clause: str) -> list[str] | None:
     # with equal-length filler so the remainder stays offset-aligned with the
     # original, letting positional targets be sliced from `clause` by span.
     remainder = _REDIRECT_TARGET_RE.sub(lambda m: " " * len(m.group()), masked)
+    remainder = _NON_OPERAND_RE.sub(lambda m: " " * len(m.group()), remainder)
     word_spans = list(re.finditer(r"\S+", remainder))
     # Resolve the real executable past any wrapper/env/subshell prefix and strip
     # its path, so `sudo rm`, `/bin/rm`, `env rm`, and `( rm` all read as `rm`.
@@ -498,10 +821,25 @@ def _clause_write_targets(clause: str) -> list[str] | None:
         # Positional args are write targets, minus flags and bare shell grouping
         # punctuation (`)`/`}`/`;` from a subshell or brace group, which are not
         # paths -- so `( rm /tmp/x )` confines to /tmp instead of also "writing" `)`.
-        targets.extend(
+        operands = [
             clause[m.start() : m.end()]
             for m in word_spans[cmd_index + 1 :]
             if not m.group().startswith("-") and m.group().strip("(){};&") != ""
+        ]
+        if head in _COPY_VALUE_SHORT:
+            words = [
+                clause[m.start() : m.end()]
+                for m in word_spans[cmd_index + 1 :]
+                if m.group().strip("(){};&") != ""
+            ]
+            destinations = _copy_destinations(head, words)
+            if destinations is not None:
+                targets.extend(destinations)
+                return targets
+        targets.extend(
+            path
+            for operand in _drop_mode_operand(head, operands, clause)
+            for path in _operand_paths(operand)
         )
         return targets
     # Match the block rules on the full remainder (catches a non-anchored writer
@@ -630,10 +968,12 @@ def _git_clause_decision(
     before the branch lookup -- that lookup spawns a `git` subprocess, so skipping
     it keeps the common read-only case off the hot path.
     """
-    is_history = bool(GIT_COMMIT_RE.match(clause) or GIT_MERGE_PULL_RE.match(clause))
+    is_commit = GIT_COMMIT_RE.match(clause) is not None and not GIT_DRY_RUN_RE.search(clause)
+    is_history = bool(is_commit or GIT_MERGE_PULL_RE.match(clause))
     is_worktree_write = (
         GIT_WORKTREE_WRITE_RE.match(clause) is not None
         and GIT_WORKTREE_READONLY_RE.search(clause) is None
+        and not any(regex.match(clause) for regex in GIT_INDEX_ONLY_RES)
     )
     if not (is_history or is_worktree_write):
         return None
@@ -671,36 +1011,99 @@ def _file_clause_decision(clause: str, eff_cwd: str, exempt: ExemptRoots) -> Dec
     return None
 
 
-def _evaluate_bash(command: str, cwd: str, exempt: ExemptRoots) -> Decision | None:
+# Commands that take a substitution's output as data, so a heredoc inside the
+# substitution (`git commit -m "$(cat <<'EOF' ... EOF)"`) is a message, not
+# code. Under any other command (`eval`, `sh -c`, `sudo`, or a substitution in
+# command position) the output can run, so the heredoc body is judged.
+_DATA_ARG_COMMANDS = frozenset(
+    {"git", "gh", "echo", "printf", "cat", "tee", "test", "[", "[[", "export", "local", "declare"}
+)
+# How deep substitutions inside substitutions are judged; deeper ones pass.
+_MAX_SUBSTITUTION_DEPTH = 8
+
+
+def _output_is_data(clause: str) -> bool:
+    """Return whether a statement uses its substitutions' output only as data."""
+    blanked = bash.mask_quoted(bash.blank_substitutions(clause))
+    spans = list(re.finditer(r"\S+", blanked))
+    i = 0
+    while i < len(spans) and _ENV_ASSIGN.match(spans[i].group()):
+        i += 1
+    if i == len(spans):
+        return True  # a bare assignment (`MSG=$(cat <<EOF ...)`) stores the output
+    head = clause[spans[i].start() : spans[i].end()]
+    return head.rsplit("/", 1)[-1] in _DATA_ARG_COMMANDS
+
+
+def _judge_bash(
+    command: str, cwd: str, exempt: ExemptRoots, *, output_is_data: bool = True, depth: int = 0
+) -> Decision | None:
+    """Return a Decision for a Bash command or a substitution body, else None.
+
+    Drops data heredoc bodies (unless the output can run as code) and
+    unquotes flags, then applies the destructive rules and the
+    protected-branch checks.
+    """
+    if output_is_data:
+        command = bash.drop_data_heredocs(command)
+    command = _unquote_flags(command)
+    reason = check_destructive(command)
+    if reason:
+        return Decision.blocked(ID, f"{reason}. Run this command outside Claude Code if you must.")
+    return _evaluate_bash(command, cwd, exempt, depth=depth)
+
+
+def _evaluate_bash(
+    command: str, cwd: str, exempt: ExemptRoots, *, depth: int = 0
+) -> Decision | None:
     """Return a Decision for a Bash command's protected-branch impact, else None.
 
-    Walks the command's clauses once, left to right, tracking the effective
-    working directory across `cd <dir> &&` so every git op and every file write
-    is judged against the directory it actually touches. Precedence is deny >
-    ask: the first denying clause (a direct commit, or a write to a tracked file)
-    wins outright; a merge *ask* is held and still loses to any later deny, so a
-    command that both merges and deletes a tracked file is denied rather than
-    merely prompted; a lone ask, or nothing, falls through last.
+    Walks the command's statements once, left to right, tracking the effective
+    working directory across `cd <dir> &&` (but not across a backgrounded
+    `cd <dir> &` or a `cd` in a pipeline, which run in a subshell), so every
+    git op and every file write is judged against the directory it touches. Within a statement,
+    every git stage (including one in a later pipeline stage or inside a
+    substitution) gets the git checks, and the whole statement also gets the
+    file-write checks, so `git show x > foo.py` and `git ls-files | xargs rm`
+    are judged as the writes they are. The body of each command or process
+    substitution in the statement runs, so it is judged as a command of its
+    own (`echo $(rm foo.py)`). Precedence is deny > ask: the first deny (a
+    direct commit, or a write to a tracked file) wins outright; a merge *ask*
+    is held and still loses to any later deny, so a command that both merges
+    and deletes a tracked file is denied rather than merely prompted; a lone
+    ask, or nothing, falls through last.
     """
     eff_cwd = cwd
     pending_ask: Decision | None = None
-    for raw_clause in bash.split_clauses(command):
+    for raw_clause, operator_after in bash.split_statements(command):
         clause = raw_clause.strip()
         if not clause:
             continue
-        if _is_git_command(clause):
-            decision = _git_clause_decision(command, clause, eff_cwd, exempt)
+        decisions: list[Decision | None] = []
+        if depth < _MAX_SUBSTITUTION_DEPTH:
+            output_is_data = _output_is_data(clause)
+            decisions.extend(
+                _judge_bash(body, eff_cwd, exempt, output_is_data=output_is_data, depth=depth + 1)
+                for body in bash.substitution_bodies(clause)
+            )
+        moved = bash.cd_target(clause, eff_cwd)
+        # A backgrounded `cd`, or one in a pipeline, runs in a subshell, so it
+        # moves nothing for the statements after it.
+        if moved is not None and operator_after != "&" and len(bash.split_stages(clause)) == 1:
+            eff_cwd = moved
         else:
-            moved = bash.cd_target(clause, eff_cwd)
-            if moved is not None:
-                eff_cwd = moved
+            decisions.extend(
+                _git_clause_decision(command, stage.strip(), eff_cwd, exempt)
+                for stage in bash.split_stages(clause)
+                if _is_git_command(stage.strip())
+            )
+            decisions.append(_file_clause_decision(clause, eff_cwd, exempt))
+        for decision in decisions:
+            if decision is None:
                 continue
-            decision = _file_clause_decision(clause, eff_cwd, exempt)
-        if decision is None:
-            continue
-        if decision.block:
-            return decision  # a deny outranks any pending ask; stop here
-        pending_ask = pending_ask or decision
+            if decision.block:
+                return decision  # a deny outranks any pending ask; stop here
+            pending_ask = pending_ask or decision
     return pending_ask
 
 
@@ -718,11 +1121,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     command: str = bash.join_continuations((event.get("tool_input") or {}).get("command", ""))
     cwd: str = event.get("cwd", "")
 
-    reason = check_destructive(command)
-    if reason:
-        return Decision.blocked(ID, f"{reason}. Run this command outside Claude Code if you must.")
-
-    decision = _evaluate_bash(command, cwd, exempt)
+    decision = _judge_bash(command, cwd, exempt)
     if decision is not None:
         return decision
 
