@@ -1,3 +1,13 @@
+## v0.25.0 (2026-10-05)
+
+### Feat
+
+- **walkthrough**: add a skill that shows the UI an agent built (#20)
+
+### Fix
+
+- **branch-protection**: judge each command by what it really writes (#21)
+
 ## v0.24.0 (2026-10-02)
 
 ### Feat
