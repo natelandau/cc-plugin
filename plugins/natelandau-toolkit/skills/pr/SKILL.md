@@ -188,7 +188,7 @@ before the colon when the branch is breaking.
 
 Read `../shared/commit-subjects.md` (relative to this skill's base directory)
 and write the title to that bar. Write it from the whole diff, not from the
-commit subjects: commits describe steps, the title describes the outcome.
+commit subjects: commits describe steps, the title summarizes the whole.
 Mechanics and placement go in `## Changes`.
 
 #### Lead block

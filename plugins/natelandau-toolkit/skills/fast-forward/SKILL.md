@@ -156,9 +156,9 @@ regroup again before you continue.
 
 This skill adds two rules to the procedure:
 
-1. Rewrite when any message fails the changelog bar, even if the grouping is
+1. Rewrite when any message fails the subject bar, even if the grouping is
    already clean. The rewrite stays tree-preserving. Only the messages change.
-2. Hold every subject and body to the changelog bar. Read
+2. Hold every subject and body to the subject bar. Read
    `../shared/commit-subjects.md` (relative to this skill's base directory)
    for it. In addition:
    - Name a private class, function, module, or file path only when it is the

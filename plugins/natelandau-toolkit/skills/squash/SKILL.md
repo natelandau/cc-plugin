@@ -160,8 +160,8 @@ git log --oneline <trunk>..<feature-branch>   # the commits being collapsed
 git diff --staged --stat                      # the net change landing on the trunk
 ```
 
-Write one conventional commit that describes the branch as one feature for an
-end user of the project. Read `../shared/commit-subjects.md` (relative to this
+Write one conventional commit that summarizes the work on the branch as a
+whole. Read `../shared/commit-subjects.md` (relative to this
 skill's base directory) and write the subject to that bar, from the whole
 staged diff rather than the intermediate commits. Drop incidental churn (test
 tweaks, lint fixes, renames) unless it is the user-facing point. The body gives
