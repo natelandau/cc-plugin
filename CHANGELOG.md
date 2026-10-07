@@ -1,3 +1,9 @@
+## v0.25.1 (2026-10-06)
+
+### Fix
+
+- **skills**: summarize the work in commit subjects, not its results
+
 ## v0.25.0 (2026-10-05)
 
 ### Feat
