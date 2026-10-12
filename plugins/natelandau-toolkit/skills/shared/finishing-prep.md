@@ -60,28 +60,7 @@ user resolve them, or run `git rebase --abort` if they prefer not to rebase now.
 Do not guess at resolutions. Resume only when the rebase completes cleanly. If
 the branch was already current, the rebase is a no-op.
 
-## Step C: Get the branch green
-
-Land only work that passes the project's own gates. A full lint and test run
-produces output you do not need in this conversation, so dispatch the
-`test-runner` subagent (it ships with this plugin). It discovers the project's
-tooling, modifies nothing, and returns a `GREEN` or `RED` verdict with the
-failures.
-
-- `GREEN`: move on.
-- `RED`: fix what it reported, commit the fixes, and dispatch `test-runner`
-  again. Repeat until green.
-
-```bash
-git add -A
-git commit -m "<type>(<scope>): <subject>"
-```
-
-If the subagent is unavailable, discover the gates yourself from
-`pyproject.toml`, `package.json`, `Makefile`, or the CI workflows, and run them
-directly. Do not proceed to the terminal step with failing linters or tests.
-
-## Step D: Fix documentation that the branch made wrong
+## Step C: Fix documentation that the branch made wrong
 
 The goal is narrow: nothing in the docs is out of date, and no major new
 capability is undocumented. The docs serve a reader who uses the project, not
@@ -112,3 +91,31 @@ git commit -m "<type>(<scope>): <subject>"
 
 If the subagent is unavailable, scan the README, CONTRIBUTING, and `docs/`
 yourself for anything the branch made stale.
+
+## Step D: Get the branch green
+
+Land only work that passes the project's own gates. This step comes after the
+documentation commit so the gate runs once on the final tree, which is the
+tree every later gate (a history regroup, the pre-push hook) sees. A gate whose
+project caches passes by tree then skips instead of running again.
+
+A full lint and test run produces output you do not need in this conversation,
+so dispatch the `test-runner` subagent (it ships with this plugin). It
+discovers the project's tooling, modifies nothing, and returns a `GREEN` or
+`RED` verdict with the failures.
+
+- `GREEN`: move on.
+- `RED`: fix what it reported, commit the fixes, and dispatch `test-runner`
+  again. Repeat until green. If a fix changes behavior that Step C documented,
+  update those docs in the same commit.
+
+```bash
+git add -A
+git commit -m "<type>(<scope>): <subject>"
+```
+
+If the subagent is unavailable, discover the gates yourself from
+`pyproject.toml`, `package.json`, `Makefile`, `justfile`, or the CI workflows,
+and run them directly. When a project task (a `just` recipe, an npm script, a
+`make` target) runs a gate, run the task rather than the tool it wraps. Do not
+proceed to the terminal step with failing linters or tests.

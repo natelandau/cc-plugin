@@ -29,7 +29,7 @@ digraph pr {
   rankdir=TB; node [shape=box];
   detect   [label="Step 0: detect feature branch,\ndefault branch, remote host, forge CLI"];
   refuse   [label="On default branch or no remote?\nStop and explain" shape=diamond];
-  prep     [label="Steps A-D: shared prep\n(commit, rebase on trunk, green, docs)"];
+  prep     [label="Steps A-D: shared prep\n(commit, rebase on trunk, docs, green)"];
   regroup  [label="Step 4: regroup a sprawled history"];
   exists   [label="PR already open for this branch?" shape=diamond];
   show     [label="Show existing PR, stop"];

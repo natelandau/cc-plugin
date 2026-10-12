@@ -118,9 +118,11 @@ Do not retry blindly. Re-read the diff and fix the grouping first.
 ## Step 5: Run the project's full gate once
 
 Step 3 skipped the per-commit hooks. Now that the tree is whole, run the
-project's real gate over all of it. Dispatch the `test-runner` subagent, or run
-the gate directly (`pre-commit run --all-files` plus the project's test
-command).
+project's real gate over all of it. Dispatch the `test-runner` subagent. If it
+is unavailable, discover the project's lint and test gates yourself (prefer
+what CI runs) and run them directly. Run the gate even when the tree passed
+before the regroup. A project that caches passes by tree skips the repeat on
+its own.
 
 - Green: the rewrite is done. Return to the calling skill.
 - Red: do not amend the group commits. Step 4 proved this tree is byte-for-byte

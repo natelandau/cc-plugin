@@ -37,7 +37,7 @@ digraph squash {
   detect   [label="Step 0: detect feature branch, trunk name,\nworktree or single checkout"];
   refuse   [label="On trunk already, or nothing to squash?\nStop and explain" shape=diamond];
   sync     [label="Step 1: sync local trunk to remote\n(ff-only, stop if diverged)"];
-  prep     [label="Steps A-D: shared prep\n(commit, rebase feature onto local trunk, green, docs)"];
+  prep     [label="Steps A-D: shared prep\n(commit, rebase feature onto local trunk, docs, green)"];
   goto     [label="Step 4: move to the trunk checkout,\ngit merge --squash <branch>"];
   conflict [label="Conflicts?" shape=diamond];
   resolve  [label="Stop. Report conflict, let user resolve"];

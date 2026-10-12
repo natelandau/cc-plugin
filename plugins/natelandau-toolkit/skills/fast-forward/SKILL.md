@@ -44,7 +44,7 @@ digraph fast_forward {
   detect   [label="Step 0: detect feature branch, trunk name,\nworktree or single checkout"];
   refuse   [label="On trunk already, or nothing to land?\nStop and explain" shape=diamond];
   sync     [label="Step 1: sync local trunk to remote\n(ff-only, stop if diverged)"];
-  prep     [label="Steps A-D: shared prep\n(commit, rebase feature onto local trunk, green, docs)"];
+  prep     [label="Steps A-D: shared prep\n(commit, rebase feature onto local trunk, docs, green)"];
   regroup  [label="Step 4: regroup into a few commits,\nmake every message changelog-worthy"];
   goto     [label="Step 5: move to the trunk checkout,\ngit merge --ff-only <branch>"];
   fffail   [label="Fast-forward refused?" shape=diamond];
