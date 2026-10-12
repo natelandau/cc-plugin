@@ -1,3 +1,9 @@
+## v0.25.2 (2026-10-12)
+
+### Perf
+
+- **skills**: avoid repeating the gate on an unchanged tree
+
 ## v0.25.1 (2026-10-06)
 
 ### Fix
