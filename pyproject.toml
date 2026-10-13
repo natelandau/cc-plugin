@@ -9,6 +9,7 @@
         "commitizen>=4.19.2",
         "coverage>=7.16.2",
         "duty>=1.10.1",
+        "gate-cache>=0.6.0",
         "prek>=0.5.5",
         "pytest-clarity>=1.0.1",
         "pytest-cov>=7.1.0",

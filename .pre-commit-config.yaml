@@ -48,28 +48,12 @@ repos:
       - id: end-of-file-fixer
         types: [python]
 
-  - repo: "https://github.com/adrienverge/yamllint.git"
-    rev: v1.38.0
-    hooks:
-      - id: yamllint
-        files: ^.*\.(yaml|yml)$
-        entry: yamllint --strict --config-file .yamllint.yml
-
-  - repo: "https://github.com/astral-sh/ruff-pre-commit"
-    rev: v0.17.0
-    hooks:
-      - id: ruff
-        exclude: tests/
-        args: [--no-fix]
-      - id: ruff-format
-        args: [--check]
-
   - repo: "https://github.com/adhtruong/mirrors-typos"
     rev: v1.51.1
     hooks:
       - id: typos
         args: ["--force-exclude"]
-        stages: [commit-msg, pre-commit]
+        stages: [commit-msg]
 
   - repo: "https://github.com/python-jsonschema/check-jsonschema"
     rev: 0.38.2
@@ -93,29 +77,60 @@ repos:
     hooks:
       - id: sync-with-uv
 
+  # Hooks that run a duty share its gate-cache markers, so a gate that already passed
+  # on this tree (from the terminal, an agent, or an earlier hook) skips at once.
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run duty ruff
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: format
+        name: ruff format
+        entry: uv run duty format
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: ty
+        name: ty
+        entry: uv run duty ty
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: typos
+        name: typos
+        entry: uv run duty typos
+        language: system
+        pass_filenames: false
+
+      - id: yamllint
+        name: yamllint
+        entry: uv run duty yamllint
+        language: system
+        pass_filenames: false
+        files: ^.*\.(yaml|yml)$
+
       - id: shellcheck
         name: shellcheck
-        entry: shellcheck --check-sourced --severity=warning
+        entry: uv run duty shellcheck
         language: system
-        types: [shell]
-
-      - id: ty (type check)
-        name: ty
-        entry: uv run ty check
         pass_filenames: false
-        language: system
-        types: [python]
+        types: [shell]
 
       - id: pytest
         name: pytest
-        entry: uv run pytest
+        entry: uv run duty test
         language: system
         pass_filenames: false
+        stages: [pre-commit, pre-push]
         files: |
           (?x)^(
-          src/|
+          plugins/|
           tests/|
           uv\.lock|
           pyproject\.toml
