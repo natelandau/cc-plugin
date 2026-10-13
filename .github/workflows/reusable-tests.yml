@@ -28,7 +28,7 @@ jobs:
 
             - name: Run tests
               shell: bash
-              run: uv run pytest tests/
+              run: uv run duty test
 
     lint-project:
         runs-on: ubuntu-latest
@@ -41,9 +41,4 @@ jobs:
 
             - name: run all linters
               shell: bash
-              run: |
-                  uv run ruff check --config pyproject.toml --no-fix
-                  uv run ruff format
-                  uv run ty check
-                  uv run typos --config .typos.toml
-                  uv run yamllint --config-file .yamllint.yml .
+              run: uv run duty lint
