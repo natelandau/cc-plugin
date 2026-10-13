@@ -44,22 +44,24 @@ The index lists direct URLs for hooks, skills, slash commands, and agents. Check
 
 ## Running the gates
 
-Run these before every commit. They also run in CI. Tests resolve paths through `conftest.py` fixtures, so they run from any working directory.
+The gates are [duty](https://pawamoy.github.io/duty/) tasks in `duties.py`. CI and the git hooks run the same tasks, so run them before every commit:
 
 ```bash
-# Full suite
-uv run pytest
+# All linters: ruff, format check, ty, typos, yamllint, shellcheck, and the other prek hooks
+uv run duty lint
 
-# A single file
-uv run pytest tests/test_use_uv.py
+# Full test suite with coverage
+uv run duty test
 
-# Lint and format
-uv run ruff check .
-uv run ruff format .
-
-# Type check
-uv run ty check
+# Extra arguments go to pytest
+uv run duty test tests/test_use_uv.py
 ```
+
+Each linter also runs on its own, for example `uv run duty ty` or `uv run duty ruff`. `duty format` only checks formatting. To apply it, run `uv run ruff format .`. Tests resolve paths through `conftest.py` fixtures, so they run from any working directory.
+
+Each gate runs through [gate-cache](https://github.com/natelandau/gate-cache). When a gate passes, gate-cache records the content of the working tree. The next run on the same content skips the gate and exits at once. Your terminal, agents, and the git hooks share these records, so a gate that passed before a commit does not run again in the commit hook. A filtered `duty test` run is never cached. CI sets `CI=true`, which turns the cache off. To run a gate without the cache, set `GATE_CACHE_DISABLE=1`.
+
+To install the git hooks, run `uv run prek install`.
 
 Pyright is not a project tool. `ty` is the sole typechecker; don't act on Pyright diagnostics.
 
@@ -225,10 +227,8 @@ These steps add a plugin to a stage already wired in `hooks.json` (today, `preto
 4. Run the gates:
 
    ```bash
-   uv run pytest
-   uv run ruff check .
-   uv run ruff format .
-   uv run ty check
+   uv run duty lint
+   uv run duty test
    ```
 
 The orphan guard in `tests/test_manifest.py` fails if a plugin file isn't registered in its `_registry.py`.
