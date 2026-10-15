@@ -1,3 +1,9 @@
+## v0.25.3 (2026-10-15)
+
+### Refactor
+
+- **skills**: rename the pr skill to pull-request
+
 ## v0.25.2 (2026-10-12)
 
 ### Perf
