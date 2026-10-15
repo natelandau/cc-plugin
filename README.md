@@ -76,7 +76,7 @@ These skills load on demand when your task matches. You don't invoke them by nam
 
 ### Workflow commands
 
-These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. Most fire only when you invoke them. The exceptions are `/pr`, `/squash`, `/fast-forward`, and `/cleanup-branch`, which Claude also runs on its own when you ask in plain words to open a PR, squash a branch into `main`, merge a branch into `main`, or clean up after a merged PR. The git workflows are local-only and never push unless they say so.
+These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. Most fire only when you invoke them. The exceptions are `/pull-request`, `/squash`, `/fast-forward`, and `/cleanup-branch`, which Claude also runs on its own when you ask in plain words to open a PR, squash a branch into `main`, merge a branch into `main`, or clean up after a merged PR. The git workflows are local-only and never push unless they say so.
 
 | Command                                | What it does                                                                                                                                                          |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -84,7 +84,7 @@ These run multi-step workflows. Some are slash commands, others are skills you t
 | `/organize [target]`                   | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files.                                                           |
 | `/prune-comments`                      | Reviews the current changes and cleans up their inline comments, keeping non-obvious why-comments and dropping redundant ones. Edits the working tree; never commits. |
 | `/create-prd`                          | Generates a Product Requirements Document from the conversation.                                                                                                      |
-| `/pr`                                  | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR with a conventional-commit title.                                                 |
+| `/pull-request`                        | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR with a conventional-commit title.                                                 |
 | `/regroup-commits`                     | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code.                                                              |
 | `/squash`                              | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible.                                                                     |
 | `/fast-forward`                        | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible.                                                       |

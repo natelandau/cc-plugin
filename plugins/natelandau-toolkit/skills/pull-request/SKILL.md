@@ -1,9 +1,9 @@
 ---
-name: pr
-description: Use when the user asks to open, create, or make a pull request or PR for the current branch, push the branch and open a PR, or send the branch for review, even when they never say "PR" (for example "get this reviewed" or "put this up for review"). Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title is the future squash commit's conventional-commit subject; the description opens with one to three plain sentences saying what the change is and what it does, wrapped at 72 characters, then a BREAKING CHANGE footer when the branch breaks a contract, then optional review sections such as Changes. Do not use for merging, squashing, or fast-forwarding a branch into main locally; those are different workflows.
+name: pull-request
+description: Use when the user asks to open, create, make, or raise a pull request, or uses the shorthand "pr" in any form ("pr", "pr this", "open a pr", "make a PR"), including requests to push the branch and open a PR or to send the branch for review without saying "PR" (for example "get this reviewed" or "put this up for review"). Use it whenever a pull request is wanted, rather than running git push and gh pr create by hand. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title is the future squash commit's conventional-commit subject; the description opens with one to three plain sentences saying what the change is and what it does, wrapped at 72 characters, then a BREAKING CHANGE footer when the branch breaks a contract, then optional review sections such as Changes. Do not use for merging, squashing, or fast-forwarding a branch into main locally; those are different workflows.
 ---
 
-# PR
+# Pull request
 
 Open a pull request for the current feature branch. Make sure that the branch is
 committed and green, push it, and open a PR whose title and description are the

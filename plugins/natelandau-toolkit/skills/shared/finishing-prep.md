@@ -1,6 +1,6 @@
 # Finishing a branch: shared preparation
 
-The `/pr`, `/squash`, and `/fast-forward` skills run this preparation between
+The `/pull-request`, `/squash`, and `/fast-forward` skills run this preparation between
 their own detection step and their own terminal step. Do every step below, in
 order, then return to the calling skill.
 
@@ -45,7 +45,7 @@ git fetch --all --prune    # safe no-op without a remote
 
 Rebase onto the ref the calling skill passed as `<rebase-onto>`:
 
-- `/pr` passes `origin/<trunk>`. The PR merges into the remote trunk, and the
+- `/pull-request` passes `origin/<trunk>`. The PR merges into the remote trunk, and the
   fetch above refreshed it.
 - `/squash` and `/fast-forward` pass the local `<trunk>` branch. The work
   lands there, and the local trunk can be ahead of the remote. The calling
