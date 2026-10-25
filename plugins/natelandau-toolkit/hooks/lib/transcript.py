@@ -8,18 +8,14 @@ tool_use, ...). Any code reaching for a `last_assistant_message` field
 will silently see nothing and never fire.
 
 `read_entries` parses the file once into a list of objects; the pure
-functions below operate on that list so a hook needing both the closing
-text and the turn's tool calls reads the file a single time.
+functions below operate on that list, so every Stop plugin shares a single read.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
+from typing import Any
 
 
 def parse_stop(payload: dict[str, Any]) -> dict[str, Any]:
@@ -131,63 +127,3 @@ def last_assistant_message_text(entries: list[dict[str, Any]]) -> str:
     # equivalent to taking the final contiguous run of that message.
     parts = [text for mid, text in blocks if mid == last_id]
     return "\n".join(part.strip() for part in parts).strip()
-
-
-def _is_human_message(entry: dict[str, Any]) -> bool:
-    """Return whether an entry is a human turn (not a tool_result user line).
-
-    Human messages carry a string `content`; tool results are recorded as
-    user lines whose `content` is a list of `tool_result` blocks. The
-    distinction marks where the current turn began.
-    """
-    if entry.get("type") != "user":
-        return False
-    message = entry.get("message")
-    return isinstance(message, dict) and isinstance(message.get("content"), str)
-
-
-def entries_since_last_user(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return the entries recorded after the most recent human turn.
-
-    Scopes "this turn" to everything the assistant produced since the user
-    last spoke, so a check for an action taken this turn does not see actions
-    from earlier turns.
-    """
-    start = 0
-    for idx, entry in enumerate(entries):
-        if _is_human_message(entry):
-            start = idx + 1
-    return entries[start:]
-
-
-def _iter_tool_uses(entry: dict[str, Any]) -> Iterator[dict[str, Any]]:
-    """Yield each `tool_use` block in one assistant entry, else nothing."""
-    for block in _assistant_content_blocks(entry):
-        if isinstance(block, dict) and block.get("type") == "tool_use":
-            yield block
-
-
-def file_written_since_last_user(
-    entries: list[dict[str, Any]],
-    *,
-    filename: str,
-    tool_names: frozenset[str],
-) -> bool:
-    """Return whether a file-writing tool touched `filename` this turn.
-
-    Matches a tool_use whose name is in `tool_names` and whose `file_path`
-    (or `notebook_path`) basename equals `filename`. Basename matching keeps
-    the check indifferent to whether the model addressed the file by an
-    absolute or a relative path.
-    """
-    for entry in entries_since_last_user(entries):
-        for block in _iter_tool_uses(entry):
-            if block.get("name") not in tool_names:
-                continue
-            tool_input = block.get("input")
-            if not isinstance(tool_input, dict):
-                continue
-            path = tool_input.get("file_path") or tool_input.get("notebook_path")
-            if isinstance(path, str) and Path(path).name == filename:
-                return True
-    return False
