@@ -6,12 +6,16 @@ natelandau-toolkit.toml. Scalars and lists are replaced by the higher
 level; [hooks.*] tables are deep-merged per key. Any read or parse error
 is swallowed so a broken config never blocks tool execution.
 
+`[hooks.<id>]` option values may be strings, integers, booleans, or lists
+of strings. A value of any other shape is dropped with a warning, and a hook
+reading an option whose type differs from its default gets the default.
+
 `exempt_paths` and `trusted_remote_hosts` are read from the global layer
-alone. Every other key can only tighten a guard or pick which guards run;
-these two waive one, for a directory tree or a remote host, and the project
-layer is a file inside the very repo a guard protects. Honoring them there
-would let a repo exempt itself, and because that file is committed it would
-do so for everyone who clones it.
+alone. They waive a safety guard, for a directory tree or a remote host, and
+the project layer is a file inside the very repo a guard protects. Honoring
+them there would let a repo exempt itself, and because that file is committed
+it would do so for everyone who clones it. Style options such as
+`[hooks.commit-message]` carry no such risk, so a project may loosen them.
 """
 
 import os
@@ -24,6 +28,8 @@ from collections.abc import Mapping  # noqa: TC003
 from dataclasses import dataclass, field
 from pathlib import Path
 
+type OptionValue = str | int | bool | tuple[str, ...]
+
 VALID_PROFILES: frozenset[str] = frozenset({"minimal", "standard", "strict"})
 DEFAULT_PROFILE = "standard"
 CONFIG_NAME = "natelandau-toolkit.toml"
@@ -35,7 +41,7 @@ class Config:
 
     profile: str
     disabled_hooks: frozenset[str]
-    hook_options: Mapping[str, Mapping[str, str]]
+    hook_options: Mapping[str, Mapping[str, OptionValue]]
     project_dir: str | None = None
     # Directory trees whose contents skip the protected-branch and
     # commit-message guards. Global layer only; see the module docstring.
@@ -43,9 +49,25 @@ class Config:
     # Hosts protect-remote lets through without a prompt. Global layer only.
     trusted_remote_hosts: tuple[str, ...] = ()
 
-    def option(self, hook_id: str, key: str, default: str) -> str:
-        """Return a per-hook option value, or `default` when unset."""
-        return self.hook_options.get(hook_id, {}).get(key, default)
+    def option[T: (str, int, bool, tuple[str, ...])](
+        self, hook_id: str, key: str, *, default: T
+    ) -> T:
+        """Return a per-hook option value, or `default` when it is unset or mistyped.
+
+        The default's type is the option's type, so a hook never sees a value it
+        cannot use. `bool` and `int` are told apart, so `true` never reads as 1.
+        """
+        value = self.hook_options.get(hook_id, {}).get(key)
+        if value is None:
+            return default
+        if type(value) is not type(default):
+            print(  # noqa: T201
+                f"natelandau-toolkit: [hooks.{hook_id}] {key} must be "
+                f"{type(default).__name__}, got {value!r}; using {default!r}",
+                file=sys.stderr,
+            )
+            return default
+        return value
 
 
 def _read_toml(path: Path) -> dict[str, object]:
@@ -67,21 +89,36 @@ def _string_list(raw: object) -> tuple[str, ...]:
     return tuple(x for x in raw if isinstance(x, str))
 
 
-def _merge_hook_options(base: dict[str, dict[str, str]], raw: object) -> dict[str, dict[str, str]]:
-    """Deep-merge a [hooks.*] table of string options per hook id."""
+def _option_value(hook_id: str, key: str, raw: object) -> OptionValue | None:
+    """Coerce one TOML option value to an `OptionValue`, or warn and return None."""
+    if isinstance(raw, str | int | bool):
+        return raw
+    if isinstance(raw, list) and all(isinstance(x, str) for x in raw):
+        return tuple(raw)
+    print(  # noqa: T201
+        f"natelandau-toolkit: ignoring [hooks.{hook_id}] {key} = {raw!r}: "
+        "expected a string, integer, boolean, or list of strings",
+        file=sys.stderr,
+    )
+    return None
+
+
+def _merge_hook_options(
+    base: dict[str, dict[str, OptionValue]], raw: object
+) -> dict[str, dict[str, OptionValue]]:
+    """Deep-merge a [hooks.*] table of options per hook id."""
     if not isinstance(raw, dict):
         return base
     for hook_id, table in raw.items():
         if not isinstance(hook_id, str) or not isinstance(table, dict):
             continue
-        base[hook_id] = {
-            **base.get(hook_id, {}),
-            **{
-                key: value
-                for key, value in table.items()
-                if isinstance(key, str) and isinstance(value, str)
-            },
-        }
+        merged = base.setdefault(hook_id, {})
+        for key, value in table.items():
+            if not isinstance(key, str):
+                continue
+            coerced = _option_value(hook_id, key, value)
+            if coerced is not None:
+                merged[key] = coerced
     return base
 
 
@@ -96,7 +133,7 @@ class _Accumulator:
 
     profile: str = DEFAULT_PROFILE
     disabled: frozenset[str] = frozenset()
-    hook_options: dict[str, dict[str, str]] = field(default_factory=dict)
+    hook_options: dict[str, dict[str, OptionValue]] = field(default_factory=dict)
 
 
 def _apply(layer: dict[str, object], acc: _Accumulator) -> None:
