@@ -24,8 +24,9 @@ This skill is destructive and irreversible once the deletions run.
 - Every landing commit is changelog-worthy. Step 4 gives the bar.
 - Verify before you delete. Confirm that the trunk fast-forwarded and holds the
   work before you remove any branch or worktree.
-- Every commit this skill makes must be a valid conventional commit. The
-  `enforce_commit_message` hook rejects anything else.
+- Every commit this skill makes follows the user's commit conventions. The
+  `enforce_commit_message` hook rejects a message that breaks the configured
+  rules.
 
 ## Why this works with branch protection
 
@@ -156,18 +157,12 @@ regroup again before you continue.
 
 This skill adds two rules to the procedure:
 
-1. Rewrite when any message fails the subject bar, even if the grouping is
-   already clean. The rewrite stays tree-preserving. Only the messages change.
-2. Hold every subject and body to the subject bar. Read
-   `../shared/commit-subjects.md` (relative to this skill's base directory)
-   for it. In addition:
-   - Name a private class, function, module, or file path only when it is the
-     public surface, such as a CLI flag or an exported API.
-   - Do not dress incidental churn as a feature. Fold lint fixes, test tweaks,
-     and renames into the commit they support, unless the churn is the
-     user-facing point.
-   - Keep the conventional-commit form. The `enforce_commit_message` hook
-     validates each commit, and `--no-verify` does not bypass it.
+1. Rewrite when any message breaks the user's commit conventions, even if the
+   grouping is already clean. The rewrite stays tree-preserving. Only the
+   messages change.
+2. Write every subject and body to those conventions. The
+   `enforce_commit_message` hook validates each commit, and `--no-verify` does
+   not bypass it.
 
 ### Step 5: Fast-forward onto the trunk
 
@@ -238,7 +233,7 @@ worktree removed. Remind the user that the trunk is not pushed.
 | `--ff-only` refuses                              | Trunk moved since the prep rebase                          | Stop. Restart from Step 1 so the feature rebases onto the current trunk. Never `--no-ff`   |
 | Local trunk sync reports divergence              | Local and remote trunk both have unique commits            | Stop and report. Never force the trunk to either side                                      |
 | Regroup verify failed and rolled back            | A group's paths were staged wrong                          | The branch is unchanged. Re-read the diff and regroup again before landing                 |
-| Commit rejected by hook                          | A message is not a valid conventional commit               | Fix the type or subject. `chore` is not allowed, and `--no-verify` does not bypass the gate |
+| Commit rejected by hook                          | A message breaks the configured commit rules               | Fix the message to the rules the block message lists. `--no-verify` does not bypass the gate |
 | A `pre-commit` hook fails or reformats in Step 4 | A group commit staged only part of the tree                | Commit each group with `--no-verify`. The full gate runs once at the end                   |
 | Step 4's closing gate is red                     | Pre-existing breakage. The regroup left the tree unchanged | Report it and stop. Do not land on the trunk and do not amend the group commits            |
 | `branch -d` says "not fully merged"              | The fast-forward did not land                              | Stop. Do not use `-D`. Find out why the trunk tip is not the feature tip                   |

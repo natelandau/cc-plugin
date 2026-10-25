@@ -1,6 +1,6 @@
 ---
 name: squash
-description: Use when the user asks to squash a branch into main or master, squash-merge the branch, land or merge the branch as a single commit, or collapse the branch (or its worktree) into one commit on the trunk, even when phrased casually ("squash this into main", "squash and land it"). Commits any outstanding work, squash-merges the whole branch into one conventional commit on the local main or master branch, then deletes the branch and removes its worktree. Local only; never pushes. This is an irreversible, destructive workflow, so reach for it only when the user says squash or asks for a single commit: a plain "merge into main" means the fast-forward workflow, and opening a pull request is a different workflow.
+description: Use when the user asks to squash a branch into main or master, squash-merge the branch, land or merge the branch as a single commit, or collapse the branch (or its worktree) into one commit on the trunk, even when phrased casually ("squash this into main", "squash and land it"). Commits any outstanding work, squash-merges the whole branch into one commit on the local main or master branch, then deletes the branch and removes its worktree. Local only; never pushes. This is an irreversible, destructive workflow, so reach for it only when the user says squash or asks for a single commit: a plain "merge into main" means the fast-forward workflow, and opening a pull request is a different workflow.
 ---
 
 # Squash
@@ -13,13 +13,13 @@ and irreversible once the deletions run.
 
 - Never push. The squash lands on the local trunk only. Stop after cleanup and
   let the user push.
-- The squash commit message is for an end user, not a maintainer. It describes
-  the branch as one shipped feature and how the project's users benefit. Write
-  it, commit it without an approval pause, and report the message you used.
+- Write the squash commit message, commit it without an approval pause, and
+  report the message you used.
 - Confirm that the squash commit exists and holds the work before you delete
   any branch or worktree.
-- Every commit this skill makes must be a valid conventional commit. The
-  `enforce_commit_message` hook rejects anything else.
+- Every commit this skill makes follows the user's commit conventions. The
+  `enforce_commit_message` hook rejects a message that breaks the configured
+  rules.
 
 ## Why this works with branch protection
 
@@ -160,17 +160,14 @@ git log --oneline <trunk>..<feature-branch>   # the commits being collapsed
 git diff --staged --stat                      # the net change landing on the trunk
 ```
 
-Write one conventional commit that summarizes the work on the branch as a
-whole. Read `../shared/commit-subjects.md` (relative to this
-skill's base directory) and write the subject to that bar, from the whole
-staged diff rather than the intermediate commits. Drop incidental churn (test
-tweaks, lint fixes, renames) unless it is the user-facing point. The body gives
-the reason for the change.
+Write one commit that summarizes the work on the branch as a whole, to the
+user's commit conventions. Write the message from the whole staged diff
+rather than the intermediate commits.
 
 Commit it without an approval pause:
 
 ```bash
-git commit -m "<type>(<scope>): <subject>" -m "<body>"
+git commit -m "<subject>" -m "<body>"
 ```
 
 Confirm that it landed:
@@ -212,5 +209,5 @@ deleted, and the worktree removed. Remind the user that the trunk is not pushed.
 | `branch -d` says "not fully merged"            | Squash merge records no merge ancestry        | Use `git branch -D`. This is expected                                                                     |
 | `worktree remove` refuses                      | Untracked or dirty files in the worktree      | Stop and show the user. Do not force-discard their files                                                  |
 | Merge conflict on squash                       | Trunk diverged from the branch's base         | Stop. Let the user resolve it, then resume at the commit step                                             |
-| Commit rejected by hook                        | Message is not a valid conventional commit    | Fix the type or subject. `chore` is not an allowed type                                                   |
+| Commit rejected by hook                        | Message breaks the configured commit rules    | Fix the message to the rules the block message lists                                                      |
 | A `pre-commit` hook reformats the squash commit | A formatter rewrote the staged tree          | Re-stage and re-commit. The squash is still in progress. Never use `--no-verify` on a whole-tree commit   |

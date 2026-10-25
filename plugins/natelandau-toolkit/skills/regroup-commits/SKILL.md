@@ -144,7 +144,7 @@ runs that themselves.
 | ------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | Refuses immediately                               | Dirty tree, on trunk, or 1 commit or less         | Commit or stash, switch to a feature branch, or accept there is nothing to regroup    |
 | Regroup verify failed and rolled back             | A group's paths were staged wrong                 | The branch is unchanged. Re-read the diff and regroup again                           |
-| A `git commit` is blocked                         | Subject is not a valid conventional commit        | Fix the subject. `chore` is not allowed, and `--no-verify` does not bypass this gate   |
+| A `git commit` is blocked                         | Subject breaks the configured commit rules        | Fix the subject to the rules the block message lists. `--no-verify` does not bypass it |
 | A `pre-commit` hook fails or reformats a commit   | A group commit staged only part of the tree       | Commit each group with `--no-verify`. The full gate runs once at the end              |
 | The closing gate is red                           | Pre-existing breakage. The tree is unchanged      | Report it, keep the backup, do not fix it here                                        |
 | Backup name already exists                        | A prior regroup left a backup on the same tip     | Remove the stale backup, then re-run                                                  |

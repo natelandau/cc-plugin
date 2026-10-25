@@ -4,10 +4,11 @@ The `/pull-request`, `/squash`, and `/fast-forward` skills run this preparation 
 their own detection step and their own terminal step. Do every step below, in
 order, then return to the calling skill.
 
-Every commit you make here must be a valid conventional commit:
-`<type>(<scope>): <subject>`, imperative, lowercase subject, at most 70
-characters, with a type from `build ci docs feat fix perf refactor style test`.
-There is no `chore`. The `enforce_commit_message` hook rejects anything else.
+Write every commit message here to the commit conventions in your
+instructions and in the repository's own tooling, such as a commitlint or
+commitizen config or CONTRIBUTING. The `enforce_commit_message` hook
+validates each `git commit` against the user's configured rules, and its
+block message lists the rules in force.
 
 Every commit here stages the whole working tree with `git add -A`, so the
 project's `pre-commit` hooks see a complete tree. Let them run. If a formatting
@@ -23,12 +24,12 @@ The terminal step acts on committed history only.
 git status --porcelain    # anything here must be committed
 ```
 
-If the tree is dirty, stage and commit with a conventional message that
-describes the changes:
+If the tree is dirty, stage and commit with a message that describes the
+changes:
 
 ```bash
 git add -A
-git commit -m "<type>(<scope>): <subject>"
+git commit -m "<message>"
 ```
 
 If the tree is clean, skip this step.
@@ -82,11 +83,11 @@ that clear this bar, in priority order:
   out.
 
 If the `technical-writer` skill is available, use it for the writing. Commit
-any documentation change with a conventional message:
+any documentation change on its own:
 
 ```bash
 git add -A
-git commit -m "<type>(<scope>): <subject>"
+git commit -m "<message>"
 ```
 
 If the subagent is unavailable, scan the README, CONTRIBUTING, and `docs/`
@@ -111,7 +112,7 @@ discovers the project's tooling, modifies nothing, and returns a `GREEN` or
 
 ```bash
 git add -A
-git commit -m "<type>(<scope>): <subject>"
+git commit -m "<message>"
 ```
 
 If the subagent is unavailable, discover the gates yourself from

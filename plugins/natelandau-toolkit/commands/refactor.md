@@ -224,8 +224,8 @@ Per-batch gate:
 1. Apply the batch.
 2. Re-run the gates. In deep mode, dispatch the `test-runner` subagent again.
    In quick mode, run the suite (and pre-commit if configured) inline.
-3. `GREEN`: commit with a conventional-commit message that names the technique
-   (`refactor: remove dead code in <area>`). `RED`: revert the batch, stop, and
+3. `GREEN`: commit with a message that names the technique, such as "remove
+   dead code in <area>". `RED`: revert the batch, stop, and
    report the failure.
 
 Protected branches: on `main` or `master`, apply and verify but do not commit.

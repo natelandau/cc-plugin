@@ -58,5 +58,4 @@ the edits with `git diff` and commits.
 
 3. Report and stop. Relay the summary: how many comments were removed,
    reworded, and left, and which files changed. Do not stage or commit
-   anything. Remind the user that the edits are uncommitted. Comment-only
-   edits fit the `style` conventional-commit type.
+   anything. Remind the user that the edits are uncommitted.
