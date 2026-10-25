@@ -2,7 +2,7 @@
 
 This guide covers how to develop the plugin in this repository: hooks, skills, slash commands, and subagents. If you're here to install or configure it rather than work on it, see the [README](README.md) instead.
 
-This repo is a Claude Code marketplace shipping one plugin, `natelandau-toolkit`, under `plugins/`: PreToolUse and Stop safety hooks, on-demand skills, slash commands, and subagents.
+This repo is a Claude Code marketplace shipping one plugin, `natelandau-toolkit`, under `plugins/`: PreToolUse safety hooks, on-demand skills, slash commands, and subagents.
 
 ## Contents
 
@@ -38,7 +38,7 @@ Before authoring or modifying any hook, skill, command, or agent, fetch the rele
 https://code.claude.com/docs/llms.txt
 ```
 
-The index lists direct URLs for hooks, skills, slash commands, and agents. Check there before assuming your training data reflects the current field names, exit codes, or payload shapes. The CLAUDE.md in this repo lists the exact URLs for each topic.
+The index lists direct URLs for hooks, skills, slash commands, and agents. Check there before assuming your training data reflects the current field names, exit codes, or payload shapes. The pages you need most are plugins-reference, hooks, skills, and sub-agents.
 
 ---
 
@@ -196,13 +196,13 @@ When matching Bash commands, remember that a regex on `--message` or `--force` m
 
 ### Noop stages
 
-Every event stage has a directory and a `_registry.py`. An empty `PLUGINS` list makes that stage a noop, and a stage with no entry in `hooks.json` is never called by Claude Code. Both conditions apply to `posttooluse`, `sessionstart`, and `sessionend` today.
+Every event stage has a directory and a `_registry.py`. An empty `PLUGINS` list makes that stage a noop, and a stage with no entry in `hooks.json` is never called by Claude Code. Both conditions apply to `stop`, `posttooluse`, `sessionstart`, and `sessionend` today. The Stop dispatcher already wires its `skip_if` and `prepare` steps, so it is ready to turn on.
 
 ---
 
 ## Adding a toolkit hook to an existing stage
 
-These steps add a plugin to a stage already wired in `hooks.json` (today, `pretooluse` and `stop`).
+These steps add a plugin to a stage already wired in `hooks.json` (today, only `pretooluse`).
 
 1. Create the plugin file at `hooks/<stage>/<your_plugin>.py` defining `ID` and `evaluate`. If it's rule-driven, store rules in a sibling `<your_plugin>.rules.toml`.
 
