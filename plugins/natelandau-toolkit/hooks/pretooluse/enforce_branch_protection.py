@@ -87,7 +87,13 @@ SAFE_MERGE_RE = re.compile(r"--ff-only\b|--squash\b|--abort\b|--quit\b|--rebase\
 # `git -C <repo> commit` / `git -c k=v merge`, which a bare `git\s+commit`
 # anchor would miss -- the gap that let `git -C <other-repo> commit` slip the
 # guard regardless of branch.
-_GIT_OPTS = r"(?:-[cC]\s+\S+\s+)*"
+# Global flags that take no value (`--no-pager`, `-P`, `--git-dir=<path>`) are
+# skipped too, so they cannot hide the subcommand from a detector.
+_GIT_OPTS = (
+    r"(?:(?:-[cC]\s+\S+"
+    r"|--(?:git-dir|work-tree|namespace|exec-path|config-env)\s+(?!-)\S+"
+    r"|--?[A-Za-z][-\w]*(?:=\S*)?)\s+)*"
+)
 GIT_COMMIT_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}commit\b")
 GIT_MERGE_PULL_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}(?:merge|pull)\b")
 GIT_MERGE_SQUASH_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}merge\s+--squash\b")

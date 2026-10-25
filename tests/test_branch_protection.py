@@ -953,6 +953,12 @@ CASES: tuple[Case, ...] = (
         stderr_contains=(BLOCK_COMMIT,),
     ),
     Case(
+        id="git commit behind a valueless global flag on master blocked",
+        make_payload=lambda r: _bash("git --no-pager commit -m x", cwd=r["master"]),
+        expect_exit=2,
+        stderr_contains=(BLOCK_COMMIT,),
+    ),
+    Case(
         id="squash chain commit on master allowed",
         make_payload=lambda r: _bash(
             "git merge --squash foo && git commit -m x",
