@@ -1,3 +1,20 @@
+## v0.26.0 (2026-10-25)
+
+### Feat
+
+- **branch-protection**: make protected branches configurable
+- **cleanup-branch**: ask only about branches not confirmed merged
+- **commit-message**: make commit and pr rules configurable (#23)
+
+### Fix
+
+- **branch-protection**: see past global git flags
+
+### Refactor
+
+- **hooks**: remove unused transcript helpers
+- **skills**: write generated output to the user cache dir
+
 ## v0.25.3 (2026-10-15)
 
 ### Refactor
