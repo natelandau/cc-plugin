@@ -1,6 +1,6 @@
 ---
 name: cleanup-branch
-description: Use when a pull request or merge request has been merged on the remote and the local branch, its worktree, or the stale local trunk still need cleaning up, even when the user never says "cleanup" (for example "the PR merged", "clean up after the merge", "delete merged branches", "prune merged worktrees", "sync main after merging"). Confirms the merge with the forge (GitHub, Gitea/Forgejo, GitLab), or by patch equivalence when there is no forge, so it works for squash, rebase, and merge-commit merges. Refuses any branch with work the merge did not include, then removes the worktree, force-deletes the branch, and fast-forwards the local trunk. Handles the current branch, a named branch, or a sweep of every local branch. Never pushes, except an opt-in delete of the remote branch. Not for merging a branch locally, opening a PR, or regrouping a branch's commits.
+description: Use when a pull request or merge request has been merged on the remote and the local branch, its worktree, or the stale local trunk still need cleaning up, even when the user never says "cleanup" (for example "the PR merged", "clean up after the merge", "delete merged branches", "prune merged worktrees", "sync main after merging"). Confirms the merge with the forge (GitHub, Gitea/Forgejo, GitLab), or by patch equivalence when there is no forge, so it works for squash, rebase, and merge-commit merges. Cleans up confirmed branches without asking and asks before deleting any branch with work the merge did not include. Removes the worktree, force-deletes the branch, and fast-forwards the local trunk. Handles the current branch, a named branch, or a sweep of every local branch. Never pushes, except an opt-in delete of the remote branch. Not for merging a branch locally, opening a PR, or regrouping a branch's commits.
 ---
 
 # Cleanup branch
@@ -16,15 +16,17 @@ branch holds nothing the merge left out.
 
 ## Guardrails
 
-- Delete a branch only when Step 2 confirms the merge and Step 3 passes. Never
-  act on a guess, and never on an upstream marked `[gone]` alone. That only
+- Clean up a branch without asking only when Step 2 confirms the merge and
+  Step 3 passes. Never treat an upstream marked `[gone]` as proof. That only
   means the remote branch was deleted, not that it merged.
+- A branch whose merge is not confirmed, or that holds commits the merge
+  lacks, is deleted only when the user says yes to that branch in Step 4.
 - Never force anything: no `git worktree remove --force`, no stash, no
-  `reset`, no `pull` that can create a merge commit.
+  `reset`, no `pull` that can create a merge commit. A dirty or locked
+  worktree is always skipped, never offered.
 - The trunk moves only by fast-forward.
 - Never push, except deleting the remote branch in Step 8, and only when the
   user says yes to that specific question.
-- Show the plan and get one confirmation before Step 5 deletes anything.
 
 ## Workflow
 
@@ -35,19 +37,21 @@ digraph cleanup_branch {
   targets  [label="Step 1: pick targets\n(current, named, or sweep)"];
   merged   [label="Step 2: confirm merge\n(forge, else patch probe)"];
   gates    [label="Step 3: safety gates\n(tip, dirty, locked)"];
-  any      [label="Any branch passed?" shape=diamond];
-  confirm  [label="Step 4: show plan, ask once" shape=diamond];
+  unsure   [label="Any branch not\nconfirmed merged?" shape=diamond];
+  confirm  [label="Step 4: ask about\nthose branches only"];
+  any      [label="Anything to clean up?" shape=diamond];
   leave    [label="Step 5: leave the worktree\nif the session is inside it"];
   clean    [label="Step 6: worktree remove,\nbranch -D"];
   trunk    [label="Step 7: fast-forward trunk"];
   remote   [label="Step 8: offer remote branch delete"];
   done     [label="Step 9: report" shape=doublecircle];
 
-  detect -> targets -> merged -> gates -> any;
+  detect -> targets -> merged -> gates -> unsure;
+  unsure -> confirm [label="yes"];
+  unsure -> any [label="no"];
+  confirm -> any;
   any -> done [label="no"];
-  any -> confirm [label="yes"];
-  confirm -> done [label="declined"];
-  confirm -> leave [label="yes"];
+  any -> leave [label="yes"];
   leave -> clean -> trunk -> remote -> done;
 }
 ```
@@ -159,7 +163,7 @@ git cherry origin/<trunk> "$probe"    # "- <sha>": an equivalent patch is on the
 The probe commit is unreferenced and git garbage-collects it. A `+` means no
 equivalent patch landed. That happens when the branch is unmerged, when the
 merged PR held only part of the branch, or when conflict resolution changed
-the patch. All three are "not confirmed": leave the branch.
+the patch. All three are "not confirmed": Step 4 asks about the branch.
 
 When the probe prints `+` and `origin/<branch>` still exists, probe
 `origin/<branch>` the same way. A `-` there means the pushed branch merged and
@@ -172,8 +176,8 @@ Mark each verdict with its evidence: `PR #<n>`, `ancestor of trunk`, or
 
 ### Step 3: Safety gates
 
-Run these on the branches Step 2 confirmed; the rest are already skipped.
-Refuse a branch, changing nothing for it, when any of these hold:
+Run the tip gate on the branches Step 2 confirmed. Run the worktree gates on
+every target, so Step 4 never offers a branch that cannot be removed cleanly.
 
 - **Tip gate (forge verdict only).** The local branch must hold no commit the
   merged PR lacked. It passes when the local tip equals `<merged-head>`, or is
@@ -193,11 +197,15 @@ Refuse a branch, changing nothing for it, when any of these hold:
   the merge. If the object still cannot be fetched, require the local tip to
   equal `<merged-head>` exactly. On a fail, list the extra commits
   (`git log --oneline <merged-head>..<branch>`) so the user sees what would
-  have been lost. Those commits were never pushed, or were pushed after the
-  merge.
+  be lost. Those commits were never pushed, or were pushed after the merge.
+  The branch is not confirmed, so Step 4 asks about it.
 
   The fallback verdicts need no tip gate: ancestry and the patch probe both
   cover every commit on the local branch.
+
+Skip a branch, changing nothing for it and never offering it in Step 4, when
+either of these hold:
+
 - **Dirty worktree.** The checkout holding the branch has any change,
   untracked files included:
 
@@ -209,27 +217,30 @@ Refuse a branch, changing nothing for it, when any of these hold:
 - **Locked worktree.** `git worktree list --porcelain` shows `locked` for its
   checkout. Report it. Unlocking is the user's call.
 
-If no branch passes, report the verdicts and stop.
+### Step 4: Ask about branches that are not confirmed merged
 
-### Step 4: Show the plan and confirm
+Branches that passed Steps 2 and 3 need no confirmation. Go straight on to
+Step 5 for them.
 
-One table, every target, before anything is deleted:
+Ask only when a target is not confirmed merged: Step 2 found no merge, or the
+tip gate failed. Skip this step when there is none. Otherwise show those
+branches in one table and ask once which of them to delete anyway:
 
 ```text
-Branch                Evidence                    Worktree                       Action
-feat/s3-auth          PR #42                      .worktrees/feat-s3-auth        remove worktree, delete branch
-fix/timeout           patch-equivalent on trunk   (main checkout)                switch to main, delete branch
-fix/typo              ancestor of trunk           -                              delete branch
-feat/docs             PR #44                      .worktrees/feat-docs           skip: dirty (?? notes.txt)
-feat/wip              no merged PR                .worktrees/feat-wip            skip: not merged
-feat/review-fixes     PR #40                      -                              skip: 2 commits not in the PR
-
-Then: fast-forward main to origin/main (3 commits).
+Branch                Evidence                    Worktree                       Would lose
+feat/wip              no merged PR                .worktrees/feat-wip            4 commits not on main
+feat/review-fixes     PR #40                      -                              2 commits not in the PR
+old/spike             upstream gone, unconfirmed  -                              7 commits not on main
 ```
 
-Count the trunk's incoming commits with
-`git rev-list --count <trunk>..origin/<trunk>`. Ask once whether to proceed with the rows that pass. Deleting the remote
-branch is a separate question in Step 8, never part of this one.
+List the commits under each row (`git log --oneline origin/<trunk>..<branch>`,
+or `<merged-head>..<branch>` for a tip gate fail). The default is to keep
+every branch. Delete only the ones the user names or clearly approves, and
+report the rest as skipped. Deleting the remote branch is a separate question
+in Step 8, never part of this one.
+
+If nothing passed and the user approves no deletion, report the verdicts and
+stop.
 
 ### Step 5: Leave the worktree first
 
@@ -242,7 +253,7 @@ the session's cwd is inside a worktree about to be removed:
 
 ### Step 6: Remove the worktree, delete the branch
 
-Per passing branch, from outside the worktree:
+Per passing or approved branch, from outside the worktree:
 
 ```bash
 git worktree remove <worktree-path>   # never rm -rf the directory by hand
@@ -301,11 +312,12 @@ automatically after merge makes this step unnecessary.
 Cleaned up:
   feat/s3-auth   PR #42   worktree .worktrees/feat-s3-auth removed   was 3f9c2ab
   fix/timeout    patch-equivalent on trunk                          was 81d0e4c
+  old/spike      not merged, deleted on request                     was 5d2e9a1
 
 Skipped:
   feat/docs          dirty worktree (?? notes.txt)
-  feat/wip           not merged
-  feat/review-fixes  2 commits not in PR #40 (listed above)
+  feat/wip           not merged, kept
+  feat/review-fixes  2 commits not in PR #40, kept
 
 main: e31c384 -> 9a1b7f0 (fast-forward, 3 commits).
 Remote branches: none left to delete.
@@ -322,9 +334,9 @@ ancestry and patch equivalence; no forge CLI for this remote"). On the
 | Symptom                                         | Cause                                                       | Do this                                                                 |
 | ----------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `git branch -d` says "not fully merged"         | Squash or rebase merge left no ancestry                     | Expected. Use `-D` once Steps 2 and 3 pass                              |
-| Forge says merged, tip gate fails               | Local commits never pushed, or pushed after the merge       | Skip the branch. Show the extra commits. The user decides               |
-| Patch probe prints `+`                          | Unmerged, partially merged, or conflict-resolved squash     | Not confirmed. Skip the branch                                          |
-| Upstream shows `[gone]` but nothing confirms    | Remote branch deleted without a merge                       | Skip the branch. Report it as "upstream gone, merge unconfirmed"        |
+| Forge says merged, tip gate fails               | Local commits never pushed, or pushed after the merge       | Ask in Step 4. Show the extra commits. The user decides                 |
+| Patch probe prints `+`                          | Unmerged, partially merged, or conflict-resolved squash     | Not confirmed. Ask in Step 4                                            |
+| Upstream shows `[gone]` but nothing confirms    | Remote branch deleted without a merge                       | Ask in Step 4 as "upstream gone, merge unconfirmed"                     |
 | Every shell call fails after cleanup            | The session's cwd was removed                               | Step 5 prevents this. `cd` to the trunk checkout                        |
 | `git worktree remove` refuses                   | Dirty, untracked, or locked worktree                        | Stop for that branch. Never `--force`                                   |
 | `pull --ff-only` or the ref update refuses      | Local trunk diverged from the remote                        | Stop and report. Never reset the trunk                                  |

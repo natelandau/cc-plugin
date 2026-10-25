@@ -88,7 +88,7 @@ These run multi-step workflows. Some are slash commands, others are skills you t
 | `/regroup-commits`                     | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code.                                                              |
 | `/squash`                              | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible.                                                                     |
 | `/fast-forward`                        | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible.                                                       |
-| `/cleanup-branch`                      | After a PR merges on the remote, removes the local worktree and branch and fast-forwards `main`. Refuses a branch with work the merge left out.                       |
+| `/cleanup-branch`                      | After a PR merges on the remote, removes the local worktree and branch and fast-forwards `main`. Asks before deleting a branch with work the merge left out.                       |
 
 ### Subagents
 
