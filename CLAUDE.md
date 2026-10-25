@@ -48,8 +48,6 @@ committing a code change.
   before I touched it" gates (symlink-safe).
 - **ruff targets `py314`** → `ruff format` drops parens on multi-exception `except`
   (`except (A, B):` → `except A, B:`, PEP 758). Don't revert it; ruff re-strips them.
-- **Scratch dirs are gitignored and never committed:** `.agent/` (specs in
-  `.agent/specs/`, plans in `.agent/plans/`).
 - **`docs/` is public-facing documentation** that IS committed (e.g.
   `docs/branch-protection.md`, linked from the README). Don't put plans/specs there.
 

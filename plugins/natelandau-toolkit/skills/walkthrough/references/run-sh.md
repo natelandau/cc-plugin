@@ -195,7 +195,7 @@ echo "Done: $MEDIA"
 Run the script from any directory:
 
 ```bash
-.agent/walkthroughs/2026-10-05-add-item/scripts/run.sh
+~/.cache/natelandau-toolkit/my-app/walkthroughs/2026-10-05-add-item/scripts/run.sh
 ```
 
 If it exits with `1`, read the failed steps at the end of its output. After

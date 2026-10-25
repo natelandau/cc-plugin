@@ -155,8 +155,7 @@ capture as a good one.
 ### 7. Assemble and open the page
 
 Write `index.html` as "The page" describes. Then open it in the background
-from the walkthrough folder that "Output folder" chose. In a git repo, that
-folder is usually `<repo-root>/.agent/walkthroughs/<YYYY-MM-DD-slug>/`:
+from the walkthrough folder that "Output folder" chose:
 
 ```bash
 open -g <walkthrough-folder>/index.html
@@ -166,12 +165,12 @@ Print the absolute path of `index.html`, so the user can open it again later.
 
 ## Output folder
 
-Read `../shared/agent-output-dir.md` (relative to this skill's base directory)
-and follow it with `<kind>` set to `walkthroughs`. Each walkthrough gets its own
+Read `../shared/output-dir.md` (relative to this skill's base directory) and
+follow it with `<kind>` set to `walkthroughs`. Each walkthrough gets its own
 dated folder:
 
 ```text
-.agent/walkthroughs/YYYY-MM-DD-<slug>/
+<walkthroughs-dir>/YYYY-MM-DD-<slug>/
   index.html     the walkthrough page
   media/         stills, MP4 clips, and poster frames
   media/raw/     raw clips, deleted after each encode
@@ -184,7 +183,6 @@ dated folder:
 later. The capture files and the media go only into the walkthrough folder.
 The run changes these things outside it:
 
-- The `.gitignore` line that the output-folder rule adds.
 - The temporary copy of `WalkthroughTests.swift` that `run.sh` puts into a UI
   test target and removes on exit.
 - The temporary copy of a web e2e spec that `run.sh` puts into the project's

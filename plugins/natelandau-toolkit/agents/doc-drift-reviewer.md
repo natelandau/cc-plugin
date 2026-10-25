@@ -28,7 +28,7 @@ the common, correct outcome, and a short list beats an exhaustive one.
 
 2. Find the user-facing documentation: `README*`, `CONTRIBUTING*`,
    `CHANGELOG*`, anything under `docs/`, help text, and inline usage examples.
-   Skip `.agent/` and other gitignored scratch notes.
+   Skip gitignored scratch notes.
 
 3. Compare them and report only what clears the bar:
    - Stale instructions: a documented command, flag, path, default, or step

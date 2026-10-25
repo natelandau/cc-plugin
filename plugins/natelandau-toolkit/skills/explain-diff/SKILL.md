@@ -71,9 +71,9 @@ The HTML file:
   the whole page and search it with Cmd-F.
 - Basic responsive styling, so it reads on a phone.
 - A filename that starts with today's date as `YYYY-MM-DD-`, so the files sort
-  by time. Example: `.agent/explanations/2026-07-08-explanation-<slug>.html`.
-- A gitignored location, so the file never lands in version control. Read
-  `../shared/agent-output-dir.md` (relative to this skill's base directory) and
+  by time. Example: `2026-07-08-explanation-<slug>.html`.
+- A location outside the repo, so the file never lands in version control.
+  Read `../shared/output-dir.md` (relative to this skill's base directory) and
   follow it with `<kind>` set to `explanations`.
 
 Diagrams carry much of the load. Use them wherever they aid understanding, with

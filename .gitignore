@@ -7,6 +7,5 @@ __pycache__/
 .worktrees/
 .cache/
 tmp/
-.agent/
 .agents/
 graphify-out/
