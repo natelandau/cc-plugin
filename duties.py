@@ -116,6 +116,15 @@ def ty(ctx: Context) -> None:
 
 
 @duty
+def vulture(ctx: Context) -> None:
+    """Find unused code with vulture."""
+    ctx.run(
+        gated("vulture", ["vulture"]),
+        title=pyprefix("vulture check"),
+    )
+
+
+@duty
 def typos(ctx: Context) -> None:
     """Check the code with typos."""
     ctx.run(
@@ -152,7 +161,7 @@ def prek(ctx: Context) -> None:
     )
 
 
-@duty(pre=[ruff, format, ty, typos, yamllint, shellcheck, prek], capture=CI)
+@duty(pre=[ruff, format, ty, vulture, typos, yamllint, shellcheck, prek], capture=CI)
 def lint(ctx: Context) -> None:
     """Run all linting duties."""
 

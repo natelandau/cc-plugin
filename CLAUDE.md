@@ -11,7 +11,7 @@ and sibling `<hook>.rules.toml`; config semantics live in `hooks/lib/config.py`.
 ## Gates
 
 ```bash
-uv run duty lint     # ruff, format check, ty, typos, yamllint, shellcheck, prek hooks
+uv run duty lint     # ruff, format check, ty, vulture, typos, yamllint, shellcheck, prek hooks
 uv run duty test     # full suite; extra args go to pytest
 uv run ruff format . # apply formatting (duty format only checks)
 ```

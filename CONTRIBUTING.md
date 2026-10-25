@@ -47,7 +47,7 @@ The index lists direct URLs for hooks, skills, slash commands, and agents. Check
 The gates are [duty](https://pawamoy.github.io/duty/) tasks in `duties.py`. CI and the git hooks run the same tasks, so run them before every commit:
 
 ```bash
-# All linters: ruff, format check, ty, typos, yamllint, shellcheck, and the other prek hooks
+# All linters: ruff, format check, ty, vulture, typos, yamllint, shellcheck, and the other prek hooks
 uv run duty lint
 
 # Full test suite with coverage
