@@ -140,14 +140,10 @@ Match the depth and the length of the output to the request.
   thing exists before you explain how it operates.
 - **Changelog or release notes**: one line per change, grouped by type, such as
   added, changed, fixed, and removed.
-- **Commit message or PR description**: a subject line of `type(scope): subject`
-  under 70 characters, with no capital first letter and no final period. Write
-  the subject in the imperative, and classify the body as descriptive. The body
-  gives the reason for the change, because the diff already shows the content of
-  the change. Frame the subject for a changelog reader, so name the public
-  behavior rather than an internal class. A breaking change takes a `!` after the
-  scope and a `BREAKING CHANGE:` section in the body. A PR title and description
-  take this same form, because a squash merge turns them into the commit.
+- **Commit message or PR description**: the form comes from the user's commit
+  conventions and the repository's tooling. Classify the body as descriptive.
+  The body gives the reason for the change, because the diff already shows the
+  content of the change.
 - **Runbook**: imperative steps under pager stress. Conditions first, warnings
   before the step they protect.
 

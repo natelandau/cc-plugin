@@ -337,7 +337,7 @@ echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf ~"}}' \
 
 ## Commit conventions
 
-Every commit message and pull request title must follow conventional-commit format. The toolkit's `enforce_commit_message` hook validates this automatically before each `git commit` and on `gh pr create`.
+Every commit message and pull request title in this repository must follow conventional-commit format. The `committed` pre-commit hook checks each commit message, and the `pr-linter` workflow checks each pull request title. If you run the toolkit, its `enforce_commit_message` hook also checks messages against your own `[hooks.commit-message]` config.
 
 The required format is:
 

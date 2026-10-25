@@ -16,12 +16,12 @@ The calling skill passes two values. Substitute them wherever they appear:
 
 Do every step in order, then return to the calling skill.
 
-Every commit you make here must be a valid conventional commit:
-`<type>(<scope>): <subject>`, imperative, lowercase subject, at most 70
-characters, with a type from `build ci docs feat fix perf refactor style test`.
-There is no `chore`. The `enforce_commit_message` hook validates each
-`git commit`, and `--no-verify` does not bypass it. A malformed subject blocks
-the rewrite mid-way.
+Write every commit message here to the commit conventions in your
+instructions and in the repository's own tooling, such as a commitlint or
+commitizen config or CONTRIBUTING. The `enforce_commit_message` hook
+validates each `git commit` against the user's configured rules, and its
+block message lists the rules in force. `--no-verify` does not
+bypass the hook, so a rejected message blocks the rewrite mid-way.
 
 ## Step 1: Decide whether regrouping helps
 
@@ -50,12 +50,12 @@ Choose a grouping in which:
 - Each commit covers one area or concern.
 - Documentation rides with the code it documents. A README, CHANGELOG, guide,
   or inline-doc change that explains code in this branch goes into that code's
-  commit, not a standalone `docs:` commit. Docs get their own commit only when
+  commit, not a standalone docs commit. Docs get their own commit only when
   they stand alone.
 - Commits read top to bottom: groundwork first (a refactor, a new helper, a
   schema change), then the work that builds on it.
-- Each subject names what the commit does, as a valid conventional commit
-  written to the bar in `commit-subjects.md` (in this directory).
+- Each message names what the commit does, written to the commit
+  conventions above.
 
 Aim for a handful of commits split by area. If one file spans every concern,
 do not force an artificial split. Fewer honest commits beat many contrived
@@ -78,7 +78,7 @@ Then, in reading order, stage each group's paths and commit it with
 
 ```bash
 git add <paths for group 1>
-git commit --no-verify -m "<type>(<scope>): <subject>"
+git commit --no-verify -m "<message>"
 # repeat for each remaining group, groundwork commits first
 ```
 

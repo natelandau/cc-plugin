@@ -1,20 +1,22 @@
-"""PreToolUse hook: validate conventional commit format on commits and PR titles.
+"""PreToolUse hook: validate commit messages and PR titles against configurable rules.
 
 Inspects bash commands for `git commit` invocations carrying `-m` /
 `--message`, and for `gh pr create|edit|merge` invocations carrying a
-title flag (`-t` / `--title`, or `-t` / `--subject` for merge). Extracts
-the value (handling simple quoting and the `"$(cat <<TAG ... TAG)"`
-heredoc form used by this codebase) and validates the first non-empty
-line against the project's commit conventions. PR titles are held to the
-same rules as commit subjects.
+title flag (`-t` / `--title`, or `-t` / `--subject` for merge) or a body
+(`-b` / `--body`, `-F` / `--body-file`). Extracts the values (handling
+simple quoting and the `"$(cat <<TAG ... TAG)"` heredoc form) and
+validates them against the rules in `[hooks.commit-message]` of
+`natelandau-toolkit.toml`. The defaults follow commitlint's
+`config-conventional`; `Rules` documents each option. A project config
+may loosen these rules, because they enforce style rather than safety.
 
 Pass-through cases (exit 0):
 - Non-Bash tools, empty commands, and commands that are neither a
   `git commit` nor a validated `gh pr` subcommand (`view`, `list`, ...).
-- `git commit` with no `-m`/`--message`. The editor opens; we have no
-  message to inspect, so we trust the user.
-- `gh pr` with no title flag (editor opens, `--fill` derives the title
-  from commits, or `gh pr merge` inherits the PR title).
+- `git commit` with no `-m`/`--message`. The editor opens or `-F` names a
+  file; we have no message to inspect, so we trust the user.
+- `gh pr` with neither a title nor a body flag (editor opens, `--fill`
+  derives the title from commits, or `gh pr merge` inherits the PR title).
 - Commands aimed at an exempt root (`lib.exempt_paths`). Those trees are
   working stores, not reviewable changelogs, so the conventions do not
   apply there.
@@ -23,279 +25,171 @@ Pass-through cases (exit 0):
   `Merge `, `Revert "`, `Revert '`, `fixup!`, `squash!`, `amend!`.
 
 When both a `git commit` and a `gh pr` command appear in one chained
-bash string, only the commit is validated (the original behavior).
+bash string, only the commit is validated.
 
-Validation rules (first match blocks with exit 2):
-- `empty-subject`: message is empty after stripping.
-- `header-too-long`: first line > 70 characters.
+Validation rules (first match blocks with exit 2; the option that
+controls each is in parentheses):
+- `empty-subject`: message or title is empty after stripping.
+- `subject-too-long`: first line, type and scope included, exceeds
+  `max_subject_length` (0 = no limit).
 - `bad-format`: first line does not match `<type>(<scope>): <subject>`
-  where type is lowercase letters, scope is optional, and an optional
-  `!` may precede the colon to mark a breaking change.
-- `bad-type`: type is not in the allowed list.
+  (`format = "conventional"`).
+- `bad-type`: type is not in `types`.
+- `missing-scope`: no `(scope)` (`require_scope`).
 - `subject-wip-marker`: subject starts with `wip`, `[wip]`, `draft`,
-  `[draft]`, or `(draft)` (case-insensitive).
-- `subject-uppercase`: subject's first character is uppercase.
-- `subject-trailing-whitespace`: subject ends with a space or tab.
-- `subject-trailing-period`: subject ends with a period.
-- `subject-trailing-punctuation`: subject ends with `!` or `?`.
-- `subject-not-imperative`: subject's first word is a known past-tense,
-  gerund, or third-person form (curated `NON_IMPERATIVE_VERBS` table).
+  `[draft]`, or `(draft)`, case-insensitive (`forbid_wip_subject`).
+- `subject-uppercase`: subject's first character is uppercase
+  (`subject_case = "lower-first"`).
+- `subject-trailing-whitespace`: subject ends with a space or tab (always).
+- `subject-trailing-period` / `subject-trailing-punctuation`: subject ends
+  with `.`, `!`, or `?` (`forbid_trailing_punctuation`).
+- `subject-not-imperative`: subject's first word is an -s, -ed, or -ing
+  form of a verb in `enforce_commit_message.verbs.txt`, or a word that
+  file denies (`force_imperative`).
+- `body-line-too-long`: a commit body line exceeds `max_body_line_length`
+  (0 = no limit). Single-token lines (URLs) and git trailers are exempt.
+- `forbidden-pattern`: a `forbidden_patterns` regex matches the full
+  commit message, or the PR title or body.
+
+`check_pr_titles = false` skips the subject rules for PR titles;
+`forbidden_patterns` still applies to them.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
+from functools import cache
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lib import bash, exempt_paths
 from lib.io import Decision
+from lib.paths import expand_user
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from lib.config import Config
 
 ID = "commit-message"
-ALLOWED_TYPES: tuple[str, ...] = (
+
+# commitlint config-conventional's type-enum.
+DEFAULT_TYPES: tuple[str, ...] = (
     "build",
+    "chore",
     "ci",
     "docs",
     "feat",
     "fix",
     "perf",
     "refactor",
+    "revert",
     "style",
     "test",
 )
 
-MAX_HEADER_LEN = 70
+FORMATS: frozenset[str] = frozenset({"conventional", "none"})
+SUBJECT_CASES: frozenset[str] = frozenset({"lower-first", "any"})
 
-# First-word denylist for imperative-mood enforcement. Maps a known
-# non-imperative form (past tense, gerund, or third-person singular) to
-# its imperative root, used in the violation suggestion. Curated rather
-# than algorithmic so we never block valid imperatives that happen to
-# end in -ed/-ing/-s ("release", "pass", "address", "feed", "bring").
-# Extend when a real false-negative escapes; suffix heuristics produce
-# noisier blocks than the imperative rule deters.
-NON_IMPERATIVE_VERBS: dict[str, str] = {
-    "added": "add",
-    "adding": "add",
-    "adds": "add",
-    "allowed": "allow",
-    "allowing": "allow",
-    "allows": "allow",
-    "amended": "amend",
-    "amending": "amend",
-    "amends": "amend",
-    "appended": "append",
-    "appending": "append",
-    "appends": "append",
-    "applied": "apply",
-    "applying": "apply",
-    "applies": "apply",
-    "batched": "batch",
-    "batching": "batch",
-    "batches": "batch",
-    "blocked": "block",
-    "blocking": "block",
-    "blocks": "block",
-    "built": "build",
-    "building": "build",
-    "builds": "build",
-    "bumped": "bump",
-    "bumping": "bump",
-    "bumps": "bump",
-    "changed": "change",
-    "changing": "change",
-    "changes": "change",
-    "cleaned": "clean",
-    "cleaning": "clean",
-    "cleans": "clean",
-    "commits": "commit",
-    "committing": "commit",
-    "consolidated": "consolidate",
-    "consolidating": "consolidate",
-    "consolidates": "consolidate",
-    "converted": "convert",
-    "converting": "convert",
-    "converts": "convert",
-    "copied": "copy",
-    "copying": "copy",
-    "copies": "copy",
-    "corrected": "correct",
-    "correcting": "correct",
-    "corrects": "correct",
-    "created": "create",
-    "creating": "create",
-    "creates": "create",
-    "decreased": "decrease",
-    "decreases": "decrease",
-    "decreasing": "decrease",
-    "deduped": "dedupe",
-    "deduping": "dedupe",
-    "dedupes": "dedupe",
-    "deferred": "defer",
-    "deferring": "defer",
-    "defers": "defer",
-    "deleted": "delete",
-    "deletes": "delete",
-    "deleting": "delete",
-    "deprecated": "deprecate",
-    "deprecates": "deprecate",
-    "deprecating": "deprecate",
-    "documents": "document",
-    "documenting": "document",
-    "documented": "document",
-    "dropped": "drop",
-    "dropping": "drop",
-    "drops": "drop",
-    "enforced": "enforce",
-    "enforces": "enforce",
-    "enforcing": "enforce",
-    "enhanced": "enhance",
-    "enhances": "enhance",
-    "enhancing": "enhance",
-    "expands": "expand",
-    "expanding": "expand",
-    "expanded": "expand",
-    "exposed": "expose",
-    "exposes": "expose",
-    "exposing": "expose",
-    "extracted": "extract",
-    "extracting": "extract",
-    "extracts": "extract",
-    "fixed": "fix",
-    "fixes": "fix",
-    "fixing": "fix",
-    "gates": "gate",
-    "gating": "gate",
-    "gated": "gate",
-    "gathered": "gather",
-    "gathering": "gather",
-    "gathers": "gather",
-    "generated": "generate",
-    "generates": "generate",
-    "generating": "generate",
-    "gives": "give",
-    "grouped": "group",
-    "grouping": "group",
-    "groups": "group",
-    "implemented": "implement",
-    "implementing": "implement",
-    "improved": "improve",
-    "improves": "improve",
-    "improving": "improve",
-    "increased": "increase",
-    "increases": "increase",
-    "increasing": "increase",
-    "implements": "implement",
-    "injected": "inject",
-    "injecting": "inject",
-    "injects": "inject",
-    "initialized": "initialize",
-    "initializes": "initialize",
-    "initializing": "initialize",
-    "introduced": "introduce",
-    "introduces": "introduce",
-    "introducing": "introduce",
-    "kept": "keep",
-    "keeping": "keep",
-    "keeps": "keep",
-    "lays": "lay",
-    "laying": "lay",
-    "laid": "lay",
-    "made": "make",
-    "making": "make",
-    "makes": "make",
-    "merged": "merge",
-    "merging": "merge",
-    "merges": "merge",
-    "migrated": "migrate",
-    "migrates": "migrate",
-    "migrating": "migrate",
-    "moved": "move",
-    "moves": "move",
-    "moving": "move",
-    "optimized": "optimize",
-    "optimizes": "optimize",
-    "optimizing": "optimize",
-    "passed": "pass",
-    "passing": "pass",
-    "passes": "pass",
-    "ported": "port",
-    "porting": "port",
-    "ports": "port",
-    "redesigned": "redesign",
-    "redesigning": "redesign",
-    "redesigns": "redesign",
-    "refactored": "refactor",
-    "refactoring": "refactor",
-    "refactors": "refactor",
-    "removed": "remove",
-    "removing": "remove",
-    "removes": "remove",
-    "renamed": "rename",
-    "renaming": "rename",
-    "renames": "rename",
-    "rendered": "render",
-    "rendering": "render",
-    "renders": "render",
-    "replaced": "replace",
-    "replacing": "replace",
-    "replaces": "replace",
-    "resolves": "resolve",
-    "resolving": "resolve",
-    "restored": "restore",
-    "restoring": "restore",
-    "restores": "restore",
-    "restructures": "restructure",
-    "restructuring": "restructure",
-    "restructured": "restructure",
-    "reverted": "revert",
-    "reverting": "revert",
-    "reverts": "revert",
-    "scrubs": "scrub",
-    "scrubbing": "scrub",
-    "scrubbed": "scrub",
-    "sets": "set",
-    "setting": "set",
-    "shows": "show",
-    "showing": "show",
-    "simplified": "simplify",
-    "simplifying": "simplify",
-    "simplifies": "simplify",
-    "sorted": "sort",
-    "sorting": "sort",
-    "sorts": "sort",
-    "supported": "support",
-    "supporting": "support",
-    "supports": "support",
-    "squashed": "squash",
-    "squashing": "squash",
-    "squashes": "squash",
-    "strips": "strip",
-    "stripping": "strip",
-    "stripped": "strip",
-    "switched": "switch",
-    "switching": "switch",
-    "switches": "switch",
-    "tightens": "tighten",
-    "tightened": "tighten",
-    "tweaked": "tweak",
-    "tweaking": "tweak",
-    "tweaks": "tweak",
-    "updated": "update",
-    "updating": "update",
-    "updates": "update",
-    "used": "use",
-    "using": "use",
-    "uses": "use",
-    "verified": "verify",
-    "verifying": "verify",
-    "verifies": "verify",
-    "wired": "wire",
-    "wiring": "wire",
-    "wires": "wire",
-}
+# Large enough for any PR description; a bigger file is not one.
+MAX_BODY_FILE_BYTES = 1 << 20
+
+# The verb list lives beside this module so it can be edited without touching
+# code. See the file's header for its line forms.
+VERBS_FILE = Path(__file__).with_name("enforce_commit_message.verbs.txt")
+
+
+@dataclass(frozen=True, slots=True)
+class VerbLexicon:
+    """The verb data behind the imperative-mood rule.
+
+    A word is judged only when stripping a known suffix yields a listed verb, so
+    an unlisted word ("ring", "layer") is never blocked. That trades missed
+    detections for zero false blocks on words the list does not know. Words the
+    file denies outright ("user", "initial") cover non-verbs that subjects
+    commonly open with.
+    """
+
+    verbs: frozenset[str] = frozenset()
+    allowed: frozenset[str] = frozenset()
+    denied: frozenset[str] = frozenset()
+    irregular: Mapping[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def parse(cls, text: str) -> VerbLexicon:
+        """Parse the verb file: `verb`, `!word`, `-word`, or `form -> verb`."""
+        verbs: set[str] = set()
+        allowed: set[str] = set()
+        denied: set[str] = set()
+        irregular: dict[str, str] = {}
+        for raw in text.splitlines():
+            line = raw.split("#", 1)[0].strip().lower()
+            if not line:
+                continue
+            if line.startswith("!"):
+                allowed.add(line[1:].strip())
+            elif line.startswith("-"):
+                denied.add(line[1:].strip())
+            elif "->" in line:
+                form, _, base = line.partition("->")
+                irregular[form.strip()] = base.strip()
+            else:
+                verbs.add(line)
+        return cls(
+            verbs=frozenset(verbs),
+            allowed=frozenset(allowed),
+            denied=frozenset(denied),
+            irregular=irregular,
+        )
+
+    def is_denied(self, word: str) -> bool:
+        """Return whether the file forbids `word` as a subject's first word."""
+        return word.lower() in self.denied
+
+    def suggest(self, word: str) -> str | None:
+        """Return the base verb when `word` is a non-imperative form of one, else None."""
+        word = word.lower()
+        if word in self.verbs or word in self.allowed:
+            return None
+        if word in self.irregular:
+            return self.irregular[word]
+        return next((c for c in _base_candidates(word) if c in self.verbs), None)
+
+
+def _base_candidates(word: str) -> list[str]:
+    """Return the possible base forms of an inflected English verb, most likely first.
+
+    Reverses the regular spelling rules: -ies/-ied to -y, -es/-s dropped, and
+    -ed/-ing dropped with the silent `e` restored or a doubled final consonant
+    undone ("moving" to "move", "dropped" to "drop").
+    """
+    candidates: list[str] = []
+    if word.endswith(("ies", "ied")):
+        candidates.append(word[:-3] + "y")
+    if word.endswith("es"):
+        candidates.append(word[:-2])
+    if word.endswith("s") and not word.endswith("ss"):
+        candidates.append(word[:-1])
+    for suffix in ("ed", "ing"):
+        if word.endswith(suffix):
+            stem = word[: -len(suffix)]
+            candidates.extend((stem, stem + "e"))
+            if len(stem) > 1 and stem[-1] == stem[-2]:
+                candidates.append(stem[:-1])
+    return [c for c in candidates if len(c) > 1]
+
+
+@cache
+def verb_lexicon() -> VerbLexicon:
+    """Load the verb file once; an unreadable file disables the rule rather than block."""
+    try:
+        return VerbLexicon.parse(VERBS_FILE.read_text(encoding="utf-8"))
+    except OSError as exc:
+        print(f"natelandau-toolkit: cannot read {VERBS_FILE}: {exc}", file=sys.stderr)  # noqa: T201
+        return VerbLexicon()
+
 
 # Extracts the first word of the subject after stripping any leading
 # non-word characters (so `"added"` and `(added)` resolve to `added`).
@@ -369,6 +263,22 @@ GH_TITLE_VALUE_RE = re.compile(
     re.DOTALL,
 )
 
+# Pulls a `gh pr` body out of a bash command. `--body-file` cannot match
+# because `--body` must be followed by `=`, whitespace, or a quote.
+GH_BODY_VALUE_RE = re.compile(
+    r"(?<!\S)(?:-b|--body)(?:\s*=)?\s*(?:" + _VALUE_ALT + r")",
+    re.DOTALL,
+)
+
+# Pulls a `gh pr` `-F` / `--body-file` path out of a bash command.
+GH_BODY_FILE_RE = re.compile(
+    r"(?<!\S)(?:-F|--body-file)(?:\s*=\s*|\s+)(?:\"(?P<dq>[^\"]*)\"|'(?P<sq>[^']*)'|(?P<bare>[^\s;&|]+))"
+)
+
+# A git trailer line (`Signed-off-by: name`). Only lines in the final
+# paragraph count, matching how git itself finds trailers.
+TRAILER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*: \S")
+
 
 @dataclass(frozen=True, slots=True)
 class Violation:
@@ -378,17 +288,118 @@ class Violation:
     reason: str
 
 
-# Appended to every block message so the agent has the full format spec
-# in front of it and can fix the message in one shot rather than chain
-# through one violation at a time. The type list is rendered from
-# `ALLOWED_TYPES` so the footer can never drift from the rule data.
-FOOTER = (
-    "\n\n"
-    "Format: `<type>(<scope>)?[!]?: <subject>` (Angular Conventional Commits).\n"
-    f"Types: {', '.join(ALLOWED_TYPES)}.\n"
-    "Subject: lowercase imperative, <=70 chars, no trailing whitespace, period, `!`, or `?`.\n"
-    "Full ruleset: invoke the `git-rules` skill."
-)
+def _warn(message: str) -> None:
+    """Report a config problem without blocking the tool call."""
+    print(f"natelandau-toolkit: [hooks.{ID}] {message}", file=sys.stderr)  # noqa: T201
+
+
+def _choice(cfg: Config, key: str, default: str, allowed: frozenset[str]) -> str:
+    """Return a string option restricted to `allowed`, else `default` with a warning."""
+    value = cfg.option(ID, key, default=default)
+    if value in allowed:
+        return value
+    _warn(f"{key} = {value!r} is not one of {sorted(allowed)}; using {default!r}")
+    return default
+
+
+def _length(cfg: Config, key: str, default: int) -> int:
+    """Return a non-negative length option, else `default` with a warning."""
+    value = cfg.option(ID, key, default=default)
+    if value >= 0:
+        return value
+    _warn(f"{key} = {value} must be 0 or more; using {default}")
+    return default
+
+
+def _patterns(cfg: Config) -> tuple[re.Pattern[str], ...]:
+    """Compile `forbidden_patterns`, dropping any regex that does not compile."""
+    compiled: list[re.Pattern[str]] = []
+    for raw in cfg.option(ID, "forbidden_patterns", default=()):
+        try:
+            compiled.append(re.compile(raw))
+        except re.error as exc:
+            _warn(f"ignoring forbidden_patterns entry {raw!r}: {exc}")
+    return tuple(compiled)
+
+
+@dataclass(frozen=True, slots=True)
+class Rules:
+    """The commit-message rules in force, resolved from `[hooks.commit-message]`.
+
+    Each field's default is the shipped behavior; see the module docstring for
+    the violation each one controls.
+    """
+
+    format: str = "conventional"
+    types: tuple[str, ...] = DEFAULT_TYPES
+    require_scope: bool = False
+    max_subject_length: int = 100
+    max_body_line_length: int = 0
+    subject_case: str = "lower-first"
+    forbid_trailing_punctuation: bool = True
+    forbid_wip_subject: bool = True
+    force_imperative: bool = False
+    forbidden_patterns: tuple[re.Pattern[str], ...] = ()
+    check_pr_titles: bool = True
+
+    @classmethod
+    def from_config(cls, cfg: Config) -> Rules:
+        """Resolve the rules from config, falling back per key on a bad value."""
+        d = cls()
+        types = cfg.option(ID, "types", default=d.types)
+        if not types:
+            _warn(f"types is empty; using {list(d.types)}")
+            types = d.types
+        return cls(
+            format=_choice(cfg, "format", d.format, FORMATS),
+            types=types,
+            require_scope=cfg.option(ID, "require_scope", default=d.require_scope),
+            max_subject_length=_length(cfg, "max_subject_length", d.max_subject_length),
+            max_body_line_length=_length(cfg, "max_body_line_length", d.max_body_line_length),
+            subject_case=_choice(cfg, "subject_case", d.subject_case, SUBJECT_CASES),
+            forbid_trailing_punctuation=cfg.option(
+                ID, "forbid_trailing_punctuation", default=d.forbid_trailing_punctuation
+            ),
+            forbid_wip_subject=cfg.option(ID, "forbid_wip_subject", default=d.forbid_wip_subject),
+            force_imperative=cfg.option(ID, "force_imperative", default=d.force_imperative),
+            forbidden_patterns=_patterns(cfg),
+            check_pr_titles=cfg.option(ID, "check_pr_titles", default=d.check_pr_titles),
+        )
+
+    def summary(self) -> str:
+        """Describe the active rules, appended to every block message.
+
+        Listing every rule lets the agent fix the message in one shot rather
+        than chain through one violation at a time.
+        """
+        lines = ["", "", f"Active rules ([hooks.{ID}] in natelandau-toolkit.toml):"]
+        if self.format == "conventional":
+            scope = "<scope> required" if self.require_scope else "<scope> optional"
+            lines.append(f"Format: `<type>(<scope>)[!]: <subject>`, {scope}.")
+            lines.append(f"Types: {', '.join(self.types)}.")
+        subject: list[str] = []
+        if self.max_subject_length:
+            subject.append(f"first line <= {self.max_subject_length} chars")
+        if self.subject_case == "lower-first":
+            subject.append("lowercase first letter")
+        if self.force_imperative:
+            subject.append("imperative mood")
+        subject.append(
+            "no trailing whitespace, period, `!`, or `?`"
+            if self.forbid_trailing_punctuation
+            else "no trailing whitespace"
+        )
+        if self.forbid_wip_subject:
+            subject.append("no WIP/Draft marker")
+        lines.append(f"Subject: {', '.join(subject)}.")
+        if self.max_body_line_length:
+            lines.append(
+                f"Body: lines <= {self.max_body_line_length} chars (URLs and trailers exempt)."
+            )
+        if self.forbidden_patterns:
+            joined = ", ".join(f"`{p.pattern}`" for p in self.forbidden_patterns)
+            lines.append(f"Forbidden anywhere in the message: {joined}.")
+        return "\n".join(lines)
 
 
 def _clause_dir(command: str, cwd: str, pattern: re.Pattern[str]) -> str:
@@ -410,17 +421,8 @@ def _clause_dir(command: str, cwd: str, pattern: re.Pattern[str]) -> str:
     return eff_cwd
 
 
-def _extract(cmd: str, pattern: re.Pattern[str]) -> str | None:
-    """Pull the first quoted value matched by `pattern` out of `cmd`.
-
-    Only the first match matters: for `git commit`, git treats later
-    `-m` args as body paragraphs the conventions do not constrain; for
-    `gh pr`, only one title flag is meaningful. Returns None when no
-    recognizable value is present (editor opens, `-F file`, `--fill`).
-    """
-    m = pattern.search(cmd)
-    if m is None:
-        return None
+def _value(m: re.Match[str]) -> str:
+    """Return the quoted value a `_VALUE_ALT` match captured."""
     if m.group("heredoc") is not None:
         return m.group("heredoc")
     if m.group("dq") is not None:
@@ -428,8 +430,55 @@ def _extract(cmd: str, pattern: re.Pattern[str]) -> str | None:
     return m.group("sq")
 
 
+def _extract(cmd: str, pattern: re.Pattern[str]) -> str | None:
+    """Pull the first quoted value matched by `pattern` out of `cmd`.
+
+    For `gh pr` only one title or body flag is meaningful. Returns None when
+    no recognizable value is present (editor opens, `--fill`).
+    """
+    m = pattern.search(cmd)
+    return _value(m) if m else None
+
+
+def _commit_message(cmd: str) -> str | None:
+    """Return the full commit message, joining repeated `-m` values as git does.
+
+    Git makes each `-m` its own paragraph, so the first value's first line is
+    the subject and everything after it is the body. Returns None when no
+    `-m` is present (editor opens, `-F file`).
+    """
+    values = [_value(m) for m in M_VALUE_RE.finditer(cmd)]
+    return "\n\n".join(values) if values else None
+
+
+def _pr_body(cmd: str, clause_dir: str) -> str | None:
+    """Return the PR body from `--body` or the file `--body-file` names.
+
+    Fails open: an unreadable, oversized, or stdin (`-`) body file yields None
+    rather than blocking a call the hook cannot judge.
+    """
+    body = _extract(cmd, GH_BODY_VALUE_RE)
+    if body is not None:
+        return body
+    m = GH_BODY_FILE_RE.search(cmd)
+    if m is None:
+        return None
+    raw = m.group("dq") if m.group("dq") is not None else m.group("sq") or m.group("bare")
+    if not raw or raw == "-":
+        return None
+    path = expand_user(raw)
+    if not path.is_absolute():
+        path = expand_user(clause_dir) / path
+    try:
+        if path.stat().st_size > MAX_BODY_FILE_BYTES:
+            return None
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
 def _first_line(text: str) -> str:
-    """Return the first non-empty stripped line, or empty string."""
+    """Return the first non-empty line, or empty string."""
     for line in text.splitlines():
         if line.strip():
             return line
@@ -441,89 +490,154 @@ def _is_auto(line: str) -> bool:
     return line.startswith(AUTO_PREFIXES)
 
 
-def _check_shape(line: str, noun: str) -> Violation | re.Match[str]:
-    """Check header emptiness, length, and grammar; return the parsed match on success.
+class _Validator:
+    """Apply one `Rules` set to a commit message or PR title and body."""
 
-    `noun` names the inspected artifact ("commit message" / "PR title")
-    so the empty-input violation reads naturally for both call sites.
-    """
-    if not line:
-        return Violation("empty-subject", f"{noun} is empty")
-    if len(line) > MAX_HEADER_LEN:
-        return Violation(
-            "header-too-long",
-            f"first line is {len(line)} chars, must be <= {MAX_HEADER_LEN}",
-        )
-    m = HEADER_RE.match(line)
-    if not m:
-        return Violation(
-            "bad-format",
-            "header must match `<type>(<scope>): <subject>` (scope optional)",
-        )
-    return m
+    def __init__(self, rules: Rules) -> None:
+        self.rules = rules
+
+    def subject(self, line: str, noun: str) -> Violation | None:  # noqa: PLR0911
+        """Check the first line; `noun` names the artifact in the empty-input message."""
+        r = self.rules
+        if not line:
+            return Violation("empty-subject", f"{noun} is empty")
+        if r.max_subject_length and len(line) > r.max_subject_length:
+            return Violation(
+                "subject-too-long",
+                f"first line is {len(line)} chars, must be <= {r.max_subject_length}",
+            )
+        if r.format == "none":
+            return self._subject_text(line)
+        m = HEADER_RE.match(line)
+        if not m:
+            return Violation(
+                "bad-format",
+                "first line must match `<type>(<scope>): <subject>` (scope optional)",
+            )
+        type_ = m.group("type")
+        if type_ not in r.types:
+            return Violation(
+                "bad-type", f"type {type_!r} not allowed; use one of: {', '.join(r.types)}"
+            )
+        if r.require_scope and not m.group("scope"):
+            return Violation("missing-scope", "a `(scope)` is required after the type")
+        return self._subject_text(m.group("subject"))
+
+    def _subject_text(self, subject: str) -> Violation | None:  # noqa: PLR0911
+        """Check the subject text after any type and scope.
+
+        The WIP/Draft check runs before the case check so that `WIP add foo`
+        produces the more specific marker message rather than `subject-uppercase`.
+        """
+        r = self.rules
+        if r.forbid_wip_subject and WIP_MARKER_RE.match(subject):
+            return Violation("subject-wip-marker", "subject must not start with a WIP/Draft marker")
+        if r.subject_case == "lower-first" and subject[:1].isupper():
+            return Violation("subject-uppercase", "subject must start with a lowercase letter")
+        last = subject[-1:]
+        if last in (" ", "\t"):
+            return Violation("subject-trailing-whitespace", "subject must not end with whitespace")
+        if r.forbid_trailing_punctuation:
+            if last == ".":
+                return Violation("subject-trailing-period", "subject must not end with a period")
+            if last in ("!", "?"):
+                return Violation(
+                    "subject-trailing-punctuation", f"subject must not end with {last!r}"
+                )
+        if r.force_imperative:
+            word_match = FIRST_WORD_RE.match(subject)
+            first_word = word_match.group(1).lower() if word_match else ""
+            lexicon = verb_lexicon()
+            if lexicon.is_denied(first_word):
+                return Violation(
+                    "subject-not-imperative",
+                    f"first word {first_word!r} is not a verb; "
+                    "start with an imperative verb such as 'add' or 'fix'",
+                )
+            base = lexicon.suggest(first_word)
+            if base is not None:
+                return Violation(
+                    "subject-not-imperative",
+                    f"first word {first_word!r} is not imperative; use {base!r}",
+                )
+        return None
+
+    def body(self, message: str) -> Violation | None:
+        """Check commit body line lengths, exempting URLs and final-paragraph trailers."""
+        limit = self.rules.max_body_line_length
+        if not limit:
+            return None
+        lines = message.splitlines()
+        start = next((i for i, line in enumerate(lines) if line.strip()), len(lines)) + 1
+        body = lines[start:]
+        last_blank = max((i for i, line in enumerate(body) if not line.strip()), default=-1)
+        for i, raw in enumerate(body):
+            line = raw.rstrip()
+            if len(line) <= limit or len(line.split()) == 1:
+                continue
+            if i > last_blank and TRAILER_RE.match(line):
+                continue
+            return Violation(
+                "body-line-too-long",
+                f"body line is {len(line)} chars, must be <= {limit}: {line[:60]!r}...",
+            )
+        return None
+
+    def forbidden(self, text: str) -> Violation | None:
+        """Block when any `forbidden_patterns` regex matches `text`."""
+        for pattern in self.rules.forbidden_patterns:
+            if pattern.search(text):
+                return Violation(
+                    "forbidden-pattern", f"text matches forbidden pattern `{pattern.pattern}`"
+                )
+        return None
 
 
-def _check_trailing(subject: str) -> Violation | None:
-    """Block disallowed trailing characters on the subject."""
-    last = subject[-1:]
-    if last in (" ", "\t"):
-        return Violation("subject-trailing-whitespace", "subject must not end with whitespace")
-    if last == ".":
-        return Violation("subject-trailing-period", "subject must not end with a period")
-    if last in ("!", "?"):
-        return Violation("subject-trailing-punctuation", f"subject must not end with {last!r}")
-    return None
+def _block(violation: Violation, noun: str, line: str, rules: Rules) -> Decision:
+    """Build the block decision for `violation`."""
+    # The bracket slug is the hook id a user disables (see Decision.blocked);
+    # the rule id rides in the message so the specific rule stays visible.
+    return Decision.blocked(
+        ID,
+        f"'{violation.id}': {violation.reason}\n  {noun} first line: {line!r}{rules.summary()}",
+    )
 
 
-def _check_content(m: re.Match[str]) -> Violation | None:
-    """Validate the parsed type and subject against the project rules.
-
-    The WIP/Draft check runs before the lowercase-first-letter check so
-    that `WIP add foo` produces the more specific marker message rather
-    than `subject-uppercase`.
-    """
-    type_ = m.group("type")
-    if type_ not in ALLOWED_TYPES:
-        return Violation(
-            "bad-type",
-            f"type {type_!r} not allowed; use one of: {', '.join(ALLOWED_TYPES)}",
-        )
-    subject = m.group("subject")
-    if WIP_MARKER_RE.match(subject):
-        return Violation("subject-wip-marker", "subject must not start with a WIP/Draft marker")
-    if subject[:1].isupper():
-        return Violation("subject-uppercase", "subject must start with a lowercase letter")
-    trailing = _check_trailing(subject)
-    if trailing is not None:
-        return trailing
-    word_match = FIRST_WORD_RE.match(subject)
-    first_word = word_match.group(1).lower() if word_match else ""
-    if first_word in NON_IMPERATIVE_VERBS:
-        return Violation(
-            "subject-not-imperative",
-            f"first word {first_word!r} is not imperative; "
-            f"use {NON_IMPERATIVE_VERBS[first_word]!r}",
-        )
-    return None
+def _evaluate_commit(cmd: str, rules: Rules) -> Decision | None:
+    """Validate a `git commit -m` message."""
+    msg = _commit_message(cmd)
+    if msg is None:
+        return None
+    line = _first_line(msg)
+    if _is_auto(line):
+        return None
+    v = _Validator(rules)
+    violation = v.subject(line, "commit message") or v.body(msg) or v.forbidden(msg)
+    return _block(violation, "commit message", line, rules) if violation else None
 
 
-def _validate(line: str, noun: str) -> Violation | None:
-    """Return the first violation against the rule list, or None.
-
-    `noun` names the inspected artifact for the empty-input violation.
-    """
-    shape = _check_shape(line, noun)
-    if isinstance(shape, Violation):
-        return shape
-    return _check_content(shape)
+def _evaluate_pr(cmd: str, rules: Rules, clause_dir: str) -> Decision | None:
+    """Validate a `gh pr create|edit|merge` title and body."""
+    title = _extract(cmd, GH_TITLE_VALUE_RE)
+    body = _pr_body(cmd, clause_dir)
+    if title is None and body is None:
+        return None
+    v = _Validator(rules)
+    line = _first_line(title) if title is not None else ""
+    violation = None
+    if title is not None and rules.check_pr_titles:
+        violation = v.subject(line, "PR title")
+    if violation is None:
+        violation = v.forbidden("\n\n".join(t for t in (title, body) if t is not None))
+    return _block(violation, "PR title", line, rules) if violation else None
 
 
 def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: PLR0911
-    """Return a block Decision on a commit-message or PR-title violation, else None.
+    """Return a block Decision on a commit-message or PR violation, else None.
 
     Inspects the event for `git commit -m` and `gh pr create|edit|merge`
-    commands and validates the message or title against the conventional-commit
-    rules. Returns None for all pass-through cases.
+    commands and validates them against the configured rules. Returns None for
+    all pass-through cases.
     """
     if event.get("tool_name") != "Bash":
         return None
@@ -532,42 +646,24 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: PL
     if not cmd:
         return None
 
-    # `git commit` wins when both appear (e.g. `git commit && gh pr ...`),
-    # preserving the original behavior; the PR title is then not inspected.
+    # `git commit` wins when both appear (e.g. `git commit && gh pr ...`);
+    # the PR is then not inspected.
     if GIT_COMMIT_RE.search(cmd):
         # `--fixup` and `--squash` produce auto-prefixed messages even
         # when the user does not pass `-m`. Skip the whole invocation.
         if re.search(r"(?<!\S)(--fixup|--squash)\b", cmd):
             return None
         matched = GIT_COMMIT_RE
-        msg = _extract(cmd, M_VALUE_RE)
-        noun = "commit message"
     elif GH_PR_RE.search(cmd):
         matched = GH_PR_RE
-        msg = _extract(cmd, GH_TITLE_VALUE_RE)
-        noun = "PR title"
     else:
         return None
 
-    exempt = exempt_paths.resolve(cfg.exempt_paths)
-    if exempt.contains(_clause_dir(cmd, event.get("cwd", ""), matched)):
+    clause_dir = _clause_dir(cmd, event.get("cwd", ""), matched)
+    if exempt_paths.resolve(cfg.exempt_paths).contains(clause_dir):
         return None
 
-    if msg is None:
-        # No message/title flag found: editor opens, `-F file`, or
-        # `--fill` is used. We cannot see the text, so we let it through.
-        return None
-
-    line = _first_line(msg)
-    if _is_auto(line):
-        return None
-
-    violation = _validate(line, noun)
-    if violation is not None:
-        # The bracket slug is the hook id a user disables (see Decision.blocked);
-        # the rule id rides in the message so the specific rule stays visible.
-        return Decision.blocked(
-            ID, f"'{violation.id}': {violation.reason}\n  {noun} first line: {line!r}{FOOTER}"
-        )
-
-    return None
+    rules = Rules.from_config(cfg)
+    if matched is GIT_COMMIT_RE:
+        return _evaluate_commit(cmd, rules)
+    return _evaluate_pr(cmd, rules, clause_dir)

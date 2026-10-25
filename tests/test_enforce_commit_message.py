@@ -26,7 +26,7 @@ HEREDOC_VALID = (
     "git commit -m \"$(cat <<'EOF'\nfeat: add new feature\n\nBody explains why.\nEOF\n)\""
 )
 
-HEREDOC_BAD_TYPE = "git commit -m \"$(cat <<'EOF'\nchore: tidy things up\nEOF\n)\""
+HEREDOC_BAD_TYPE = "git commit -m \"$(cat <<'EOF'\ntask: tidy things up\nEOF\n)\""
 
 HEREDOC_UPPERCASE_SUBJECT = "git commit -m \"$(cat <<'EOF'\nfeat: Add new feature\nEOF\n)\""
 
@@ -184,10 +184,21 @@ CASES: tuple[Case, ...] = (
     ),
     # Block: bad type.
     Case(
-        id="chore type blocked",
-        payload=_bash('git commit -m "chore: tidy things"'),
+        id="unknown type blocked",
+        payload=_bash('git commit -m "task: tidy things"'),
         expect_exit=2,
-        stderr_contains=("bad-type", "chore"),
+        stderr_contains=("bad-type", "task"),
+    ),
+    # Allow: commitlint config-conventional types beyond the classic Angular set.
+    Case(
+        id="chore type allowed by default",
+        payload=_bash('git commit -m "chore: tidy things"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="revert type allowed by default",
+        payload=_bash('git commit -m "revert: undo the cache change"'),
+        expect_exit=0,
     ),
     Case(
         id="wip type blocked",
@@ -208,12 +219,17 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("subject-trailing-period",),
     ),
-    # Block: header length.
+    # Subject length: the default limit is 100 characters for the whole first line.
     Case(
-        id="header too long blocked",
-        payload=_bash('git commit -m "feat: ' + ("a" * 80) + '"'),
+        id="subject of 90 chars allowed by default",
+        payload=_bash('git commit -m "feat: ' + ("a" * 84) + '"'),
+        expect_exit=0,
+    ),
+    Case(
+        id="subject over 100 chars blocked",
+        payload=_bash('git commit -m "feat: ' + ("a" * 95) + '"'),
         expect_exit=2,
-        stderr_contains=("header-too-long",),
+        stderr_contains=("subject-too-long", "101 chars"),
     ),
     # Block: empty subject.
     Case(
@@ -234,7 +250,7 @@ CASES: tuple[Case, ...] = (
         id="heredoc bad type blocked",
         payload=_bash(HEREDOC_BAD_TYPE),
         expect_exit=2,
-        stderr_contains=("bad-type", "chore"),
+        stderr_contains=("bad-type", "task"),
     ),
     Case(
         id="heredoc uppercase subject blocked",
@@ -248,45 +264,10 @@ CASES: tuple[Case, ...] = (
         payload=_bash('git commit --amend -m "Bad: format"'),
         expect_exit=2,
     ),
-    # Block: non-imperative first word.
+    # Allow: the imperative check is off by default (see CONFIGURED_CASES).
     Case(
-        id="past tense first word blocked",
+        id="past tense first word allowed by default",
         payload=_bash('git commit -m "feat: added new feature"'),
-        expect_exit=2,
-        stderr_contains=("subject-not-imperative", "added", "add"),
-    ),
-    Case(
-        id="gerund first word blocked",
-        payload=_bash('git commit -m "fix: fixing null pointer"'),
-        expect_exit=2,
-        stderr_contains=("subject-not-imperative", "fixing", "fix"),
-    ),
-    Case(
-        id="third-person first word blocked",
-        payload=_bash('git commit -m "build: bumps deps"'),
-        expect_exit=2,
-        stderr_contains=("subject-not-imperative", "bumps", "bump"),
-    ),
-    # Allow: imperative root forms of denylisted verbs pass.
-    Case(
-        id="imperative add allowed",
-        payload=_bash('git commit -m "feat: add new feature"'),
-        expect_exit=0,
-    ),
-    Case(
-        id="imperative bump allowed",
-        payload=_bash('git commit -m "build: bump deps"'),
-        expect_exit=0,
-    ),
-    # Allow: imperatives that happen to end in -ed/-ing/-s pass (not denylisted).
-    Case(
-        id="release verb allowed",
-        payload=_bash('git commit -m "feat: release v1.0"'),
-        expect_exit=0,
-    ),
-    Case(
-        id="pass verb allowed",
-        payload=_bash('git commit -m "fix: pass context to handler"'),
         expect_exit=0,
     ),
     # Block: trailing whitespace.
@@ -415,21 +396,15 @@ CASES: tuple[Case, ...] = (
     ),
     Case(
         id="gh pr create bad type blocked",
-        payload=_bash('gh pr create --title "chore: tidy things"'),
+        payload=_bash('gh pr create --title "task: tidy things"'),
         expect_exit=2,
-        stderr_contains=("bad-type", "chore"),
+        stderr_contains=("bad-type", "task"),
     ),
     Case(
         id="gh pr create uppercase subject blocked",
         payload=_bash('gh pr create -t "feat: Add new feature"'),
         expect_exit=2,
         stderr_contains=("subject-uppercase",),
-    ),
-    Case(
-        id="gh pr create non-imperative subject blocked",
-        payload=_bash('gh pr create --title "feat: added new feature"'),
-        expect_exit=2,
-        stderr_contains=("subject-not-imperative", "added", "add"),
     ),
     Case(
         id="gh pr edit bad type blocked",
@@ -506,11 +481,10 @@ def test_enforce_commit_message(
     assert proc.returncode == case.expect_exit, f"exit={proc.returncode}{diag}"
     for s in case.stderr_contains:
         assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
-    # Every block must include the format-spec footer so the agent can
+    # Every block must include the active-rules summary so the agent can
     # fix the message in one shot rather than chaining rule violations.
     if case.expect_exit == 2:
-        assert "Conventional Commits" in proc.stderr, f"missing footer{diag}"
-        assert "git-rules" in proc.stderr, f"missing skill pointer{diag}"
+        assert "Active rules ([hooks.commit-message]" in proc.stderr, f"missing summary{diag}"
 
 
 def test_block_message_bracket_slug_is_hook_id(
@@ -595,3 +569,361 @@ def test_commit_outside_an_exempt_tree_still_enforced(
     # Then the message is still blocked
     assert proc.returncode == 2, f"stderr={proc.stderr!r}"
     assert "BLOCKED [commit-message]:" in proc.stderr
+
+
+# === Configured rules =======================================================
+
+
+@dataclass(frozen=True)
+class ConfiguredCase:
+    """One enforce_commit_message case run under a `[hooks.commit-message]` table."""
+
+    id: str
+    options: str
+    command: str
+    expect_exit: int
+    stderr_contains: tuple[str, ...] = ()
+
+
+LONG_BODY = "This body line runs well past the twenty character limit."
+URL_LINE = "https://example.com/a/very/long/path/that/cannot/be/wrapped"
+TRAILER = "Signed-off-by: A Contributor With A Long Name <someone@example.com>"
+
+CONFIGURED_CASES: tuple[ConfiguredCase, ...] = (
+    # force_imperative
+    ConfiguredCase(
+        id="force_imperative blocks past tense",
+        options="force_imperative = true",
+        command='git commit -m "feat: added new feature"',
+        expect_exit=2,
+        stderr_contains=("subject-not-imperative", "added", "'add'"),
+    ),
+    ConfiguredCase(
+        id="force_imperative blocks gerund",
+        options="force_imperative = true",
+        command='git commit -m "fix: fixing null pointer"',
+        expect_exit=2,
+        stderr_contains=("subject-not-imperative", "fixing", "'fix'"),
+    ),
+    ConfiguredCase(
+        id="force_imperative blocks third person",
+        options="force_imperative = true",
+        command='git commit -m "build: bumps deps"',
+        expect_exit=2,
+        stderr_contains=("subject-not-imperative", "bumps", "'bump'"),
+    ),
+    ConfiguredCase(
+        id="force_imperative allows imperatives ending in -s",
+        options="force_imperative = true",
+        command='git commit -m "fix: pass context to handler"',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="force_imperative blocks a denied non-verb",
+        options="force_imperative = true",
+        command='git commit -m "feat(avatar): user-uploaded avatars"',
+        expect_exit=2,
+        stderr_contains=("subject-not-imperative", "'user' is not a verb"),
+    ),
+    ConfiguredCase(
+        id="force_imperative applies to PR titles",
+        options="force_imperative = true",
+        command='gh pr create --title "feat: added new feature"',
+        expect_exit=2,
+        stderr_contains=("subject-not-imperative",),
+    ),
+    # allowed types and required scope
+    ConfiguredCase(
+        id="types restricts the allowed list",
+        options='types = ["feat"]',
+        command='git commit -m "fix: handle null input"',
+        expect_exit=2,
+        stderr_contains=("bad-type", "use one of: feat"),
+    ),
+    ConfiguredCase(
+        id="require_scope blocks a missing scope",
+        options="require_scope = true",
+        command='git commit -m "feat: add endpoint"',
+        expect_exit=2,
+        stderr_contains=("missing-scope", "<scope> required"),
+    ),
+    ConfiguredCase(
+        id="require_scope allows a scoped subject",
+        options="require_scope = true",
+        command='git commit -m "feat(api): add endpoint"',
+        expect_exit=0,
+    ),
+    # max_subject_length
+    ConfiguredCase(
+        id="max_subject_length 0 disables the limit",
+        options="max_subject_length = 0",
+        command='git commit -m "feat: ' + ("a" * 200) + '"',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="max_subject_length tightens the limit and the summary",
+        options="max_subject_length = 20",
+        command='git commit -m "feat: add a longer subject"',
+        expect_exit=2,
+        stderr_contains=("subject-too-long", "first line <= 20 chars"),
+    ),
+    # format, subject_case, punctuation, WIP
+    ConfiguredCase(
+        id="format none still applies subject_case",
+        options='format = "none"',
+        command='git commit -m "Add new feature"',
+        expect_exit=2,
+        stderr_contains=("subject-uppercase",),
+    ),
+    ConfiguredCase(
+        id="format none with subject_case any allows prose",
+        options='format = "none"\nsubject_case = "any"',
+        command='git commit -m "Add new feature"',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="format none still checks trailing punctuation",
+        options='format = "none"\nsubject_case = "any"',
+        command='git commit -m "Add new feature."',
+        expect_exit=2,
+        stderr_contains=("subject-trailing-period",),
+    ),
+    ConfiguredCase(
+        id="subject_case any allows an uppercase subject",
+        options='subject_case = "any"',
+        command='git commit -m "feat: Add thing"',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="forbid_trailing_punctuation false allows a period",
+        options="forbid_trailing_punctuation = false",
+        command='git commit -m "feat: add thing."',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="trailing whitespace stays blocked without punctuation rule",
+        options="forbid_trailing_punctuation = false",
+        command='git commit -m "feat: add thing "',
+        expect_exit=2,
+        stderr_contains=("subject-trailing-whitespace",),
+    ),
+    ConfiguredCase(
+        id="forbid_wip_subject false allows a WIP marker",
+        options="forbid_wip_subject = false",
+        command='git commit -m "feat: wip add thing"',
+        expect_exit=0,
+    ),
+    # max_body_line_length
+    ConfiguredCase(
+        id="max_body_line_length blocks a long body line",
+        options="max_body_line_length = 20",
+        command=f'git commit -m "feat: add thing" -m "{LONG_BODY}"',
+        expect_exit=2,
+        stderr_contains=("body-line-too-long", "must be <= 20"),
+    ),
+    ConfiguredCase(
+        id="max_body_line_length checks a heredoc body",
+        options="max_body_line_length = 20",
+        command=f"git commit -m \"$(cat <<'EOF'\nfeat: add thing\n\n{LONG_BODY}\nEOF\n)\"",
+        expect_exit=2,
+        stderr_contains=("body-line-too-long",),
+    ),
+    ConfiguredCase(
+        id="max_body_line_length exempts a URL line",
+        options="max_body_line_length = 20",
+        command=f'git commit -m "feat: add thing" -m "{URL_LINE}"',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="max_body_line_length exempts a final-paragraph trailer",
+        options="max_body_line_length = 20",
+        command=f'git commit -m "feat: add thing" -m "short body" -m "{TRAILER}"',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="max_body_line_length never checks the subject",
+        options="max_body_line_length = 10",
+        command='git commit -m "feat: add a subject past ten"',
+        expect_exit=0,
+    ),
+    # forbidden_patterns
+    ConfiguredCase(
+        id="forbidden_patterns blocks a commit trailer",
+        options="forbidden_patterns = ['(?im)^Claude-Session:']",
+        command='git commit -m "feat: add thing" -m "Claude-Session: abc123"',
+        expect_exit=2,
+        stderr_contains=("forbidden-pattern", "Claude-Session"),
+    ),
+    ConfiguredCase(
+        id="forbidden_patterns blocks a PR body",
+        options="forbidden_patterns = ['claude\\.ai/code/session_']",
+        command='gh pr create --title "feat: add thing" --body "See claude.ai/code/session_1"',
+        expect_exit=2,
+        stderr_contains=("forbidden-pattern",),
+    ),
+    ConfiguredCase(
+        id="forbidden_patterns blocks a body-only PR edit",
+        options="forbidden_patterns = ['(?im)^Claude-Session:']",
+        command='gh pr edit 23 --body "Claude-Session: abc123"',
+        expect_exit=2,
+        stderr_contains=("forbidden-pattern",),
+    ),
+    ConfiguredCase(
+        id="forbidden_patterns allows a clean message",
+        options="forbidden_patterns = ['(?im)^Claude-Session:']",
+        command='git commit -m "feat: add thing" -m "Body explains why."',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="an invalid forbidden pattern is dropped and the rest still apply",
+        options="forbidden_patterns = ['(unclosed', 'secret']",
+        command='git commit -m "feat: add secret handling"',
+        expect_exit=2,
+        stderr_contains=("ignoring forbidden_patterns entry '(unclosed'", "forbidden-pattern"),
+    ),
+    # check_pr_titles
+    ConfiguredCase(
+        id="check_pr_titles false skips the subject rules",
+        options="check_pr_titles = false",
+        command='gh pr create --title "Add new feature"',
+        expect_exit=0,
+    ),
+    ConfiguredCase(
+        id="check_pr_titles false keeps forbidden_patterns on the title",
+        options="check_pr_titles = false\nforbidden_patterns = ['WIP']",
+        command='gh pr create --title "WIP thing"',
+        expect_exit=2,
+        stderr_contains=("forbidden-pattern",),
+    ),
+    # invalid values fall back to the default per key
+    ConfiguredCase(
+        id="a negative length falls back to the default",
+        options="max_subject_length = -1",
+        command='git commit -m "feat: ' + ("a" * 95) + '"',
+        expect_exit=2,
+        stderr_contains=("max_subject_length = -1 must be 0 or more", "subject-too-long"),
+    ),
+    ConfiguredCase(
+        id="an unknown format falls back to conventional",
+        options='format = "angular"',
+        command='git commit -m "Add new feature"',
+        expect_exit=2,
+        stderr_contains=("format = 'angular' is not one of", "bad-format"),
+    ),
+    ConfiguredCase(
+        id="an empty types list falls back to the default",
+        options="types = []",
+        command='git commit -m "chore: tidy things"',
+        expect_exit=0,
+        stderr_contains=("types is empty",),
+    ),
+)
+
+
+@pytest.fixture
+def run_configured(
+    hooks_dir: Path, tmp_path: Path
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Return a callable that runs a command under global and optional project configs."""
+
+    def _run(
+        command: str, global_options: str, project_options: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / ".claude" / "natelandau-toolkit.toml").write_text(
+            f"[hooks.commit-message]\n{global_options}\n", encoding="utf-8"
+        )
+        env = {**clean_environ(), "HOME": str(home)}
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        if project_options is not None:
+            proj = tmp_path / "proj"
+            (proj / ".claude").mkdir(parents=True, exist_ok=True)
+            (proj / ".claude" / "natelandau-toolkit.toml").write_text(
+                f"[hooks.commit-message]\n{project_options}\n", encoding="utf-8"
+            )
+            env["CLAUDE_PROJECT_DIR"] = str(proj)
+        work = tmp_path / "work"
+        work.mkdir(exist_ok=True)
+        payload = {**_bash(command), "cwd": str(work)}
+        return subprocess.run(
+            [str(hooks_dir / "pretooluse.py")],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            cwd=str(work),
+            env=env,
+        )
+
+    return _run
+
+
+@pytest.mark.parametrize("case", CONFIGURED_CASES, ids=[c.id for c in CONFIGURED_CASES])
+def test_enforce_commit_message_configured(
+    case: ConfiguredCase, run_configured: Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+    """Verify each `[hooks.commit-message]` option changes what the hook blocks."""
+    # When invoking the hook under the case's global options
+    proc = run_configured(case.command, case.options)
+
+    # Then exit code and stderr content match expectations
+    diag = f"\n  stderr={proc.stderr!r}"
+    assert proc.returncode == case.expect_exit, f"exit={proc.returncode}{diag}"
+    for s in case.stderr_contains:
+        assert s in proc.stderr, f"missing {s!r} in stderr{diag}"
+
+
+def test_project_config_loosens_global_rules(
+    run_configured: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    """Verify a project config may widen the global type list."""
+    # Given a global config allowing only feat and a project config adding fix
+    command = 'git commit -m "fix: handle null input"'
+
+    # When running with and without the project layer
+    global_only = run_configured(command, 'types = ["feat"]')
+    with_project = run_configured(command, 'types = ["feat"]', 'types = ["feat", "fix"]')
+
+    # Then only the project layer lets the commit through
+    assert global_only.returncode == 2, f"stderr={global_only.stderr!r}"
+    assert with_project.returncode == 0, f"stderr={with_project.stderr!r}"
+
+
+def test_forbidden_pattern_in_pr_body_file_blocked(
+    run_configured: Callable[..., subprocess.CompletedProcess[str]], tmp_path: Path
+) -> None:
+    """Verify `--body-file` is read relative to the command's directory and checked."""
+    # Given a body file in the working directory carrying a forbidden trailer
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    (work / "pr-body.md").write_text("Adds a thing.\n\nClaude-Session: abc\n", encoding="utf-8")
+
+    # When opening a PR with that body file
+    proc = run_configured(
+        'gh pr create --title "feat: add thing" --body-file pr-body.md',
+        "forbidden_patterns = ['(?im)^Claude-Session:']",
+    )
+
+    # Then the hook blocks on the file's content
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert "forbidden-pattern" in proc.stderr
+
+
+def test_missing_pr_body_file_fails_open(
+    run_configured: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    """Verify an unreadable `--body-file` never blocks the call."""
+    # When the body file does not exist
+    proc = run_configured(
+        'gh pr create --title "feat: add thing" --body-file missing.md',
+        "forbidden_patterns = ['.']",
+    )
+
+    # Then only the title is checked; "." matches it, proving the title still is
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    clean = run_configured(
+        "gh pr create --body-file missing.md", "forbidden_patterns = ['(?im)^Claude-Session:']"
+    )
+    assert clean.returncode == 0, f"stderr={clean.stderr!r}"

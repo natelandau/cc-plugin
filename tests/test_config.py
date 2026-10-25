@@ -27,7 +27,7 @@ def test_defaults_when_no_files(hooks_dir: Path, tmp_path: Path) -> None:
     cfg = _load_config_mod(hooks_dir).load_config(home=tmp_path, project_dir=str(tmp_path))
     assert cfg.profile == "standard"
     assert cfg.disabled_hooks == frozenset()
-    assert cfg.option("branch-protection", "some_key", "default_val") == "default_val"
+    assert cfg.option("branch-protection", "some_key", default="default_val") == "default_val"
 
 
 def test_project_overrides_global_scalar(hooks_dir: Path, tmp_path: Path) -> None:
@@ -53,8 +53,8 @@ def test_hook_tables_deep_merge(hooks_dir: Path, tmp_path: Path) -> None:
         '[hooks.protect-secrets]\nsome_key = "proj.md"\n',
     )
     cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
-    assert cfg.option("protect-secrets", "some_key", "x") == "proj.md"
-    assert cfg.option("protect-secrets", "extra", "x") == "keep"
+    assert cfg.option("protect-secrets", "some_key", default="x") == "proj.md"
+    assert cfg.option("protect-secrets", "extra", default="x") == "keep"
 
 
 def test_malformed_toml_falls_back_no_raise(hooks_dir: Path, tmp_path: Path) -> None:
@@ -219,3 +219,68 @@ def test_trusted_remote_hosts_ignored_in_the_project_layer(hooks_dir: Path, tmp_
 
     # Then only the global list stands
     assert cfg.trusted_remote_hosts == ("nas",)
+
+
+def test_hook_options_typed_values_cascade(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify int, bool, and list options merge per key with the project layer winning."""
+    # Given typed options in both layers, the project loosening one global key
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        "[hooks.commit-message]\n"
+        "max_subject_length = 70\n"
+        "force_imperative = true\n"
+        'types = ["feat", "fix"]\n',
+    )
+    _write(
+        proj / ".claude" / "natelandau-toolkit.toml",
+        "[hooks.commit-message]\nmax_subject_length = 0\n",
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then each option reads back with its own type and the project value wins
+    assert cfg.option("commit-message", "max_subject_length", default=100) == 0
+    assert cfg.option("commit-message", "force_imperative", default=False) is True
+    assert cfg.option("commit-message", "types", default=("x",)) == ("feat", "fix")
+
+
+def test_hook_option_mistyped_value_falls_back(
+    hooks_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a value whose type differs from the default yields the default with a warning."""
+    # Given a bool where an int is expected and an int where a bool is expected
+    home = tmp_path / "home"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        "[hooks.commit-message]\nmax_subject_length = true\nforce_imperative = 1\n",
+    )
+
+    # When reading them with typed defaults
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(tmp_path / "proj"))
+
+    # Then bool and int are not confused and each falls back to its default
+    assert cfg.option("commit-message", "max_subject_length", default=100) == 100
+    assert cfg.option("commit-message", "force_imperative", default=False) is False
+    assert "max_subject_length must be int" in capsys.readouterr().err
+
+
+def test_hook_option_unsupported_shape_dropped(
+    hooks_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a table or mixed-type list option is dropped at load with a warning."""
+    # Given a list holding a non-string and a nested table
+    home = tmp_path / "home"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        '[hooks.commit-message]\ntypes = ["feat", 1]\nnested = { a = "b" }\n',
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(tmp_path / "proj"))
+
+    # Then neither value is kept
+    assert cfg.hook_options["commit-message"] == {}
+    assert "ignoring [hooks.commit-message] types" in capsys.readouterr().err

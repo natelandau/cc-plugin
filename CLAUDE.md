@@ -69,7 +69,10 @@ this file** (`ls hooks/pretooluse/` for the current set).
   `hooks/natelandau-toolkit.toml.example`. Per-project additive
   `.../natelandau-toolkit/<hook>.rules.toml` may only ADD blocking rules and fails open
   if malformed. `trusted_remote_hosts` (protect-remote) is global-only for the same
-  reason as exempt paths below.
+  reason as exempt paths below. `[hooks.<id>]` values are str/int/bool/list-of-str,
+  read via `cfg.option(id, key, default=...)`, which returns the default on a type
+  mismatch. Exception to "project may only tighten": `[hooks.commit-message]` is
+  style, not safety, so a project layer may loosen it.
 - **Exempt paths:** user-owned, never plugin-owned — the plugin dir is replaced
   on update, so nothing configurable may live in it. Two sources, unioned by
   `lib/exempt_paths.resolve()`: `exempt_paths` in the **global** config

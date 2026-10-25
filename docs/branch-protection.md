@@ -84,7 +84,7 @@ Two things it does not waive:
   a typo narrows the exemption rather than widening it or voiding the list.
 
 The `commit-message` hook reads the same two sources, so commits and PR titles
-aimed at an exempt tree also skip the conventional-commit format check.
+aimed at an exempt tree also skip every commit-message rule.
 
 ## Git operations
 

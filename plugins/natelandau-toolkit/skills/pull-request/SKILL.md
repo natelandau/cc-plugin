@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: Use when the user asks to open, create, make, or raise a pull request, or uses the shorthand "pr" in any form ("pr", "pr this", "open a pr", "make a PR"), including requests to push the branch and open a PR or to send the branch for review without saying "PR" (for example "get this reviewed" or "put this up for review"). Use it whenever a pull request is wanted, rather than running git push and gh pr create by hand. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title is the future squash commit's conventional-commit subject; the description opens with one to three plain sentences saying what the change is and what it does, wrapped at 72 characters, then a BREAKING CHANGE footer when the branch breaks a contract, then optional review sections such as Changes. Do not use for merging, squashing, or fast-forwarding a branch into main locally; those are different workflows.
+description: Use when the user asks to open, create, make, or raise a pull request, or uses the shorthand "pr" in any form ("pr", "pr this", "open a pr", "make a PR"), including requests to push the branch and open a PR or to send the branch for review without saying "PR" (for example "get this reviewed" or "put this up for review"). Use it whenever a pull request is wanted, rather than running git push and gh pr create by hand. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title and the opening of the description become the future squash commit, so they follow the user's commit conventions; detail for reviewers follows in sections such as Changes. Do not use for merging, squashing, or fast-forwarding a branch into main locally; those are different workflows.
 ---
 
 # Pull request
@@ -14,8 +14,8 @@ future squash commit.
 - Push the feature branch only. The request for a PR authorizes that push.
   Never push the trunk, and never merge anything.
 - The title and the lead block of the description become the squash commit.
-  They land in `git log` byte for byte, so write them under the same rules as
-  every commit. Step 6 gives the rules.
+  They land in `git log` byte for byte, so write them to the user's commit
+  conventions, the same as every commit.
 - Every claim in the description must be true of this branch and visible in
   the diff. No future work, no open questions, no speculation.
 - If the repo ships a PR template, fill its structure instead of the default
@@ -179,93 +179,37 @@ ls .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md \
   `N/A` rather than invent content.
 - No template: use the shape below.
 
-#### Title
+#### Title and lead block
 
-The title is the squash commit subject: `<type>(<scope>): <subject>`,
-imperative, lowercase subject, at most 70 characters. The type comes from
-`build ci docs feat fix perf refactor style test`. There is no `chore`. Add `!`
-before the colon when the branch is breaking.
-
-Read `../shared/commit-subjects.md` (relative to this skill's base directory)
-and write the title to that bar. Write it from the whole diff, not from the
-commit subjects: commits describe steps, the title summarizes the whole.
-Mechanics and placement go in `## Changes`.
-
-#### Lead block
-
-The lead block is everything above the first markdown heading. It becomes the
-squash commit body. Write one to three sentences that say what the change is
-and what it does. Wrap at 72 characters. Put a blank line between paragraphs.
-No headings, checklists, or bullet lists.
-
-- Name the feature, command, flag, or behavior, and say what it does. "Adds
-  `--dry-run` to `prune`, which reports what would be deleted and exits without
-  touching the destination" names the change. A description of the state the
-  branch leaves behind does not.
-- One idea per sentence. Detail that piles up belongs in `## Changes`.
-- Fewer words beat more. If a sentence still says the same thing with a
-  clause cut, cut it.
-- Give the motivation as a clause, and only where the change reads as
-  arbitrary without it. That is usually a fix, where the failure mode is the
-  point. Do not open with a paragraph that establishes the feature was
-  missing.
-- Synthesize the whole branch. Never paste a commit body, and never write a
-  paragraph per commit.
+The title is the squash commit subject. The lead block is everything above
+the first markdown heading, and it becomes the squash commit body. Write both
+to the user's commit conventions. Write them from the whole diff, not from the
+commit subjects: commits describe steps, and the title summarizes the whole.
+Never paste a commit body, and never write a paragraph per commit.
 
 #### Breaking changes
 
-A breaking change takes both markers: `!` before the colon in the title, and a
-`BREAKING CHANGE: <impact and migration>` paragraph as the last paragraph of the
-lead block. One marker without the other is malformed.
-
-The PR inherits every break on the branch. The squash leaves the title and the
-lead block as the only place a break can land. Scan the commits:
+The squash keeps only the title and the lead block, so a breaking-change
+marker in a commit on the branch is lost unless the PR carries it. Scan the
+commits for markers in the form the user's conventions use. For Conventional
+Commits:
 
 ```bash
 git log <default-branch>..HEAD --format='%s' | grep -E '^[a-z]+(\([^)]*\))?!:'
 git log <default-branch>..HEAD --format='%B' | grep -F 'BREAKING CHANGE'
 ```
 
-A hit in either means the PR is breaking. Merge several breaks into one footer.
-No hit does not settle it, so judge the diff too. A changed exit code, a removed
-or renamed flag, a new required argument, or a changed default that alters
-output is a break, whether or not a commit said so. Prose about a break under a
-`##` section never replaces the markers.
+No hit does not settle it, so judge the diff too. A changed exit code, a
+removed or renamed flag, a new required argument, or a changed default that
+alters output is a break, whether or not a commit said so. Mark every break in
+the title and the lead block, the way the conventions require.
 
 #### Review sections
 
 After the lead block, add `##` sections that carry the detail the lead block
-left out. They stay with the PR and are not squashed. They must not restate the
-lead block.
-
-- `## Changes`: the concrete changes, grouped by what changed for a user of the
-  code, not by commit. Flag names, API surfaces, and mechanics go here. Also
-  list behavior changes for existing users that break no contract, such as a
-  widened timeout, a new skip condition, or a changed default. Write this
-  section unless the branch is a one-liner.
-- `## Testing`: manual verification that a reviewer cannot reproduce from CI,
-  plus one pass/fail line for the suite. Do not narrate how thoroughly you
-  tested.
-
-An example that shows the altitude of each layer:
-
-```text
-Adds S3 authentication through the host's ambient credentials, so a
-container can authenticate with an EC2 instance profile, EKS IRSA, or
-an ECS task role instead of an explicit key pair. Makes a destination
-ezbak cannot read a failure rather than an empty result.
-
-BREAKING CHANGE: a pre-start restore that hit a transient S3 error
-used to exit 0; it now exits 1 and blocks the job from starting.
-
-## Changes
-
-- Credentials are optional. Omitting both defers to boto3's provider
-  chain: instance profile, IRSA, ECS task role, `AWS_*`, `~/.aws`.
-- `EZBak.unreadable_locations` reports which destinations could not be
-  read, so a caller can tell a partial inventory from a complete one.
-- The bucket check uses `HeadBucket` instead of `GetBucketLocation`.
-```
+left out. They stay with the PR and are not squashed. Use the sections the
+user's conventions name. If they name none, write a `## Changes` section that
+lists the concrete changes, unless the branch is a one-liner.
 
 ### Step 7: Create the PR
 
@@ -274,9 +218,7 @@ Write the body to a temp file to avoid shell quoting problems, then run the
 
 ```bash
 cat > /tmp/pr-body.md <<'EOF'
-<one to three sentences: what this change is and what it does, wrapped at 72 chars>
-
-BREAKING CHANGE: <footer, only when the title has `!`>
+<lead block: the squash commit body>
 
 ## Changes
 
@@ -285,7 +227,7 @@ EOF
 
 # GitHub example. Substitute the row for your detected CLI.
 gh pr create --base <default-branch> --head "$(git branch --show-current)" \
-  --title "<type>(<scope>): <subject>" --body-file /tmp/pr-body.md
+  --title "<title>" --body-file /tmp/pr-body.md
 ```
 
 Add `--draft` (`gh`, `glab`) or a `[WIP]` title prefix (`tea`) only when the
@@ -299,7 +241,7 @@ merges, the local branch and worktree can be cleaned up and the trunk pulled.
 
 | Symptom                                          | Cause                                                      | Do this                                                                                       |
 | ------------------------------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Title rejected                                   | Not a valid conventional commit                            | Fix the title. `chore` is not an allowed type                                                 |
+| Title or body rejected                           | It breaks the configured commit rules                      | Fix it to the rules the block message lists                                                   |
 | Push rejected (non-fast-forward)                 | Branch was pushed before the Step B rebase                 | Do not force. Ask the user to run `! git push --force-with-lease`                             |
 | A `pre-commit` hook fails or reformats in Step 4 | A group commit staged only part of the tree                | Commit each group with `--no-verify`. The full gate runs once at the end                      |
 | Step 4's closing gate is red                     | Pre-existing breakage. The regroup left the tree unchanged | Report it and stop. Do not open the PR and do not amend the group commits                     |
