@@ -280,6 +280,68 @@ CASES: tuple[Case, ...] = (
         expect_exit=2,
         stderr_contains=("protected branch 'master'",),
     ),
+    *(
+        Case(
+            id=f"force-delete of a protected branch blocked: {cmd!r}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["feat"]),
+            expect_exit=2,
+            stderr_contains=("protected branch 'main'",),
+        )
+        for cmd in (
+            "git branch -d -f main",
+            "git branch -df main",
+            "git branch -fd main",
+            "git branch --delete --force main",
+            "git branch -D feat main",
+            "git branch -D 'main'",
+            "git -C /tmp branch -D main",
+            "git status && git branch -D main",
+            "git --no-pager branch -D main",
+            "git -P branch -D main",
+            "git branch --del --forc main",
+            "git branch -M feat main",
+            "git branch -m -f feat main",
+            "git branch -f main HEAD~3",
+            "git branch -fm feat main",
+            "git branch --move --force feat main",
+            "git branch --force main",
+            "git branch -C feat main",
+            # Renaming away from a protected branch also leaves it gone.
+            "git branch -M main other",
+            "git update-ref -d refs/heads/main",
+            "git push origin --delete main",
+            "git push -d origin main",
+            "git push origin :main",
+        )
+    ),
+    Case(
+        id="force-delete of a protected branch in another case blocked",
+        make_payload=lambda r: _bash("git branch -D MAIN", cwd=r["feat"]),
+        expect_exit=2,
+        stderr_contains=("protected branch 'MAIN'",),
+    ),
+    *(
+        Case(
+            id=f"branch delete that cannot drop a protected branch allowed: {cmd!r}",
+            make_payload=lambda r, cmd=cmd: _bash(cmd, cwd=r["feat"]),
+            expect_exit=0,
+        )
+        for cmd in (
+            # A plain -d refuses an unmerged branch, so it cannot lose work.
+            "git branch -d main",
+            "git branch -D feat",
+            "git branch -D main-old",
+            "git branch -D feat # main",
+            "git branch -m feat",
+            "git branch -f feat",
+            "git branch -c feat feat2",
+            "git branch -m old new",
+            "git branch -M feat other",
+            "git update-ref -d refs/heads/feat",
+            "git push origin main",
+            "git push -u origin feat",
+        )
+    ),
     # Protected branch: file mods blocked
     Case(
         id="rm on master blocked",
@@ -2145,26 +2207,26 @@ def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatc
     base = "/repo"
     # No exempt roots: these cases are about the branch/gitignore predicate,
     # and the exemption has its own suite.
-    none_exempt = m.exempt_paths.ExemptRoots()
+    scope = m.Scope(exempt=m.exempt_paths.ExemptRoots(), protected=m.ProtectedBranches())
 
     # Then a target outside any repo is exempt -- a /tmp scratch path or a `..`
     # that resolves out of every repo both yield "" from the branch lookup
-    assert m._target_protected_branch("/tmp/x", "", none_exempt) is None  # noqa: S108
-    assert m._target_protected_branch("/tmp/../tracked.txt", "", none_exempt) is None  # noqa: S108
-    assert m._target_protected_branch("/external/store/x.md", "", none_exempt) is None
-    assert m._target_protected_branch("x.md", "/external/store", none_exempt) is None
+    assert m._target_protected_branch("/tmp/x", "", scope) is None  # noqa: S108
+    assert m._target_protected_branch("/tmp/../tracked.txt", "", scope) is None  # noqa: S108
+    assert m._target_protected_branch("/external/store/x.md", "", scope) is None
+    assert m._target_protected_branch("x.md", "/external/store", scope) is None
 
     # Then on a protected branch only gitignored targets are exempt: an absolute
     # gitignored target passes with no cwd, an absolute tracked one does not
     # (cwd is only needed to resolve relative paths)
-    assert m._target_protected_branch(f"{base}/ignored_dir/x", "", none_exempt) is None
-    assert m._target_protected_branch(f"{base}/foo.py", "", none_exempt) == "master"
+    assert m._target_protected_branch(f"{base}/ignored_dir/x", "", scope) is None
+    assert m._target_protected_branch(f"{base}/foo.py", "", scope) == "master"
 
     # Then a relative target with a cwd resolves and is judged (gitignored here,
     # so exempt). With no cwd it can't be located, so it can't be attributed to a
     # protected branch and is treated as harmless (the fail-open default).
-    assert m._target_protected_branch("ignored_dir/x", base, none_exempt) is None
-    assert m._target_protected_branch("ignored_dir/x", "", none_exempt) is None
+    assert m._target_protected_branch("ignored_dir/x", base, scope) is None
+    assert m._target_protected_branch("ignored_dir/x", "", scope) is None
 
 
 def test_target_protected_branch_follows_symlink_into_protected_repo(
@@ -2183,7 +2245,14 @@ def test_target_protected_branch_follows_symlink_into_protected_repo(
     # When checking the symlink target while the repo is on a protected branch
     # Then the branch lookup follows the link to the in-repo path and blocks it,
     # rather than reading the link's own (repo-less) parent directory as exempt
-    assert m._target_protected_branch(str(link), "", m.exempt_paths.ExemptRoots()) == "master"
+    assert (
+        m._target_protected_branch(
+            str(link),
+            "",
+            m.Scope(exempt=m.exempt_paths.ExemptRoots(), protected=m.ProtectedBranches()),
+        )
+        == "master"
+    )
 
 
 def test_get_branch_at_path_ignores_ambient_git_dir(
@@ -2464,3 +2533,119 @@ def test_an_unusable_exempt_entry_does_not_disable_the_hook(
     # Then the edit is still blocked
     assert proc.returncode == 2, f"stderr={proc.stderr!r}"
     assert BLOCK_FILE_MOD in proc.stderr
+
+
+# === Configured protected branches ==========================================
+
+
+@pytest.fixture
+def make_repo(tmp_path: Path) -> Callable[[str], str]:
+    """Provide a factory that creates a repo checked out on the given branch."""
+
+    def _make(branch: str) -> str:
+        path = tmp_path / branch.replace("/", "_")
+        path.mkdir()
+        subprocess.run(
+            ["git", "init", "-q", "-b", branch, str(path)],
+            check=True,
+            capture_output=True,
+            env=clean_environ(),
+        )
+        return str(path)
+
+    return _make
+
+
+def _write_branches_toml(claude_dir: Path, branches: list[str]) -> None:
+    """Write a toolkit config listing `branches` as protected."""
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    (claude_dir / "natelandau-toolkit.toml").write_text(
+        f"[hooks.branch-protection]\nprotected_branches = {json.dumps(branches)}\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    ("configured", "branch", "expect_exit"),
+    [
+        (["develop"], "develop", 2),
+        (["release/*"], "release/1.2", 2),
+        (["release/*"], "releases", 0),
+        ([], "develop", 0),
+        # An all-wildcard entry would protect every branch, so it is dropped.
+        (["*"], "develop", 0),
+        (["**", "?*"], "develop", 0),
+    ],
+)
+def test_protected_branches_from_the_global_config(
+    hooks_dir: Path,
+    tmp_path: Path,
+    make_repo: Callable[[str], str],
+    configured: list[str],
+    branch: str,
+    expect_exit: int,
+) -> None:
+    """Verify configured names and globs extend the protected set."""
+    # Given a global config listing extra protected branches
+    home = tmp_path / "home"
+    _write_branches_toml(home / ".claude", configured)
+    repo = make_repo(branch)
+
+    # When editing a file in a repo on the given branch
+    proc = _run_hook(hooks_dir, _edit(f"{repo}/foo.py"), str(home))
+
+    # Then the edit is blocked only when the branch matches a usable entry
+    assert proc.returncode == expect_exit, f"stderr={proc.stderr!r}"
+    if expect_exit == 2:
+        assert f"Cannot modify files on the '{branch}' branch" in proc.stderr
+
+
+def test_protected_branches_added_by_a_project_config(
+    hooks_dir: Path, empty_home: str, make_repo: Callable[[str], str]
+) -> None:
+    """Verify a project config can protect one of its own branches."""
+    # Given a repo on develop whose own config protects develop
+    repo = make_repo("develop")
+    _write_branches_toml(Path(repo) / ".claude", ["develop"])
+
+    # When editing a file in it with that repo as the project dir
+    proc = _run_hook(hooks_dir, _edit(f"{repo}/foo.py"), empty_home, project_dir=repo)
+
+    # Then the edit is blocked
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+
+
+def test_protected_branches_project_config_cannot_unprotect(
+    hooks_dir: Path, tmp_path: Path, make_repo: Callable[[str], str]
+) -> None:
+    """Verify a project config cannot drop a built-in or globally protected branch."""
+    # Given a global config protecting develop and a project config listing nothing
+    home = tmp_path / "home"
+    _write_branches_toml(home / ".claude", ["develop"])
+    develop = make_repo("develop")
+    main = make_repo("main")
+    for repo in (develop, main):
+        _write_branches_toml(Path(repo) / ".claude", [])
+
+    for repo, branch in ((develop, "develop"), (main, "main")):
+        # When editing a file in each repo with that repo as the project dir
+        proc = _run_hook(hooks_dir, _edit(f"{repo}/foo.py"), str(home), project_dir=repo)
+
+        # Then the edit is still blocked
+        assert proc.returncode == 2, f"{branch}: stderr={proc.stderr!r}"
+
+
+def test_force_delete_of_a_configured_branch_blocked(
+    repos: Mapping[str, str], hooks_dir: Path, tmp_path: Path
+) -> None:
+    """Verify `git branch -D` honors configured globs, not only main and master."""
+    # Given a global config protecting release branches
+    home = tmp_path / "home"
+    _write_branches_toml(home / ".claude", ["release/*"])
+
+    # When force-deleting a release branch
+    proc = _run_hook(hooks_dir, _bash("git branch -D release/1.2", cwd=repos["feat"]), str(home))
+
+    # Then it is blocked
+    assert proc.returncode == 2, f"stderr={proc.stderr!r}"
+    assert "protected branch 'release/1.2'" in proc.stderr

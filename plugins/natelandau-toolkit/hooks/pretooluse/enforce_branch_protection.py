@@ -1,7 +1,8 @@
 """PreToolUse hook: blocks destructive git commands and file modifications.
 
 Blocks destructive git operations (force push, hard reset, clean -f, etc.) on
-ALL branches. On protected branches (main/master) it also denies file
+ALL branches. On protected branches (main, master, and any listed in
+`[hooks.branch-protection] protected_branches`) it also denies file
 modifications and direct commits, and routes merge commits to the permission
 prompt (an ASK) rather than a hard deny, since a merge onto trunk is sometimes
 a deliberate, human-approved integration.
@@ -37,6 +38,7 @@ runs on.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import subprocess
@@ -53,7 +55,48 @@ if TYPE_CHECKING:
     from lib.exempt_paths import ExemptRoots
 
 ID = "branch-protection"
-PROTECTED_BRANCHES = {"main", "master"}
+# Always protected; `[hooks.branch-protection] protected_branches` can only add.
+BUILTIN_PROTECTED_BRANCHES = ("main", "master")
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectedBranches:
+    """The branch names and `fnmatch` globs that get the protected-branch checks."""
+
+    patterns: tuple[str, ...] = BUILTIN_PROTECTED_BRANCHES
+
+    @classmethod
+    def from_config(cls, cfg: Config) -> ProtectedBranches:
+        """Build the set from the built-ins plus every configured entry.
+
+        An entry made only of wildcards is dropped, because it would protect
+        every branch and leave no branch to work on.
+        """
+        extra = cfg.option(ID, "protected_branches", default=())
+        kept = tuple(p for p in (e.strip() for e in extra) if p.strip("*?"))
+        return cls(tuple(dict.fromkeys(BUILTIN_PROTECTED_BRANCHES + kept)))
+
+    def __contains__(self, branch: str) -> bool:
+        """Return whether `branch` matches a pattern; "" (no repo, detached HEAD) never does."""
+        return bool(branch) and any(fnmatch.fnmatchcase(branch, p) for p in self.patterns)
+
+    def matches_any_case(self, name: str) -> bool:
+        """Return whether a branch name typed in a command matches a pattern, ignoring case.
+
+        On a case-insensitive filesystem a loose ref is one file for every
+        casing, so `git branch -D MAIN` deletes `main`.
+        """
+        folded = name.casefold()
+        return bool(name) and any(fnmatch.fnmatchcase(folded, p.casefold()) for p in self.patterns)
+
+
+@dataclass(frozen=True, slots=True)
+class Scope:
+    """What every protected-branch check consults, resolved once per event."""
+
+    exempt: ExemptRoots
+    protected: ProtectedBranches
+
 
 # Single hint appended to every protected-branch block message. Both
 # file-modifying tools (Edit/Write/NotebookEdit) and file-modifying bash
@@ -180,7 +223,7 @@ class CommandRule:
 # See the CommandRule docstring above for field semantics and a syntax example.
 #
 # DESTRUCTIVE_RULES        -- blocked on every branch; `reason` is shown.
-# PROTECTED_FILE_MOD_RULES -- blocked only on main/master; the user always
+# PROTECTED_FILE_MOD_RULES -- blocked only on protected branches; the user always
 #                             sees PROTECTED_BRANCH_HINT, so `reason` may
 #                             be omitted.
 
@@ -221,14 +264,6 @@ DESTRUCTIVE_RULES: tuple[CommandRule, ...] = (
     CommandRule(
         pattern=r"^\s*git\s+rebase\b.*--no-verify\b",
         reason="git rebase --no-verify bypasses safety hooks",
-    ),
-    CommandRule(
-        pattern=r"^\s*git\s+branch\s+-D\s+main(\s|$)",
-        reason="Force-deleting the protected branch 'main' is not allowed",
-    ),
-    CommandRule(
-        pattern=r"^\s*git\s+branch\s+-D\s+master(\s|$)",
-        reason="Force-deleting the protected branch 'master' is not allowed",
     ),
 )
 
@@ -449,6 +484,86 @@ def _unquote_flags(command: str) -> str:
 def check_destructive(command: str) -> str | None:
     """Return a block reason if the command is destructive, else None."""
     return match_rules(command, DESTRUCTIVE_RULES)
+
+
+GIT_REF_CMD_RE = re.compile(rf"^\s*git\s+{_GIT_OPTS}(branch|update-ref|push)\s+(.*)$", re.DOTALL)
+
+
+def _stage_words(args: str) -> list[str]:
+    """Return the unquoted words of a git argument string, stopping at a shell comment."""
+    words: list[str] = []
+    for word in args.split():
+        if word.startswith("#"):
+            break
+        words.append(bash.strip_quotes(word))
+    return words
+
+
+def _has_long(words: list[str], option: str) -> bool:
+    """Return whether `option` appears in `words`, also as the prefix git accepts for it."""
+    return any(w.startswith("--") and len(w) > 3 and option.startswith(w) for w in words)  # noqa: PLR2004
+
+
+def _branch_ref_change(words: list[str]) -> tuple[str, list[str]] | None:
+    """Return the verb and the branch names a `git branch` call can destroy, else None.
+
+    Force-deleting (`-D`, or `-d`/`--delete` with `-f`/`--force`) drops a branch
+    with its unmerged commits. A forced move or copy (`-M`, `-C`, or `-m`/`-c`
+    with force) overwrites the target, and `-f <name> <rev>` resets `<name>`,
+    each discarding the commits only that branch held. A plain `-d` or an
+    unforced move refuses to lose work, so it passes.
+    """
+    shorts = "".join(w[1:] for w in words if re.fullmatch(r"-[A-Za-z]+", w))
+    names = [w for w in words if w and not w.startswith("-")]
+    force = any(c in shorts for c in "DMCf") or _has_long(words, "--force")
+    if not force:
+        return None
+    if "D" in shorts or "d" in shorts or _has_long(words, "--delete"):
+        return "Force-deleting", names
+    if any(c in shorts for c in "MmCc") or _has_long(words, "--move") or _has_long(words, "--copy"):
+        return "Force-overwriting", names
+    return ("Force-resetting", names[:1]) if names else None
+
+
+def _protected_ref_change(subcommand: str, words: list[str]) -> tuple[str, list[str]] | None:
+    """Return the verb and the branch names a ref-changing git call can destroy, else None."""
+    if subcommand == "branch":
+        return _branch_ref_change(words)
+    if subcommand == "update-ref":
+        if "-d" not in words:
+            return None
+        refs = [w for w in words if w.startswith("refs/heads/")]
+        return "Deleting", [r.removeprefix("refs/heads/") for r in refs]
+    # push: `--delete`/`-d` names the remote first, then the branches; a
+    # `:<branch>` refspec deletes that branch on the remote.
+    positional = [w for w in words if w and not w.startswith("-")]
+    shorts = "".join(w[1:] for w in words if re.fullmatch(r"-[A-Za-z]+", w))
+    names = [w[1:] for w in positional if w.startswith(":") and len(w) > 1]
+    if "d" in shorts or _has_long(words, "--delete"):
+        names.extend(positional[1:])
+    return ("Deleting the remote copy of", names) if names else None
+
+
+def check_protected_branch_delete(command: str, protected: ProtectedBranches) -> str | None:
+    """Return a block reason if the command destroys a protected branch ref, else None.
+
+    Covers forced deletes, overwrites, and resets through `git branch`, ref
+    deletion through `git update-ref -d`, and remote deletion through
+    `git push --delete` or a `:<branch>` refspec. Short flags count in any
+    order and in bundled clusters (`-df`, `-fd`).
+    """
+    for stage in bash.split_stages(command):
+        match = GIT_REF_CMD_RE.match(stage)
+        if not match:
+            continue
+        change = _protected_ref_change(match.group(1), _stage_words(match.group(2)))
+        if change is None:
+            continue
+        verb, names = change
+        for name in names:
+            if protected.matches_any_case(name):
+                return f"{verb} the protected branch '{name}' is not allowed"
+    return None
 
 
 # A redirect operator (`>`, `>>`, `2>`, `&>`, `>|`) and the path it writes to,
@@ -864,7 +979,7 @@ def _stage_write_targets(clause: str) -> list[str] | None:
     return targets
 
 
-def _target_protected_branch(target: str, cwd: str, exempt: ExemptRoots) -> str | None:
+def _target_protected_branch(target: str, cwd: str, scope: Scope) -> str | None:
     """Return the protected branch a write to `target` would dirty, or None if harmless.
 
     A write is harmless when its resolved target is not inside a repo on a
@@ -893,10 +1008,10 @@ def _target_protected_branch(target: str, cwd: str, exempt: ExemptRoots) -> str 
     # Resolve symlinks and any `..` so a link or traversal is judged by the real
     # path it lands on, the same path the gitignore check canonicalizes.
     abs_resolved = str(Path(abs_target).resolve())
-    if exempt.contains(abs_resolved):
+    if scope.exempt.contains(abs_resolved):
         return None
     branch = get_branch_at_path(abs_resolved)
-    if branch not in PROTECTED_BRANCHES:
+    if branch not in scope.protected:
         return None
     if _is_git_ignored(abs_resolved):
         return None
@@ -913,7 +1028,7 @@ def _deny_file_mod(branch: str) -> Decision:
     )
 
 
-def _evaluate_file_tool(event: dict[str, Any], exempt: ExemptRoots) -> Decision | None:
+def _evaluate_file_tool(event: dict[str, Any], scope: Scope) -> Decision | None:
     """Return a Decision for an Edit/Write/NotebookEdit, keyed off the target file's branch.
 
     A file on a protected branch is blocked unless it is gitignored (never part
@@ -925,10 +1040,10 @@ def _evaluate_file_tool(event: dict[str, Any], exempt: ExemptRoots) -> Decision 
     file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
     if not file_path:
         return None
-    if exempt.contains(file_path, event.get("cwd", "")):
+    if scope.exempt.contains(file_path, event.get("cwd", "")):
         return None
     branch = get_branch_at_path(file_path)
-    if branch not in PROTECTED_BRANCHES:
+    if branch not in scope.protected:
         return None
     if _is_git_ignored(file_path):
         return None
@@ -964,9 +1079,7 @@ def _git_op_decision(*, command: str, clause: str, repo_dir: str, branch: str) -
     return None
 
 
-def _git_clause_decision(
-    command: str, clause: str, eff_cwd: str, exempt: ExemptRoots
-) -> Decision | None:
+def _git_clause_decision(command: str, clause: str, eff_cwd: str, scope: Scope) -> Decision | None:
     """Return a Decision for one git clause, judged against the repo it operates on, else None.
 
     Only commit/merge/pull (history) and apply/am/stash-pop (working tree) can
@@ -984,10 +1097,10 @@ def _git_clause_decision(
     if not (is_history or is_worktree_write):
         return None
     repo_dir = bash.git_clause_dir(clause, eff_cwd)
-    if exempt.contains(repo_dir):
+    if scope.exempt.contains(repo_dir):
         return None
     branch = get_branch_at_path(repo_dir) if repo_dir else _run_git("branch", "--show-current")
-    if branch not in PROTECTED_BRANCHES:
+    if branch not in scope.protected:
         return None
     # A working-tree write (apply/am/stash pop) dirties tracked files exactly as
     # an edit would, so it gets the file-mod deny. History writes keep their own
@@ -997,7 +1110,7 @@ def _git_clause_decision(
     return _git_op_decision(command=command, clause=clause, repo_dir=repo_dir, branch=branch)
 
 
-def _file_clause_decision(clause: str, eff_cwd: str, exempt: ExemptRoots) -> Decision | None:
+def _file_clause_decision(clause: str, eff_cwd: str, scope: Scope) -> Decision | None:
     """Return a deny Decision for a file-modifying clause on a protected branch, else None.
 
     Each confinable write target is judged by the branch of its own resolved
@@ -1006,12 +1119,12 @@ def _file_clause_decision(clause: str, eff_cwd: str, exempt: ExemptRoots) -> Dec
     """
     targets = _clause_write_targets(clause)
     if targets is None:
-        if exempt.contains(eff_cwd):
+        if scope.exempt.contains(eff_cwd):
             return None
         branch = get_branch_at_path(eff_cwd) if eff_cwd else ""
-        return _deny_file_mod(branch) if branch in PROTECTED_BRANCHES else None
+        return _deny_file_mod(branch) if branch in scope.protected else None
     for target in targets:
-        branch = _target_protected_branch(target, eff_cwd, exempt)
+        branch = _target_protected_branch(target, eff_cwd, scope)
         if branch:
             return _deny_file_mod(branch)
     return None
@@ -1042,7 +1155,7 @@ def _output_is_data(clause: str) -> bool:
 
 
 def _judge_bash(
-    command: str, cwd: str, exempt: ExemptRoots, *, output_is_data: bool = True, depth: int = 0
+    command: str, cwd: str, scope: Scope, *, output_is_data: bool = True, depth: int = 0
 ) -> Decision | None:
     """Return a Decision for a Bash command or a substitution body, else None.
 
@@ -1053,15 +1166,13 @@ def _judge_bash(
     if output_is_data:
         command = bash.drop_data_heredocs(command)
     command = _unquote_flags(command)
-    reason = check_destructive(command)
+    reason = check_destructive(command) or check_protected_branch_delete(command, scope.protected)
     if reason:
         return Decision.blocked(ID, f"{reason}. Run this command outside Claude Code if you must.")
-    return _evaluate_bash(command, cwd, exempt, depth=depth)
+    return _evaluate_bash(command, cwd, scope, depth=depth)
 
 
-def _evaluate_bash(
-    command: str, cwd: str, exempt: ExemptRoots, *, depth: int = 0
-) -> Decision | None:
+def _evaluate_bash(command: str, cwd: str, scope: Scope, *, depth: int = 0) -> Decision | None:
     """Return a Decision for a Bash command's protected-branch impact, else None.
 
     Walks the command's statements once, left to right, tracking the effective
@@ -1089,7 +1200,7 @@ def _evaluate_bash(
         if depth < _MAX_SUBSTITUTION_DEPTH:
             output_is_data = _output_is_data(clause)
             decisions.extend(
-                _judge_bash(body, eff_cwd, exempt, output_is_data=output_is_data, depth=depth + 1)
+                _judge_bash(body, eff_cwd, scope, output_is_data=output_is_data, depth=depth + 1)
                 for body in bash.substitution_bodies(clause)
             )
         moved = bash.cd_target(clause, eff_cwd)
@@ -1099,11 +1210,11 @@ def _evaluate_bash(
             eff_cwd = moved
         else:
             decisions.extend(
-                _git_clause_decision(command, stage.strip(), eff_cwd, exempt)
+                _git_clause_decision(command, stage.strip(), eff_cwd, scope)
                 for stage in bash.split_stages(clause)
                 if _is_git_command(stage.strip())
             )
-            decisions.append(_file_clause_decision(clause, eff_cwd, exempt))
+            decisions.append(_file_clause_decision(clause, eff_cwd, scope))
         for decision in decisions:
             if decision is None:
                 continue
@@ -1120,14 +1231,17 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     # Skip others (notably Read) so the branch lookup's git call is not run per read.
     if tool_name not in ("Edit", "Write", "NotebookEdit", "Bash"):
         return None
-    exempt = exempt_paths.resolve(cfg.exempt_paths)
+    scope = Scope(
+        exempt=exempt_paths.resolve(cfg.exempt_paths),
+        protected=ProtectedBranches.from_config(cfg),
+    )
     if tool_name != "Bash":
-        return _evaluate_file_tool(event, exempt)
+        return _evaluate_file_tool(event, scope)
 
     command: str = bash.join_continuations((event.get("tool_input") or {}).get("command", ""))
     cwd: str = event.get("cwd", "")
 
-    decision = _judge_bash(command, cwd, exempt)
+    decision = _judge_bash(command, cwd, scope)
     if decision is not None:
         return decision
 

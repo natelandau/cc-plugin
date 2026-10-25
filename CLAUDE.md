@@ -70,7 +70,10 @@ this file** (`ls hooks/pretooluse/` for the current set).
   reason as exempt paths below. `[hooks.<id>]` values are str/int/bool/list-of-str,
   read via `cfg.option(id, key, default=...)`, which returns the default on a type
   mismatch. Exception to "project may only tighten": `[hooks.commit-message]` is
-  style, not safety, so a project layer may loosen it.
+  style, not safety, so a project layer may loosen it. A safety list option goes
+  in `config.ADDITIVE_OPTIONS`, which unions it across layers instead of replacing
+  it (e.g. `branch-protection`'s `protected_branches`, which adds to the built-in
+  `main`/`master`).
 - **Exempt paths:** user-owned, never plugin-owned — the plugin dir is replaced
   on update, so nothing configurable may live in it. Two sources, unioned by
   `lib/exempt_paths.resolve()`: `exempt_paths` in the **global** config

@@ -284,3 +284,92 @@ def test_hook_option_unsupported_shape_dropped(
     # Then neither value is kept
     assert cfg.hook_options["commit-message"] == {}
     assert "ignoring [hooks.commit-message] types" in capsys.readouterr().err
+
+
+def test_additive_option_unions_across_layers(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify an additive option keeps global entries and appends project ones."""
+    # Given global and project layers that each protect branches
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        '[hooks.branch-protection]\nprotected_branches = ["develop", "release/*"]\n',
+    )
+    _write(
+        proj / ".claude" / "natelandau-toolkit.toml",
+        '[hooks.branch-protection]\nprotected_branches = ["staging", "develop"]\n',
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then the lists are unioned, in order, without duplicates
+    assert cfg.option("branch-protection", "protected_branches", default=()) == (
+        "develop",
+        "release/*",
+        "staging",
+    )
+
+
+def test_additive_option_not_cleared_by_an_empty_project_list(
+    hooks_dir: Path, tmp_path: Path
+) -> None:
+    """Verify an empty project list leaves an additive global list intact."""
+    # Given a global list and an empty project list
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        '[hooks.branch-protection]\nprotected_branches = ["develop"]\n',
+    )
+    _write(
+        proj / ".claude" / "natelandau-toolkit.toml",
+        "[hooks.branch-protection]\nprotected_branches = []\n",
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then the global entry survives
+    assert cfg.option("branch-protection", "protected_branches", default=()) == ("develop",)
+
+
+def test_additive_option_not_cleared_by_a_project_scalar(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a scalar in the project layer cannot replace an additive global list."""
+    # Given a global list and a project scalar for the same additive option
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        '[hooks.branch-protection]\nprotected_branches = ["develop"]\n',
+    )
+    _write(
+        proj / ".claude" / "natelandau-toolkit.toml",
+        '[hooks.branch-protection]\nprotected_branches = "none"\n',
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then the global entry survives
+    assert cfg.option("branch-protection", "protected_branches", default=()) == ("develop",)
+
+
+def test_non_additive_list_option_replaced_by_project(hooks_dir: Path, tmp_path: Path) -> None:
+    """Verify a list option outside ADDITIVE_OPTIONS is still replaced, not unioned."""
+    # Given global and project lists for a style option
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    _write(
+        home / ".claude" / "natelandau-toolkit.toml",
+        '[hooks.commit-message]\ntypes = ["feat", "fix"]\n',
+    )
+    _write(
+        proj / ".claude" / "natelandau-toolkit.toml", '[hooks.commit-message]\ntypes = ["docs"]\n'
+    )
+
+    # When loading the config
+    cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
+
+    # Then the project list wins outright
+    assert cfg.option("commit-message", "types", default=()) == ("docs",)

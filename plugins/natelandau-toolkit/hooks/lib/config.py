@@ -16,6 +16,10 @@ the project layer is a file inside the very repo a guard protects. Honoring
 them there would let a repo exempt itself, and because that file is committed
 it would do so for everyone who clones it. Style options such as
 `[hooks.commit-message]` carry no such risk, so a project may loosen them.
+
+Options in `ADDITIVE_OPTIONS` tighten a safety guard, so their lists are
+unioned across layers instead of replaced: a project can add entries but
+never drop one the global layer set.
 """
 
 import os
@@ -33,6 +37,9 @@ type OptionValue = str | int | bool | tuple[str, ...]
 VALID_PROFILES: frozenset[str] = frozenset({"minimal", "standard", "strict"})
 DEFAULT_PROFILE = "standard"
 CONFIG_NAME = "natelandau-toolkit.toml"
+ADDITIVE_OPTIONS: frozenset[tuple[str, str]] = frozenset(
+    {("branch-protection", "protected_branches")}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +113,7 @@ def _option_value(hook_id: str, key: str, raw: object) -> OptionValue | None:
 def _merge_hook_options(
     base: dict[str, dict[str, OptionValue]], raw: object
 ) -> dict[str, dict[str, OptionValue]]:
-    """Deep-merge a [hooks.*] table of options per hook id."""
+    """Deep-merge a [hooks.*] table of options per hook id, unioning `ADDITIVE_OPTIONS`."""
     if not isinstance(raw, dict):
         return base
     for hook_id, table in raw.items():
@@ -117,8 +124,21 @@ def _merge_hook_options(
             if not isinstance(key, str):
                 continue
             coerced = _option_value(hook_id, key, value)
-            if coerced is not None:
-                merged[key] = coerced
+            if coerced is None:
+                continue
+            previous = merged.get(key)
+            if (hook_id, key) in ADDITIVE_OPTIONS and isinstance(previous, tuple):
+                if not isinstance(coerced, tuple):
+                    # A scalar would replace the list and the hook would then read
+                    # its default, silently dropping every lower-layer entry.
+                    print(  # noqa: T201
+                        f"natelandau-toolkit: ignoring [hooks.{hook_id}] {key} = {value!r}: "
+                        "expected a list of strings",
+                        file=sys.stderr,
+                    )
+                    continue
+                coerced = tuple(dict.fromkeys(previous + coerced))
+            merged[key] = coerced
     return base
 
 

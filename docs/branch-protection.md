@@ -22,7 +22,27 @@ directory your shell happens to sit in.
 
 So a write into a repo on `main` is caught even when you run it from a feature
 worktree, and a write into a feature branch passes even when your shell is on
-`main`. Protected branches are `main` and `master`.
+`main`.
+
+## Protected branches
+
+`main` and `master` are always protected. To protect more branches, list them
+in a `[hooks.branch-protection]` table in your config:
+
+```toml
+[hooks.branch-protection]
+protected_branches = ["develop", "release/*"]
+```
+
+Each entry is a branch name or a glob (`*`, `?`, `[...]`). An entry made only
+of wildcards, such as `"*"`, is ignored, because it would leave no branch to
+work on.
+
+The list only adds branches. You can set it in your global config, in a
+project's `.claude/natelandau-toolkit.toml`, or in both, and the hook protects
+every branch either file lists. A project's list cannot unprotect `main`,
+`master`, or a branch your global config lists. To turn the hook off for a
+project, add `branch-protection` to `disabled_hooks` instead.
 
 The hook follows each `cd <path>` in a command, also one after a background job
 (`sleep 1 & cd <path> && rm app.py`). A `cd` that runs in a subshell
@@ -233,7 +253,9 @@ not depend on which branch you are on.
 | `git clean -f` (without `-n`/`--dry-run`) | Permanently deletes untracked files. |
 | `git checkout .`, `git checkout -- .`, `git restore .` | Discards working-tree changes. |
 | `git rebase --no-verify` | Bypasses safety hooks. |
-| `git branch -D main`, `git branch -D master` | Force-deletes a protected branch. |
+| `git branch -D <protected>`, also `-d -f`, `-df`, and `--delete --force` | Force-deletes a protected branch. A plain `git branch -d` is allowed, because git refuses to delete an unmerged branch. |
+| `git branch -M <x> <protected>`, `git branch -f <protected> <rev>` | Overwrites or resets a protected branch, discarding commits only it held. An unforced `-m` or `-c` is allowed. |
+| `git update-ref -d refs/heads/<protected>`, `git push --delete <remote> <protected>`, `git push <remote> :<protected>` | Deletes a protected branch locally without a merge check, or on the remote. |
 
 A blocked destructive command suggests running it outside Claude Code if you
 genuinely intend it.

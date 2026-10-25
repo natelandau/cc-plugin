@@ -11,6 +11,15 @@ profile = "standard"
 # e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 
+# --- Protected branches ---------------------------------------------------
+# Branches the branch-protection hook guards in addition to main and master,
+# which are always protected. Names or globs; an all-wildcard entry ("*") is
+# ignored. This list only adds: the global and project lists are combined,
+# so a project file can protect its own branches but never unprotect one.
+#
+# [hooks.branch-protection]
+# protected_branches = ["develop", "release/*"]
+
 # --- Commit message rules -------------------------------------------------
 # Rules the commit-message hook applies to `git commit -m` messages and to
 # `gh pr create|edit|merge` titles and bodies. The defaults shown follow
