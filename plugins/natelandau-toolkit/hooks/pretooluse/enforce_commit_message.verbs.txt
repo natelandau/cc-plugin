@@ -1,0 +1,669 @@
+# Base (imperative) verbs for the commit-message hook's `force_imperative` rule.
+#
+# One lowercase verb per line; `#` starts a comment. List only the base form
+# ("add", not "added"). The hook strips -s, -es, -ies, -ed, -ied, and -ing from
+# a subject's first word and blocks it when the result is a verb listed here,
+# so "rings" is caught only if "ring" is listed, and "ring" itself always
+# passes. A word that is not listed is never blocked, so a missing verb only
+# lets a non-imperative subject through. Add the base verb to fix that.
+#
+# Two other line forms, grouped at the end of the file:
+#   built -> build   an irregular form the suffix rules cannot reach
+#   -user            a word that is never accepted as the first word, for
+#                    non-verbs that subjects open with ("user-uploaded avatars")
+#   !names           a word that is never blocked, such as a plural noun that
+#                    looks like an -s form of a listed verb ("names" from "name").
+#                    Do not exempt -ing words: a subject starting "linting"
+#                    must say "lint".
+#
+# Seeded from pydocstyle's imperatives.txt (MIT License, Copyright (c) 2012
+# GreenSteam, (c) 2014-2020 Amir Rachum, https://github.com/PyCQA/pydocstyle).
+
+accept
+access
+add
+adjust
+aggregate
+align
+allow
+amend
+append
+apply
+archive
+ask
+assert
+assign
+associate
+attach
+attempt
+authenticate
+authorize
+automate
+avoid
+back
+backfill
+badge
+batch
+begin
+block
+bold
+bound
+branch
+break
+bring
+build
+bump
+bundle
+bypass
+cache
+calculate
+call
+cancel
+cap
+capture
+catch
+centralize
+change
+charge
+check
+choose
+clarify
+clean
+clear
+close
+collapse
+collect
+color
+combine
+commit
+compare
+compute
+configure
+confirm
+connect
+consolidate
+constrain
+construct
+continue
+control
+convert
+copy
+correct
+count
+create
+customize
+cut
+date
+debug
+declare
+decode
+decorate
+decrease
+dedupe
+default
+defer
+define
+delegate
+delete
+denormalize
+deploy
+deprecate
+derive
+describe
+detach
+detect
+determine
+disable
+disallow
+disambiguate
+discover
+display
+distribute
+do
+document
+don
+download
+downmix
+drain
+draw
+drive
+drop
+dump
+edit
+emit
+empty
+enable
+encapsulate
+encode
+end
+enforce
+enhance
+enlarge
+enqueue
+ensure
+enter
+enumerate
+establish
+evaluate
+examine
+exclude
+execute
+exempt
+exit
+expand
+expect
+explain
+export
+expose
+extend
+externalize
+extract
+fail
+favor
+feed
+fetch
+file
+fill
+filter
+finalize
+find
+fire
+fix
+flag
+flatten
+fold
+forbid
+force
+forget
+format
+forward
+free
+freeze
+gate
+gather
+generate
+get
+give
+go
+grant
+group
+grow
+guard
+halve
+hand
+handle
+hang
+hardcode
+harden
+hash
+help
+hide
+hint
+hoist
+hold
+honor
+identify
+ignore
+implement
+import
+improve
+include
+increase
+indent
+index
+indicate
+infer
+init
+initialise
+initialize
+initiate
+inject
+inline
+input
+insert
+install
+instantiate
+integrate
+intercept
+introduce
+invoke
+isolate
+iterate
+join
+judge
+keep
+key
+label
+land
+launch
+lay
+lead
+leave
+let
+lint
+list
+listen
+load
+log
+look
+loosen
+lose
+lower
+make
+manage
+manipulate
+map
+mark
+match
+measure
+merge
+migrate
+mint
+mirror
+mock
+modify
+monitor
+move
+name
+normalize
+note
+notify
+obtain
+offer
+open
+opt
+optimize
+organize
+output
+overhaul
+override
+overwrite
+package
+pad
+paint
+parse
+partial
+pass
+pay
+perform
+persist
+pick
+pin
+ping
+play
+plot
+point
+polish
+poll
+populate
+port
+post
+prefer
+prefetch
+prefix
+prepare
+preserve
+prevent
+print
+process
+produce
+prompt
+protect
+provide
+prune
+publish
+pull
+purge
+put
+query
+queue
+quiet
+quote
+raise
+randomize
+rate
+reach
+read
+rebuild
+recategorize
+recommend
+reconcile
+record
+recreate
+redesign
+redo
+reduce
+refactor
+refer
+refine
+refit
+reformat
+refresh
+refuse
+regenerate
+register
+release
+reload
+remake
+remove
+rename
+render
+reorder
+reorganize
+repair
+reparse
+replace
+reply
+report
+represent
+request
+require
+reroll
+rerun
+resend
+reset
+resolve
+respect
+respond
+restore
+restrict
+restructure
+restyle
+retain
+rethink
+retrieve
+return
+reuse
+reverse
+revert
+review
+revise
+revoke
+rework
+rewrite
+roll
+rollback
+round
+route
+run
+sample
+save
+scaffold
+scan
+scope
+score
+scrub
+search
+select
+sell
+send
+separate
+serialise
+serialize
+serve
+set
+share
+shift
+ship
+show
+shrink
+sign
+simplify
+simulate
+skip
+slim
+snapshot
+sort
+source
+specify
+speed
+spend
+spin
+split
+squash
+stabilize
+standardize
+start
+stay
+step
+stop
+store
+streamline
+strip
+submit
+subscribe
+sum
+summarize
+support
+suppress
+surface
+survive
+swap
+sweep
+switch
+sync
+synchronise
+synchronize
+tag
+take
+target
+teach
+tear
+tell
+test
+think
+throw
+tidy
+tighten
+time
+trace
+track
+transform
+translate
+transmit
+trash
+trim
+truncate
+trust
+try
+turn
+tweak
+undo
+unify
+update
+upgrade
+upload
+use
+validate
+verify
+view
+wait
+walk
+watch
+wire
+withdraw
+work
+wrap
+write
+yield
+
+# Irregular forms
+began -> begin
+begun -> begin
+broke -> break
+broken -> break
+brought -> bring
+built -> build
+caught -> catch
+chose -> choose
+chosen -> choose
+did -> do
+done -> do
+drawn -> draw
+drew -> draw
+driven -> drive
+drove -> drive
+fed -> feed
+forbade -> forbid
+forbidden -> forbid
+forgot -> forget
+forgotten -> forget
+found -> find
+froze -> freeze
+frozen -> freeze
+gave -> give
+given -> give
+gone -> go
+got -> get
+gotten -> get
+grew -> grow
+grown -> grow
+held -> hold
+hid -> hide
+hidden -> hide
+hung -> hang
+kept -> keep
+laid -> lay
+led -> lead
+left -> leave
+lost -> lose
+made -> make
+overridden -> override
+overrode -> override
+overwritten -> overwrite
+overwrote -> overwrite
+paid -> pay
+ran -> run
+rebuilt -> rebuild
+redid -> redo
+redone -> redo
+remade -> remake
+reran -> rerun
+resent -> resend
+rethought -> rethink
+rewritten -> rewrite
+rewrote -> rewrite
+sent -> send
+shown -> show
+shrank -> shrink
+shrunk -> shrink
+sold -> sell
+sped -> speed
+spent -> spend
+spun -> spin
+swept -> sweep
+taken -> take
+taught -> teach
+thought -> think
+threw -> throw
+thrown -> throw
+told -> tell
+took -> take
+tore -> tear
+torn -> tear
+undid -> undo
+undone -> undo
+went -> go
+withdrawn -> withdraw
+withdrew -> withdraw
+written -> write
+wrote -> write
+
+# Never blocked
+
+# Never accepted as the first word
+-a
+-above
+-actually
+-additional
+-admin
+-alerts
+-alive
+-all
+-always
+-audio
+-auth
+-auto
+-automatic
+-available
+-backup
+-better
+-bug
+-bulk
+-can
+-case
+-chapters
+-class
+-cleanup
+-constants
+-correctly
+-correctness
+-custom
+-depreciate
+-docker
+-dockerfile
+-error
+-experience
+-fancy
+-fewer
+-final
+-finally
+-first
+-full
+-function
+-functions
+-global
+-gracefully
+-i
+-individual
+-info
+-initial
+-last
+-major
+-minimal
+-minor
+-more
+-multi
+-never
+-new
+-no
+-nothing
+-now
+-on
+-one
+-only
+-option
+-owners
+-pending
+-players
+-pre
+-progress
+-project
+-quick
+-red
+-script
+-scripts
+-second
+-section
+-server
+-sidecar
+-single
+-some
+-spellchecks
+-storyteller
+-storytellers
+-structured
+-text
+-this
+-trivial
+-two
+-typo
+-ui
+-uncommented
+-unit
+-usage
+-user
+-variables
+-verbose
+-we
+-webui

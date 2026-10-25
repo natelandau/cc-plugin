@@ -6,4 +6,5 @@
         udid = "udid"
 
 [files]
-    extend-exclude = ["*_cache", ".venv"]
+    # Verb data lists British spellings so en-GB subjects are judged too.
+    extend-exclude = ["*_cache", ".venv", "*.verbs.txt"]

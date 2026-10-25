@@ -11,6 +11,25 @@ profile = "standard"
 # e.g. disabled_hooks = ["config-protection"]
 disabled_hooks = []
 
+# --- Commit message rules -------------------------------------------------
+# Rules the commit-message hook applies to `git commit -m` messages and to
+# `gh pr create|edit|merge` titles and bodies. The defaults shown follow
+# commitlint's config-conventional. A project file may loosen these, because
+# they control style, not safety.
+#
+# [hooks.commit-message]
+# format = "conventional"            # "conventional" | "none" (skip type/format checks)
+# types = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"]
+# require_scope = false               # require `(scope)` after the type
+# max_subject_length = 100            # whole first line, type and scope included; 0 = no limit
+# max_body_line_length = 0            # 0 = no limit; URL lines and git trailers are exempt
+# subject_case = "lower-first"        # "lower-first" | "any"
+# forbid_trailing_punctuation = true  # block a subject ending in ".", "!", or "?"
+# forbid_wip_subject = true           # block wip / [wip] / draft / [draft] / (draft)
+# force_imperative = false            # block "added", "fixing", "bumps", ... (verbs: pretooluse/enforce_commit_message.verbs.txt)
+# forbidden_patterns = []             # regexes; a match in the message, PR title, or PR body blocks
+# check_pr_titles = true              # apply the subject rules to PR titles
+
 # --- Exempt paths ---------------------------------------------------------
 # Directory trees whose contents skip the branch-protection hook's
 # protected-branch rules (edits, direct commits, merges) and the
