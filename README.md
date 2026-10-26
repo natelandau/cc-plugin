@@ -7,18 +7,17 @@ A personal [Claude Code](https://code.claude.com) marketplace: guardrails and wo
 
 ## What you get
 
-The marketplace ships eight plugins. Two of them are for every project. The others each cover one stack, and you install them only in the repositories that use that stack, so their skill descriptions do not take context in other projects.
+The marketplace ships seven plugins. Two of them are for every project. The others each cover one stack, and you install them only in the repositories that use that stack, so their skill descriptions do not take context in other projects.
 
-| Plugin                     | Install scope | Contents                                                                               |
-| -------------------------- | ------------- | -------------------------------------------------------------------------------------- |
-| `natelandau-toolkit`       | User          | Safety hooks, review commands, a documentation-writing skill, and branch explainers.   |
-| `natelandau-git`           | User          | Branch workflows: pull requests, squash and fast-forward landings, post-merge cleanup. |
-| `natelandau-web-ui`        | Local         | The `htmx-expert` and `daisyui` skills.                                                |
-| `natelandau-flask`         | Local         | The `flask-development` skill.                                                         |
-| `natelandau-tortoise`      | Local         | The `tortoise-orm` skill.                                                              |
-| `natelandau-nclutils`      | Local         | The `nclutils` skill, for Python projects that depend on the `nclutils` package.       |
-| `natelandau-zensical`      | Local         | The `zensical` skill, for documentation sites built with Zensical.                     |
-| `natelandau-visualization` | Local         | The `tufte-viz` skill, for chart design and critique.                                  |
+| Plugin                | Install scope | Contents                                                                                             |
+| --------------------- | ------------- | ---------------------------------------------------------------------------------------------------- |
+| `natelandau-toolkit`  | User          | Safety hooks, review commands, a documentation-writing skill, branch explainers, and chart critique. |
+| `natelandau-git`      | User          | Branch workflows: pull requests, squash and fast-forward landings, post-merge cleanup.               |
+| `natelandau-web-ui`   | Local         | The `htmx-expert` and `daisyui` skills.                                                              |
+| `natelandau-flask`    | Local         | The `flask-development` skill.                                                                       |
+| `natelandau-tortoise` | Local         | The `tortoise-orm` skill.                                                                            |
+| `natelandau-nclutils` | Local         | The `nclutils` skill, for Python projects that depend on the `nclutils` package.                     |
+| `natelandau-zensical` | Local         | The `zensical` skill, for documentation sites built with Zensical.                                   |
 
 The `natelandau-git` and `natelandau-zensical` plugins depend on `natelandau-toolkit`. Claude Code installs it with them if it is not already installed.
 
@@ -52,12 +51,11 @@ The commands below run in a shell. To run one from inside Claude Code, type `!` 
 3. In each repository that uses a stack, go to the repository directory and run the line for that stack. Each line installs one plugin at local scope.
 
     ```shell
-    claude plugin install natelandau-web-ui@natelandau-cc-plugin --scope local         # htmx and daisyUI
-    claude plugin install natelandau-flask@natelandau-cc-plugin --scope local          # Flask
-    claude plugin install natelandau-tortoise@natelandau-cc-plugin --scope local       # Tortoise ORM
-    claude plugin install natelandau-nclutils@natelandau-cc-plugin --scope local       # nclutils package
-    claude plugin install natelandau-zensical@natelandau-cc-plugin --scope local       # Zensical docs
-    claude plugin install natelandau-visualization@natelandau-cc-plugin --scope local  # data visualization
+    claude plugin install natelandau-web-ui@natelandau-cc-plugin --scope local    # htmx and daisyUI
+    claude plugin install natelandau-flask@natelandau-cc-plugin --scope local     # Flask
+    claude plugin install natelandau-tortoise@natelandau-cc-plugin --scope local  # Tortoise ORM
+    claude plugin install natelandau-nclutils@natelandau-cc-plugin --scope local  # nclutils package
+    claude plugin install natelandau-zensical@natelandau-cc-plugin --scope local  # Zensical docs
     ```
 
 To confirm the result, run `/plugin` and look at the **Installed** tab, which lists each plugin with its scope.
@@ -76,7 +74,7 @@ claude plugin update natelandau-git@natelandau-cc-plugin
 
 ## natelandau-toolkit
 
-The core plugin holds the hooks, the subagents that other components dispatch, two skills that load when your task matches, and four workflows that run only when you type their command.
+The core plugin holds the hooks, the subagents that other components dispatch, two skills that load when your task matches, and five workflows that run only when you type their command.
 
 ### Hooks
 
@@ -106,12 +104,13 @@ These skills load when your task matches. You do not call them by name.
 
 These workflows run only when you type the command. Claude does not start them on its own, so their descriptions take no context until you use them.
 
-| Command                                | What it does                                                                                                         |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones.          |
-| `/organize [target]`                   | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files.          |
-| `/explain-diff`                        | Explains a code change, diff, branch, or PR as concepts and features rather than lines, in an HTML explainer.        |
-| `/walkthrough`                         | Captures stills and clips of the web, iOS, macOS, or Android UI an agent built, in a local HTML walkthrough.         |
+| Command                                | What it does                                                                                                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones.                         |
+| `/organize [target]`                   | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files.                         |
+| `/explain-diff`                        | Explains a code change, diff, branch, or PR as concepts and features rather than lines, in an HTML explainer.                       |
+| `/walkthrough`                         | Captures stills and clips of the web, iOS, macOS, or Android UI an agent built, in a local HTML walkthrough.                        |
+| `/tufte-viz`                           | Designs or critiques a data visualization with Tufte's principles: data-ink ratio, chartjunk, graphical integrity, small multiples. |
 
 ### Subagents
 
@@ -142,15 +141,14 @@ The finishing steps of `/pull-request`, `/squash`, and `/fast-forward` dispatch 
 
 Each stack plugin holds skills that load when your task matches, in the repositories where you installed the plugin.
 
-| Plugin                     | Skill               | Use when you're working with                                                                    |
-| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------- |
-| `natelandau-web-ui`        | `htmx-expert`       | htmx attributes, AJAX fragments, swaps, and hypermedia patterns.                                |
-| `natelandau-web-ui`        | `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and theming.                                     |
-| `natelandau-flask`         | `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints.                                     |
-| `natelandau-tortoise`      | `tortoise-orm`      | Tortoise ORM v1.x models, queries, relations, and migrations.                                   |
-| `natelandau-nclutils`      | `nclutils`          | Python projects that depend on the `nclutils` package.                                          |
-| `natelandau-zensical`      | `zensical`          | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids. |
-| `natelandau-visualization` | `tufte-viz`         | Designing or critiquing data visualizations with Tufte's principles.                            |
+| Plugin                | Skill               | Use when you're working with                                                                    |
+| --------------------- | ------------------- | ----------------------------------------------------------------------------------------------- |
+| `natelandau-web-ui`   | `htmx-expert`       | htmx attributes, AJAX fragments, swaps, and hypermedia patterns.                                |
+| `natelandau-web-ui`   | `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and theming.                                     |
+| `natelandau-flask`    | `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints.                                     |
+| `natelandau-tortoise` | `tortoise-orm`      | Tortoise ORM v1.x models, queries, relations, and migrations.                                   |
+| `natelandau-nclutils` | `nclutils`          | Python projects that depend on the `nclutils` package.                                          |
+| `natelandau-zensical` | `zensical`          | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids. |
 
 ## Configuration
 

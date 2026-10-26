@@ -8,7 +8,7 @@
     {
       "name": "natelandau-toolkit",
       "source": "./plugins/natelandau-toolkit",
-      "description": "Safety hooks, refactor and organize reviews, docs writing, and branch explainers. Install at user scope."
+      "description": "Safety hooks, refactor and organize reviews, docs writing, branch explainers, and chart critique. Install at user scope."
     },
     {
       "name": "natelandau-git",
@@ -39,11 +39,6 @@
       "name": "natelandau-zensical",
       "source": "./plugins/natelandau-zensical",
       "description": "Zensical documentation-site skill. Install per repo."
-    },
-    {
-      "name": "natelandau-visualization",
-      "source": "./plugins/natelandau-visualization",
-      "description": "Data visualization design and critique using Tufte's principles. Install per repo."
     }
   ]
 }

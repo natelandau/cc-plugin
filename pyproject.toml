@@ -38,7 +38,6 @@
         "plugins/natelandau-nclutils/.claude-plugin/plugin.json:\"version\"",
         "plugins/natelandau-toolkit/.claude-plugin/plugin.json:\"version\"",
         "plugins/natelandau-tortoise/.claude-plugin/plugin.json:\"version\"",
-        "plugins/natelandau-visualization/.claude-plugin/plugin.json:\"version\"",
         "plugins/natelandau-web-ui/.claude-plugin/plugin.json:\"version\"",
         "plugins/natelandau-zensical/.claude-plugin/plugin.json:\"version\"",
     ]
