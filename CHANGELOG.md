@@ -1,3 +1,9 @@
+## v0.27.0 (2026-10-26)
+
+### Feat
+
+- **plugins**: split into core, git, and per-stack plugins (#24)
+
 ## v0.26.1 (2026-10-25)
 
 ### Fix
