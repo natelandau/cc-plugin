@@ -1,17 +1,30 @@
 # natelandau-cc-plugin
 
-A personal [Claude Code](https://code.claude.com) marketplace containing one plugin: guardrails and workflow tooling for everyday coding.
+A personal [Claude Code](https://code.claude.com) marketplace: guardrails and workflow tooling for everyday coding, split into plugins so that each repository loads only the skills it uses.
 
 > [!WARNING]
 > This is a personal toolkit, built for one developer's machine and habits. It's opinionated about tools (uv, ruff, conventional commits), workflows, and what counts as "safe." It changes whenever those habits change, often without notice and without backward compatibility. Install it to study or fork it, not as a stable dependency. Pin to a tag if you need things to stay put.
 
 ## What you get
 
-Adding the marketplace gives you one plugin, `natelandau-toolkit`: PreToolUse and Stop hooks that block risky actions, on-demand skills, slash commands, and review subagents.
+The marketplace ships eight plugins. Two of them are for every project. The others each cover one stack, and you install them only in the repositories that use that stack, so their skill descriptions do not take context in other projects.
+
+| Plugin                     | Install scope | Contents                                                                               |
+| -------------------------- | ------------- | -------------------------------------------------------------------------------------- |
+| `natelandau-toolkit`       | User          | Safety hooks, review commands, a documentation-writing skill, and branch explainers.   |
+| `natelandau-git`           | User          | Branch workflows: pull requests, squash and fast-forward landings, post-merge cleanup. |
+| `natelandau-web-ui`        | Local         | The `htmx-expert` and `daisyui` skills.                                                |
+| `natelandau-flask`         | Local         | The `flask-development` skill.                                                         |
+| `natelandau-tortoise`      | Local         | The `tortoise-orm` skill.                                                              |
+| `natelandau-nclutils`      | Local         | The `nclutils` skill, for Python projects that depend on the `nclutils` package.       |
+| `natelandau-zensical`      | Local         | The `zensical` skill, for documentation sites built with Zensical.                     |
+| `natelandau-visualization` | Local         | The `tufte-viz` skill, for chart design and critique.                                  |
+
+The `natelandau-git` and `natelandau-zensical` plugins depend on `natelandau-toolkit`. Claude Code installs it with them if it is not already installed.
 
 ## Requirements
 
-The plugin runs its hooks as standalone Python scripts through [uv](https://docs.astral.sh/uv/), so you need a working install before it does anything.
+The core plugin runs its hooks as standalone Python scripts through [uv](https://docs.astral.sh/uv/), so you need a working install before it does anything.
 
 - Claude Code (the host for all components).
 - `uv` on your `PATH`. The hook scripts launch with `uv run`, and uv fetches the required Python (3.14+) on first run.
@@ -19,25 +32,36 @@ The plugin runs its hooks as standalone Python scripts through [uv](https://docs
 
 ## Install
 
-You install in two steps: register the marketplace, then install the plugin. Run these inside Claude Code.
+The install scope decides where a plugin is active. User scope turns a plugin on in every project. Local scope turns it on for you in one repository only, and records it in that repository's `.claude/settings.local.json`.
 
-1. Add the marketplace from GitHub:
+1. Add the marketplace from GitHub inside Claude Code:
 
     ```
     /plugin marketplace add natelandau/cc-plugin
     ```
 
-2. Install the plugin:
+2. Install the two plugins for every project. When `/plugin` asks for a scope, select **Install for you (user scope)**.
 
     ```
     /plugin install natelandau-toolkit@natelandau-cc-plugin
+    /plugin install natelandau-git@natelandau-cc-plugin
     ```
 
-That's it. Hooks register automatically, and skills, commands, and subagents become available right away. To confirm, run `/plugin` and check that the plugin appears as enabled.
+3. In each repository that uses a stack, install the plugin for that stack. Select **Install for you, in this repo only (local scope)**.
+
+    ```
+    /plugin install natelandau-flask@natelandau-cc-plugin
+    ```
+
+    From a shell, use `claude plugin install natelandau-flask@natelandau-cc-plugin --scope local` in the repository directory.
+
+To confirm the result, run `/plugin` and look at the **Installed** tab, which lists each plugin with its scope.
+
+> **Note:** Project scope (**Install for all collaborators on this repository**) records the plugin in the committed `.claude/settings.json` and turns it on for every collaborator. A collaborator who has not added this marketplace then gets a "not installed" error from Claude Code.
 
 ## natelandau-toolkit
 
-This plugin combines four kinds of components: hooks that enforce rules, skills that add knowledge or run workflows, slash commands, and subagents.
+The core plugin holds the hooks, the subagents that other components dispatch, two skills that load when your task matches, and four workflows that run only when you type their command.
 
 ### Hooks
 
@@ -54,59 +78,70 @@ Hooks run automatically on every matching tool call. They block an action and ex
 | `config-protection`    | Edits that weaken a linter, formatter, or typechecker config.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `use-uv`               | Nothing. It's a non-blocking nudge toward `uv run` for a bare `python`, `pytest`, or `ruff` that the project's own `.venv` provides, and toward `uv add` for `pip install` inside a project with a `.venv`. A tool the venv lacks is assumed to live on your PATH and is left alone, as is any explicitly path-qualified executable such as `~/.local/bin/ruff`.                                                                                                                                                                                                                                                                                 |
 
-### Knowledge skills
+### Skills
 
-These skills load on demand when your task matches. You don't invoke them by name. They give the model current, focused guidance on a tool or domain.
+These skills load when your task matches. You do not call them by name.
 
-| Skill               | Use when you're working with                                                                                                                                |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `accessibility`     | Web UI accessibility: ARIA, keyboard nav, focus, contrast, WCAG 2.2.                                                                                        |
-| `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and theming.                                                                                                 |
-| `explain-diff`      | Understanding a code change, diff, branch, or PR as concepts and features rather than lines; produces an HTML explainer.                                    |
-| `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints.                                                                                                 |
-| `gha`               | Investigating GitHub Actions failures and finding the root cause.                                                                                           |
-| `htmx-expert`       | htmx attributes, AJAX fragments, swaps, and hypermedia patterns.                                                                                            |
-| `nclutils`          | Python projects that depend on the `nclutils` package.                                                                                                      |
-| `safe-refactoring`  | Behavior-preserving refactors in any language.                                                                                                              |
-| `technical-writer`  | READMEs, changelogs, guides, and other user-facing prose. Governs document structure and applies ASD-STE100 Simplified Technical English to every sentence. |
-| `tortoise-orm`      | Tortoise ORM v1.x models, queries, relations, and migrations.                                                                                               |
-| `tufte-viz`         | Designing or critiquing data visualizations with Tufte's principles.                                                                                        |
-| `walkthrough`       | Seeing the UI an agent built: stills and clips of web, iOS, macOS, or Android front ends in a local HTML walkthrough.                                       |
-| `zensical`          | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids.                                                             |
+| Skill              | Use when you're working with                                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `safe-refactoring` | Behavior-preserving refactors in any language.                                                                                                              |
+| `technical-writer` | READMEs, changelogs, guides, and other user-facing prose. Governs document structure and applies ASD-STE100 Simplified Technical English to every sentence. |
 
-### Workflow commands
+### Commands
 
-These run multi-step workflows. Some are slash commands, others are skills you trigger with a slash. Most fire only when you invoke them. The exceptions are `/pull-request`, `/squash`, `/fast-forward`, and `/cleanup-branch`, which Claude also runs on its own when you ask in plain words to open a PR, squash a branch into `main`, merge a branch into `main`, or clean up after a merged PR. The git workflows are local-only and never push unless they say so.
+These workflows run only when you type the command. Claude does not start them on its own, so their descriptions take no context until you use them.
 
-| Command                                | What it does                                                                                                                                                          |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones.                                                           |
-| `/organize [target]`                   | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files.                                                           |
-| `/prune-comments`                      | Reviews the current changes and cleans up their inline comments, keeping non-obvious why-comments and dropping redundant ones. Edits the working tree; never commits. |
-| `/create-prd`                          | Generates a Product Requirements Document from the conversation.                                                                                                      |
-| `/pull-request`                        | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR whose title and lead paragraph become the squash commit.                                                 |
-| `/regroup-commits`                     | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code.                                                              |
-| `/squash`                              | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible.                                                                     |
-| `/fast-forward`                        | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible.                                                       |
-| `/cleanup-branch`                      | After a PR merges on the remote, removes the local worktree and branch and fast-forwards `main`. Asks before deleting a branch with work the merge left out.                       |
+| Command                                | What it does                                                                                                         |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones.          |
+| `/organize [target]`                   | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files.          |
+| `/explain-diff`                        | Explains a code change, diff, branch, or PR as concepts and features rather than lines, in an HTML explainer.        |
+| `/walkthrough`                         | Captures stills and clips of the web, iOS, macOS, or Android UI an agent built, in a local HTML walkthrough.         |
 
 ### Subagents
 
-The review commands above delegate to focused subagents that run in their own context and return a short summary. You can also call them directly when you want their narrow job done without filling the main conversation.
+Other components dispatch these subagents. Each one runs in its own context and returns a short summary. They are not meant for direct use.
 
-| Subagent             | Job                                                                                                                                |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `test-runner`        | Runs the project's linters and test suite, returns a pass/fail summary.                                                            |
-| `doc-drift-reviewer` | Compares user-facing docs against the current branch and lists stale or missing coverage.                                          |
-| `review-finder`      | Applies one analysis angle to a scope and returns candidate findings.                                                              |
-| `review-verifier`    | Judges a candidate finding as kept, plausible, or refuted with a cited reason.                                                     |
-| `comment-pruner`     | Rewrites the inline comments in a change, keeping non-obvious why-comments and dropping the rest. Edits comments only, never code. |
+| Subagent          | Job                                                                                         | Dispatched by                          |
+| ----------------- | ------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `test-runner`     | Runs the project's linters and test suite, returns a pass/fail summary.                     | `/refactor` and the `natelandau-git` workflows |
+| `review-finder`   | Applies one analysis angle to a scope and returns candidate findings.                       | `/refactor` and `/organize`            |
+| `review-verifier` | Judges a candidate finding as kept, plausible, or refuted with a cited reason.              | `/refactor` and `/organize`            |
+
+## natelandau-git
+
+The `natelandau-git` plugin runs branch workflows. The git workflows are local-only and never push unless they say so. Claude runs `/pull-request`, `/squash`, `/fast-forward`, and `/cleanup-branch` on its own when you ask in plain words to open a PR, squash a branch into `main`, merge a branch into `main`, or clean up after a merged PR. The other two run only when you type the command.
+
+| Command            | What it does                                                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/pull-request`    | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR whose title and lead paragraph become the squash commit.                 |
+| `/regroup-commits` | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code.                                                    |
+| `/squash`          | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible.                                                           |
+| `/fast-forward`    | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible.                                             |
+| `/cleanup-branch`  | After a PR merges on the remote, removes the local worktree and branch and fast-forwards `main`. Asks before deleting a branch with work the merge left out. |
+| `/gha`             | Investigates GitHub Actions failures and finds the root cause.                                                                                              |
+
+The finishing steps of `/pull-request`, `/squash`, and `/fast-forward` dispatch the `doc-drift-reviewer` subagent, which compares user-facing docs against the branch and lists stale or missing coverage. They also dispatch `test-runner` from the core plugin.
+
+## Stack plugins
+
+Each stack plugin holds skills that load when your task matches, in the repositories where you installed the plugin.
+
+| Plugin                     | Skill               | Use when you're working with                                                                    |
+| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------- |
+| `natelandau-web-ui`        | `htmx-expert`       | htmx attributes, AJAX fragments, swaps, and hypermedia patterns.                                |
+| `natelandau-web-ui`        | `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and theming.                                     |
+| `natelandau-flask`         | `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints.                                     |
+| `natelandau-tortoise`      | `tortoise-orm`      | Tortoise ORM v1.x models, queries, relations, and migrations.                                   |
+| `natelandau-nclutils`      | `nclutils`          | Python projects that depend on the `nclutils` package.                                          |
+| `natelandau-zensical`      | `zensical`          | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids. |
+| `natelandau-visualization` | `tufte-viz`         | Designing or critiquing data visualizations with Tufte's principles.                            |
 
 ## Configuration
 
-The plugin reads an optional TOML config file. Settings cascade: a global file at `~/.claude/natelandau-toolkit.toml` applies everywhere, and a project file at `<project>/.claude/natelandau-toolkit.toml` overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.
+The core plugin reads an optional TOML config file for its hooks. Settings cascade: a global file at `~/.claude/natelandau-toolkit.toml` applies everywhere, and a project file at `<project>/.claude/natelandau-toolkit.toml` overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.
 
-The plugin ships a `natelandau-toolkit.toml.example` template under its `hooks/` directory. Copy it to one of the paths above and edit.
+The core plugin ships a `natelandau-toolkit.toml.example` template under its `hooks/` directory. Copy it to one of the paths above and edit.
 
 ### Profiles and disabling hooks
 
@@ -160,9 +195,10 @@ You can also add project-specific rules without touching the built-in ones. The 
 
 ## Uninstalling
 
-Remove the plugin, then the marketplace, from inside Claude Code:
+Remove each installed plugin, then the marketplace, from inside Claude Code. Uninstall a local-scope plugin from inside the repository where you installed it.
 
 ```
+/plugin uninstall natelandau-git@natelandau-cc-plugin
 /plugin uninstall natelandau-toolkit@natelandau-cc-plugin
 /plugin marketplace remove natelandau-cc-plugin
 ```

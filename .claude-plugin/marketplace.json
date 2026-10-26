@@ -3,12 +3,47 @@
   "owner": {
     "name": "Nathaniel Landau"
   },
-  "description": "Personal Claude Code toolkit distributed as a single plugin.",
+  "description": "Personal Claude Code toolkit: a core plugin plus git and per-stack plugins.",
   "plugins": [
     {
       "name": "natelandau-toolkit",
       "source": "./plugins/natelandau-toolkit",
-      "description": "Personal Claude Code toolkit: hooks, skills, and slash commands for my setup."
+      "description": "Safety hooks, refactor and organize reviews, docs writing, and branch explainers. Install at user scope."
+    },
+    {
+      "name": "natelandau-git",
+      "source": "./plugins/natelandau-git",
+      "description": "Git branch workflows: pull requests, squash and fast-forward landings, commit regrouping, post-merge cleanup, and GitHub Actions. Install at user scope."
+    },
+    {
+      "name": "natelandau-web-ui",
+      "source": "./plugins/natelandau-web-ui",
+      "description": "htmx and daisyUI skills for hypermedia web front ends. Install per repo."
+    },
+    {
+      "name": "natelandau-flask",
+      "source": "./plugins/natelandau-flask",
+      "description": "Flask 3 application development skill. Install per repo."
+    },
+    {
+      "name": "natelandau-tortoise",
+      "source": "./plugins/natelandau-tortoise",
+      "description": "Tortoise ORM v1 skill. Install per repo."
+    },
+    {
+      "name": "natelandau-nclutils",
+      "source": "./plugins/natelandau-nclutils",
+      "description": "Skill for projects that depend on the nclutils package. Install per repo."
+    },
+    {
+      "name": "natelandau-zensical",
+      "source": "./plugins/natelandau-zensical",
+      "description": "Zensical documentation-site skill. Install per repo."
+    },
+    {
+      "name": "natelandau-visualization",
+      "source": "./plugins/natelandau-visualization",
+      "description": "Data visualization design and critique using Tufte's principles. Install per repo."
     }
   ]
 }

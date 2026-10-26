@@ -2,7 +2,7 @@
 
 This guide covers how to develop the plugin in this repository: hooks, skills, slash commands, and subagents. If you're here to install or configure it rather than work on it, see the [README](README.md) instead.
 
-This repo is a Claude Code marketplace shipping one plugin, `natelandau-toolkit`, under `plugins/`: PreToolUse safety hooks, on-demand skills, slash commands, and subagents.
+This repo is a Claude Code marketplace that ships several plugins under `plugins/`. The core plugin, `natelandau-toolkit`, holds the PreToolUse safety hooks, the general skills and commands, and the shared subagents. The `natelandau-git` plugin holds the branch workflows. Each stack plugin (`natelandau-web-ui`, `natelandau-flask`, `natelandau-tortoise`, `natelandau-nclutils`, `natelandau-zensical`, `natelandau-visualization`) holds the skills for one stack, so that a repository installs only the stacks it uses.
 
 ## Contents
 
@@ -71,12 +71,12 @@ Skills, commands, and agents are content, not code, so they have no test harness
 
 ## Repository layout
 
-The marketplace catalog lives at the root; the plugin lives under `plugins/natelandau-toolkit/`.
+The marketplace catalog lives at the root. Each plugin lives under `plugins/<name>/`, and only the core plugin has hooks.
 
 ```
-.claude-plugin/marketplace.json               Marketplace catalog
+.claude-plugin/marketplace.json               Marketplace catalog, one entry per plugin
 
-plugins/natelandau-toolkit/
+plugins/natelandau-toolkit/                   Core plugin
   .claude-plugin/plugin.json                  Plugin manifest (name, version, description)
   hooks/
     hooks.json                                Event registration for wired stages
@@ -100,15 +100,26 @@ plugins/natelandau-toolkit/
                                               profiles, bash, paths, exempt_paths, state,
                                               transcript
   skills/<name>/SKILL.md                      Skill entry files
+  skills/shared/*.md                          Procedure shared by this plugin's skills
   commands/<name>.md                          Slash commands
   agents/<name>.md                            Subagent definitions
+
+plugins/natelandau-git/                       Branch workflows; depends on the core plugin
+  .claude-plugin/plugin.json
+  skills/<name>/SKILL.md
+  skills/shared/*.md
+  agents/<name>.md
+
+plugins/natelandau-<stack>/                   One stack plugin each: web-ui, flask, tortoise,
+  .claude-plugin/plugin.json                  nclutils, zensical, visualization
+  skills/<name>/SKILL.md
 
 tests/                                        Characterization tests
 ```
 
 ### Path resolution and file modes
 
-On install, the plugin directory moves, so every path in `hooks.json` (and any path-bearing config) must reference scripts through `${CLAUDE_PLUGIN_ROOT}/...`.
+On install, the plugin directory moves, so every path in `hooks.json` (and any path-bearing config) must reference scripts through `"${CLAUDE_PLUGIN_ROOT}"/...`. Keep the quotes, so that an install path that contains a space stays one shell word.
 
 Hook entry scripts carry a `#!/usr/bin/env -S uv run --script` shebang plus a `# /// script` metadata block and are executable (`100755`; git tracks the mode bit). The modules they import from `hooks/lib/` have no shebang or metadata and stay `100644`. Hook code is stdlib-only; no third-party dependencies.
 
@@ -249,7 +260,7 @@ These steps wire a stage that currently has an empty `_registry.py` and no entry
        "hooks": [
          {
            "type": "command",
-           "command": "${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse.py",
+           "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/posttooluse.py",
            "timeout": 15
          }
        ]
@@ -265,11 +276,16 @@ These steps wire a stage that currently has an empty `_registry.py` and no entry
 
 ## Adding skills, commands, and agents
 
-Skills, slash commands, and subagents are content files. They live under `plugins/natelandau-toolkit/`.
+Skills, slash commands, and subagents are content files. Put each one in the plugin whose users need it:
+
+- A component for every project goes in `natelandau-toolkit`, or in `natelandau-git` if it is a branch workflow.
+- A component for one stack goes in that stack's plugin, or in a new plugin (see [New plugin](#new-plugin)).
+
+Every skill and command that Claude can start on its own puts its description into the context of every session that has its plugin installed. If a component runs only when the user asks for it, set `disable-model-invocation: true` in its frontmatter. Keep subagent descriptions to one line that names who dispatches the subagent, because subagents have no equivalent setting.
 
 ### New skill
 
-Invoke the `skill-creator` skill inside Claude Code. It drafts the correct frontmatter and the required "Use when ..." description. Save the result to `skills/<name>/SKILL.md`. Optional supplementary content goes under `skills/<name>/references/`. Shared procedure goes in `skills/shared/*.md`, linked by relative path.
+Invoke the `skill-creator` skill inside Claude Code. It drafts the correct frontmatter and the required "Use when ..." description. Save the result to `plugins/<plugin>/skills/<name>/SKILL.md`. Optional supplementary content goes under `skills/<name>/references/`. Shared procedure goes in `skills/shared/*.md` of the same plugin, linked by relative path. A skill cannot read files from another plugin's directory, and the manifest test fails if a `../shared/` file is missing from the skill's own plugin.
 
 Don't cross-reference sibling skills or commands inside a component body. The reader is an agent executing that one component, often in an unrelated project, so state the behavior directly. Naming a hook the component actually trips, for example `enforce_commit_message`, is fine.
 
@@ -291,7 +307,18 @@ The body is the prompt. Use `$ARGUMENTS` to reference user-supplied text. The co
 
 ### New agent
 
-Create `agents/<name>.md`. The `name` frontmatter field must match the file stem exactly, because the manifest test validates it. Add a `tools` allowlist for read-only agents. Reach for a subagent only for verbose, self-contained, summarizable work where keeping output out of the orchestrator's context is the point, such as `test-runner` or `doc-drift-reviewer`. Dispatch via the `Agent` tool with `subagent_type: <name>`.
+Create `agents/<name>.md`. The `name` frontmatter field must match the file stem exactly, because the manifest test validates it. Add a `tools` allowlist for read-only agents. Reach for a subagent only for verbose, self-contained, summarizable work where keeping output out of the orchestrator's context is the point, such as `test-runner` or `doc-drift-reviewer`. Dispatch via the `Agent` tool with `subagent_type: <name>`. A component in another plugin names the subagent with its plugin prefix, for example `natelandau-toolkit:test-runner`, and its plugin declares a dependency on the plugin that ships the subagent.
+
+### New plugin
+
+A plugin is the unit that a user turns on per repository, so add one for a stack that only some repositories use.
+
+1. Create `plugins/natelandau-<name>/.claude-plugin/plugin.json` with `name`, `version`, `description`, and `author`. The `name` must match the directory and start with `natelandau-`, because the name is the namespace of every component and a same-named plugin from another marketplace clashes with it. Copy the version from `plugins/natelandau-toolkit/.claude-plugin/plugin.json`, because all plugins share one version.
+2. If the plugin uses a skill or subagent from another plugin, list that plugin in `dependencies`, for example `"dependencies": ["natelandau-toolkit"]`.
+3. Add an entry with `name`, `source`, and `description` to `.claude-plugin/marketplace.json`.
+4. Add the manifest path to `version_files` under `[tool.commitizen]` in `pyproject.toml`, so that a release bumps it with the others.
+5. Add the plugin to the plugin table in the README, with its install scope.
+6. Run `uv run duty test`. The manifest tests read `marketplace.json`, so they cover the new plugin with no test changes.
 
 ---
 

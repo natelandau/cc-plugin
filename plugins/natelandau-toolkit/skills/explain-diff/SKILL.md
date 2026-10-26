@@ -1,6 +1,7 @@
 ---
 name: explain-diff
 description: "Use when the user wants to understand a code change, diff, branch, or PR at the level of concepts and features rather than lines — the pieces that come together to make the whole change, explained across the files they touch. Trigger on requests like \"explain this PR\", \"walk me through this branch\", \"help me understand what this change does\", \"what's going on in this diff\", or reviewing an agent's work before merging. Produces a rich, self-contained HTML explainer (plain markdown on request)."
+disable-model-invocation: true
 ---
 
 # Explain Diff

@@ -1,6 +1,6 @@
 ---
 name: test-runner
-description: Use to run a project's full linter and test suite and return a concise pass/fail summary with the failures, keeping verbose tool output out of the main conversation. Discovers the project's own tooling; does not modify any files.
+description: Internal to /refactor and the natelandau-git finishing steps. Not for direct use.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

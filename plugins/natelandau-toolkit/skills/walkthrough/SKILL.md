@@ -1,6 +1,7 @@
 ---
 name: walkthrough
 description: "Use when the user wants to see the UI or behavior an agent built, instead of launching the app and clicking through it themselves. Trigger on requests like \"show me what you built\", \"demo this\", \"walk me through the UI\", \"screenshots of the change\", \"record the interaction\", or /walkthrough. Captures stills and short clips of web, iOS, macOS, and Android front ends from the local build, in the background where the platform allows, and assembles them into a local HTML walkthrough with a one-command re-run script. Runs only on request, because captures are slow. Does not explain code: a request to understand how a change works, rather than what it does on screen, is not a walkthrough."
+disable-model-invocation: true
 ---
 
 # Walkthrough
