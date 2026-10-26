@@ -1,3 +1,9 @@
+## v0.28.1 (2026-10-26)
+
+### Fix
+
+- **git**: skip gates the agent just ran on unchanged files
+
 ## v0.28.0 (2026-10-26)
 
 ### Feat

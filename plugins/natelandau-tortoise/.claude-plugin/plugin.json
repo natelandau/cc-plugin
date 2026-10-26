@@ -1,6 +1,6 @@
 {
   "name": "natelandau-tortoise",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "description": "Tortoise ORM v1 skill. Install per repo.",
   "author": {
     "name": "Nathaniel Landau"
