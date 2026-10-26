@@ -130,9 +130,9 @@ and do every step in it, with:
 - `<original-tip>` = `$orig`
 
 The procedure leaves a clean branch untouched, rebuilds a sprawled one, proves
-the tree is byte-for-byte identical, and runs the project's full gate once at
-the end. If that gate is red, do not open the PR. The tree is unchanged, so
-report the failures and stop.
+the tree is byte-for-byte identical, and runs the project's full gate at the
+end unless it just passed on the same files. If that gate is red, do not
+open the PR. The tree is unchanged, so report the failures and stop.
 
 ### Step 5: Push the branch
 

@@ -104,7 +104,8 @@ and do every step in it, with:
 
 The procedure decides whether regrouping helps, groups the commits, and
 rebuilds the history. It proves the tree is byte-for-byte identical and runs
-the project's full gate once at the end. Then:
+the project's full gate at the end, unless you just ran it green on the same
+files. Then:
 
 - If it reported nothing to do, delete the backup (`git branch -D backup/...`)
   and stop. Tell the user the branch was already tidy.

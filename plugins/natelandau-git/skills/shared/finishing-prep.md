@@ -97,8 +97,13 @@ yourself for anything the branch made stale.
 
 Land only work that passes the project's own gates. This step comes after the
 documentation commit so the gate runs once on the final tree, which is the
-tree every later gate (a history regroup, the pre-push hook) sees. A gate whose
-project caches passes by tree then skips instead of running again.
+tree every later gate (a history regroup, the pre-push hook) sees.
+
+Do not repeat a run you just made. If you already ran the tests or the
+linters in this conversation, they passed, and no file changed since, that
+gate is green. Skip it. Committing files does not change them, and neither
+does a rebase that was a no-op. Tests and linters count separately: if you
+ran only one of them, run only the other, and tell `test-runner` which one.
 
 A full lint and test run produces output you do not need in this conversation,
 so dispatch the `natelandau-toolkit:test-runner` subagent (it ships with the

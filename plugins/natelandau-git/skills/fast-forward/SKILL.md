@@ -150,10 +150,10 @@ and do every step in it, with:
 - `<original-tip>` = `$orig`
 
 The procedure groups the commits, rebuilds them with a soft reset, proves the
-tree is byte-for-byte identical, and runs the project's full gate once at the
-end. If that gate is red, stop and report. Do not fast-forward. If the
-procedure rolled back, the branch is exactly as it was. Re-read the diff and
-regroup again before you continue.
+tree is byte-for-byte identical, and runs the project's full gate at the end
+unless it just passed on the same files. If that gate is red, stop and
+report. Do not fast-forward. If the procedure rolled back, the branch is
+exactly as it was. Re-read the diff and regroup again before you continue.
 
 This skill adds two rules to the procedure:
 

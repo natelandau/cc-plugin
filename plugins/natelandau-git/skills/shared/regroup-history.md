@@ -115,15 +115,16 @@ git reset --hard <original-tip>
 Report that the rewrite was rolled back and the branch is exactly as it was.
 Do not retry blindly. Re-read the diff and fix the grouping first.
 
-## Step 5: Run the project's full gate once
+## Step 5: Run the project's full gate unless it just passed
 
-Step 3 skipped the per-commit hooks. Now that the tree is whole, run the
-project's real gate over all of it. Dispatch the
-`natelandau-toolkit:test-runner` subagent. If it is unavailable, discover the
-project's lint and test gates yourself (prefer what CI runs) and run them
-directly. Run the gate even when the tree passed
-before the regroup. A project that caches passes by tree skips the repeat on
-its own.
+Step 3 skipped the per-commit hooks, so the finished tree needs one green run
+of the project's lint and test gates. Step 4 proved the files are unchanged,
+so a regroup cannot break a gate. If you already ran the tests or the linters
+in this conversation, they passed, and no file changed since, that gate is
+green. Skip it. Run only the gates that have not passed: dispatch the
+`natelandau-toolkit:test-runner` subagent and tell it which ones. If it is
+unavailable, discover the project's lint and test gates yourself (prefer what
+CI runs) and run them directly.
 
 - Green: the rewrite is done. Return to the calling skill.
 - Red: do not amend the group commits. Step 4 proved this tree is byte-for-byte
