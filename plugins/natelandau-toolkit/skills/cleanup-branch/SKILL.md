@@ -273,14 +273,14 @@ that branch and report. Do not force it.
 
 ### Step 7: Fast-forward the trunk
 
-- Trunk checked out somewhere: `cd` into that checkout, confirm
-  `git status --porcelain` is empty, then:
+- Trunk checked out somewhere: `cd` into that checkout, then:
 
   ```bash
   git pull --ff-only origin <trunk>
   ```
 
-  If that checkout is dirty, skip the pull and say so.
+  Local changes in that checkout do not block the pull. Git refuses on its
+  own if the fast-forward would overwrite one; report that and stop.
 - Trunk not checked out anywhere: update the ref directly. This refuses
   anything but a fast-forward.
 
