@@ -24,8 +24,8 @@ with no test harness. Run the gates before committing a code change.
 - **Live docs drift.** Before authoring or modifying a hook/skill/command/agent, fetch
   the current page from <https://code.claude.com/docs/llms.txt> (plugins-reference,
   hooks, skills, sub-agents). Don't work from memory.
-- **`${CLAUDE_PLUGIN_ROOT}`** prefixes every path in `hooks.json`; the plugin dir moves
-  on install.
+- **`"${CLAUDE_PLUGIN_ROOT}"`** (quoted) prefixes every path in `hooks.json`; the
+  plugin dir moves on install and its path can contain a space.
 - **Entry scripts vs modules.** Only the stage dispatchers (`hooks/<stage>.py`) carry
   the `uv run --script` shebang and PEP 723 block and are `100755`. Everything they
   import, stage plugins included, has neither and stays `100644`.

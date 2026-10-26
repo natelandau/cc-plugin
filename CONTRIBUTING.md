@@ -108,7 +108,7 @@ tests/                                        Characterization tests
 
 ### Path resolution and file modes
 
-On install, the plugin directory moves, so every path in `hooks.json` (and any path-bearing config) must reference scripts through `${CLAUDE_PLUGIN_ROOT}/...`.
+On install, the plugin directory moves, so every path in `hooks.json` (and any path-bearing config) must reference scripts through `"${CLAUDE_PLUGIN_ROOT}"/...`. Keep the quotes, so that an install path that contains a space stays one shell word.
 
 Hook entry scripts carry a `#!/usr/bin/env -S uv run --script` shebang plus a `# /// script` metadata block and are executable (`100755`; git tracks the mode bit). The modules they import from `hooks/lib/` have no shebang or metadata and stay `100644`. Hook code is stdlib-only; no third-party dependencies.
 
@@ -249,7 +249,7 @@ These steps wire a stage that currently has an empty `_registry.py` and no entry
        "hooks": [
          {
            "type": "command",
-           "command": "${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse.py",
+           "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/posttooluse.py",
            "timeout": 15
          }
        ]

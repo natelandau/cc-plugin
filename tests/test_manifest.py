@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit"
-PLUGIN_ROOT_PREFIX = "${CLAUDE_PLUGIN_ROOT}/"
+# Quoted so an install path containing a space stays one shell word.
+PLUGIN_ROOT_PREFIX = '"${CLAUDE_PLUGIN_ROOT}"/'
 
 # Documented in CLAUDE.md: transfer-context.md predates the frontmatter
 # convention and works via filename fallback. New commands must include it.
