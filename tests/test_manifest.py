@@ -16,7 +16,10 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "natelandau-toolkit"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG = REPO_ROOT / ".claude-plugin" / "marketplace.json"
+# The core plugin owns every hook; the other plugins ship content only.
+PLUGIN_ROOT = REPO_ROOT / "plugins" / "natelandau-toolkit"
 # Quoted so an install path containing a space stays one shell word.
 PLUGIN_ROOT_PREFIX = '"${CLAUDE_PLUGIN_ROOT}"/'
 
@@ -38,6 +41,20 @@ STAGE_DISPATCHERS = frozenset(
 )
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_SHARED_REF_RE = re.compile(r"`\.\./shared/([\w.-]+)`")
+
+
+def _catalog_entries() -> list[dict]:
+    return json.loads(CATALOG.read_text(encoding="utf-8")).get("plugins", [])
+
+
+def _plugin_roots() -> list[Path]:
+    """Return every plugin directory the marketplace catalog ships."""
+    return [(REPO_ROOT / entry["source"]).resolve() for entry in _catalog_entries()]
+
+
+def _plugin_glob(pattern: str) -> list[Path]:
+    return sorted(path for root in _plugin_roots() for path in root.glob(pattern))
 
 
 def _parse_frontmatter(text: str) -> dict[str, str] | None:
@@ -89,15 +106,15 @@ def _registered_hook_paths() -> set[Path]:
 
 
 def _skill_files() -> list[Path]:
-    return sorted((PLUGIN_ROOT / "skills").glob("*/SKILL.md"))
+    return _plugin_glob("skills/*/SKILL.md")
 
 
 def _skill_scripts() -> list[Path]:
-    return sorted((PLUGIN_ROOT / "skills").glob("*/scripts/*.py"))
+    return _plugin_glob("skills/*/scripts/*.py")
 
 
 def _command_files() -> list[Path]:
-    return sorted((PLUGIN_ROOT / "commands").glob("*.md"))
+    return _plugin_glob("commands/*.md")
 
 
 def _hook_scripts() -> list[Path]:
@@ -158,20 +175,62 @@ def _registered_name_params() -> list[tuple[Path, str]]:
 
 
 def _agent_files() -> list[Path]:
-    return sorted((PLUGIN_ROOT / "agents").glob("*.md"))
+    return _plugin_glob("agents/*.md")
 
 
-def test_plugin_manifest_has_required_fields() -> None:
-    """Verify .claude-plugin/plugin.json parses with name and description."""
-    # Given the plugin manifest
-    manifest_path = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+def _manifest(plugin_root: Path) -> dict:
+    return json.loads((plugin_root / ".claude-plugin" / "plugin.json").read_text())
 
-    # When parsed
-    data = json.loads(manifest_path.read_text())
 
-    # Then required top-level fields are present
-    assert "name" in data, "plugin.json missing 'name'"
-    assert "description" in data, "plugin.json missing 'description'"
+@pytest.mark.parametrize("plugin_root", _plugin_roots(), ids=lambda p: p.name)
+def test_plugin_manifest_has_required_fields(plugin_root: Path) -> None:
+    """Verify each plugin.json has a prefixed name matching its directory and a description."""
+    # Given a plugin manifest
+    data = _manifest(plugin_root)
+
+    # Then required top-level fields are present and the name matches the directory
+    assert data.get("name") == plugin_root.name, (
+        f"{plugin_root}: plugin.json name {data.get('name')!r} != directory {plugin_root.name!r}"
+    )
+    # And the name carries the prefix, since it namespaces every component and an
+    # unprefixed name can clash with a same-named plugin from another marketplace
+    assert plugin_root.name.startswith("natelandau-"), (
+        f"{plugin_root}: plugin name {plugin_root.name!r} must start with 'natelandau-'"
+    )
+    assert "description" in data, f"{plugin_root}: plugin.json missing 'description'"
+
+
+def test_plugin_versions_match() -> None:
+    """Verify every plugin carries the same version, since one release bumps them all."""
+    # Given each plugin's declared version
+    versions = {root.name: _manifest(root).get("version") for root in _plugin_roots()}
+
+    # Then they are all identical
+    assert len(set(versions.values())) == 1, f"plugin versions diverge: {versions}"
+
+
+@pytest.mark.parametrize("plugin_root", _plugin_roots(), ids=lambda p: p.name)
+def test_plugin_dependencies_resolve(plugin_root: Path) -> None:
+    """Verify each declared dependency names a plugin in this marketplace."""
+    # Given the plugin names the marketplace ships
+    shipped = {entry["name"] for entry in _catalog_entries()}
+
+    # Then every bare-name dependency is one of them
+    for dep in _manifest(plugin_root).get("dependencies", []):
+        name = dep if isinstance(dep, str) else dep["name"]
+        assert name in shipped, f"{plugin_root.name} depends on {name!r}, not in marketplace.json"
+
+
+@pytest.mark.parametrize("skill_path", _skill_files(), ids=lambda p: p.parent.name)
+def test_skill_shared_refs_resolve(skill_path: Path) -> None:
+    """Verify every ../shared/ file a skill reads exists in that skill's own plugin."""
+    # Given the shared files the skill tells Claude to read
+    refs = _SHARED_REF_RE.findall(skill_path.read_text())
+
+    # Then each one sits in the sibling shared directory, not in another plugin
+    for ref in refs:
+        target = skill_path.parent.parent / "shared" / ref
+        assert target.is_file(), f"{skill_path}: reads ../shared/{ref}, missing at {target}"
 
 
 def test_hooks_json_parses() -> None:
@@ -332,7 +391,7 @@ def test_skill_scripts_are_discovered() -> None:
     scripts = _skill_scripts()
 
     # Then at least one script exists
-    assert scripts, "no skill scripts found in plugins/natelandau-toolkit/skills/*/scripts/*.py"
+    assert scripts, "no skill scripts found in plugins/*/skills/*/scripts/*.py"
 
 
 @pytest.mark.parametrize("command_path", _command_files(), ids=lambda p: p.name)
@@ -383,15 +442,12 @@ def test_marketplace_sources_exist() -> None:
     file.
     """
     # Given the marketplace catalog
-    catalog = Path(__file__).resolve().parent.parent / ".claude-plugin" / "marketplace.json"
-    data = json.loads(catalog.read_text(encoding="utf-8"))
-
-    entries = data.get("plugins", [])
+    entries = _catalog_entries()
     assert entries, "marketplace.json lists no plugins"
 
     # Then every listed source resolves to a real directory
     for entry in entries:
-        source = catalog.parent.parent / entry["source"]
+        source = REPO_ROOT / entry["source"]
         assert source.is_dir(), (
             f"marketplace entry {entry['name']!r} points at {entry['source']}, "
             f"which is not a directory"

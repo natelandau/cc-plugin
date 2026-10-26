@@ -1,0 +1,11 @@
+{
+  "name": "natelandau-zensical",
+  "version": "0.26.1",
+  "description": "Zensical documentation-site skill. Install per repo.",
+  "author": {
+    "name": "Nathaniel Landau"
+  },
+  "dependencies": [
+    "natelandau-toolkit"
+  ]
+}

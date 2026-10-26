@@ -1,6 +1,7 @@
 ---
 name: refactor
 description: Review existing code in any language for behavior-preserving refactor opportunities with a multi-agent deep review by default (or a fast inline pass with --quick), refute inapplicable findings, and optionally apply the safe ones with --fix. Targets a function, class, file, folder, module, package, or the whole project.
+disable-model-invocation: true
 argument-hint: "[--quick] [--fix] [<target>]"
 ---
 

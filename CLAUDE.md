@@ -1,8 +1,12 @@
 # CLAUDE.md
 
-A Claude Code **marketplace** repo shipping one plugin, `natelandau-toolkit`, under
-`plugins/natelandau-toolkit/`. The marketplace layout stays because it is the install
-path, not because a second plugin is planned.
+A Claude Code **marketplace** repo shipping several plugins under `plugins/`: core
+`natelandau-toolkit` (all hooks, general skills, shared agents), `natelandau-git`
+(branch workflows), and one `natelandau-<stack>` plugin per stack so each repo
+installs only what it uses. All plugins share one version, bumped together through
+commitizen `version_files`. Keep the `natelandau-` prefix on every plugin name: the
+manifest name is the component namespace, and a same-named plugin from another
+marketplace would clash with it.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the layout, the dispatcher model, the plugin
 contract, and step-by-step recipes. Per-hook behavior lives in each module's docstring
@@ -64,6 +68,12 @@ with no test harness. Run the gates before committing a code change.
 
 - Author or revise a skill with the `skill-creator` skill. The entry file is
   `skills/<name>/SKILL.md` and its description starts "Use when …".
+- Every model-invocable skill or command costs context in every session with its
+  plugin. Run-on-request components get `disable-model-invocation: true`; agent
+  descriptions stay one line naming who dispatches them.
+- A skill reads `../shared/` only within its own plugin. A cross-plugin agent is
+  named with its prefix (`natelandau-toolkit:test-runner`) and its plugin is listed
+  in `dependencies`.
 - Don't cross-reference sibling skills or commands inside a component body. Its
   reader is an agent running that one component, often in an unrelated project.
 - A rule that must **hold** belongs in a PreToolUse hook, not skill prose.

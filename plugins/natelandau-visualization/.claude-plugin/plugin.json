@@ -1,0 +1,8 @@
+{
+  "name": "natelandau-visualization",
+  "version": "0.26.1",
+  "description": "Data visualization design and critique using Tufte's principles. Install per repo.",
+  "author": {
+    "name": "Nathaniel Landau"
+  }
+}

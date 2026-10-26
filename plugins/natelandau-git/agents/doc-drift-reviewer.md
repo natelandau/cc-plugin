@@ -1,6 +1,6 @@
 ---
 name: doc-drift-reviewer
-description: Use to review a project's user-facing documentation against the changes on the current branch and return a prioritized list of drift (stale instructions, undocumented new behavior, references to removed things). Read-only and advisory; recommends edits but never makes them.
+description: Internal to the natelandau-git finishing steps (pull-request, squash, fast-forward). Not for direct use.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

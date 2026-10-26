@@ -1,6 +1,7 @@
 ---
 name: organize
 description: Review how a project is organized (file/directory topology, naming, module boundaries, grab-bag files, scattered functions) and produce a prioritized report plus an ordered reorganization plan to make the codebase easier for developers to navigate and change. Advisory only with a multi-agent verified review; never moves files. Targets a subtree or the whole project.
+disable-model-invocation: true
 argument-hint: "[<target>]"
 ---
 
