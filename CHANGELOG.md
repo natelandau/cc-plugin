@@ -1,3 +1,9 @@
+## v0.27.1 (2026-10-26)
+
+### Fix
+
+- **plugins**: move tufte-viz into core as a user-only skill
+
 ## v0.27.0 (2026-10-26)
 
 ### Feat

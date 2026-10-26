@@ -1,6 +1,6 @@
 {
   "name": "natelandau-toolkit",
-  "version": "0.27.0",
+  "version": "0.27.1",
   "description": "Safety hooks, refactor and organize reviews, docs writing, branch explainers, and chart critique. Install at user scope.",
   "author": {
     "name": "Nathaniel Landau"
