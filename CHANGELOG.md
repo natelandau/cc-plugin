@@ -1,3 +1,9 @@
+## v0.26.1 (2026-10-25)
+
+### Fix
+
+- **cleanup-branch**: fast-forward the trunk despite local changes
+
 ## v0.26.0 (2026-10-25)
 
 ### Feat
