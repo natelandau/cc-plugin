@@ -34,30 +34,45 @@ The core plugin runs its hooks as standalone Python scripts through [uv](https:/
 
 The install scope decides where a plugin is active. User scope turns a plugin on in every project. Local scope turns it on for you in one repository only, and records it in that repository's `.claude/settings.local.json`.
 
-1. Add the marketplace from GitHub inside Claude Code:
+The commands below run in a shell. To run one from inside Claude Code, type `!` before it, for example `! claude plugin install natelandau-git@natelandau-cc-plugin`. After you install a plugin from an open session, run `/reload-plugins`.
 
-    ```
-    /plugin marketplace add natelandau/cc-plugin
-    ```
+1. Add the marketplace from GitHub:
 
-2. Install the two plugins for every project. When `/plugin` asks for a scope, select **Install for you (user scope)**.
-
-    ```
-    /plugin install natelandau-toolkit@natelandau-cc-plugin
-    /plugin install natelandau-git@natelandau-cc-plugin
+    ```shell
+    claude plugin marketplace add natelandau/cc-plugin
     ```
 
-3. In each repository that uses a stack, install the plugin for that stack. Select **Install for you, in this repo only (local scope)**.
+2. Install the two plugins for every project at user scope:
 
-    ```
-    /plugin install natelandau-flask@natelandau-cc-plugin
+    ```shell
+    claude plugin install natelandau-toolkit@natelandau-cc-plugin
+    claude plugin install natelandau-git@natelandau-cc-plugin
     ```
 
-    From a shell, use `claude plugin install natelandau-flask@natelandau-cc-plugin --scope local` in the repository directory.
+3. In each repository that uses a stack, go to the repository directory and run the line for that stack. Each line installs one plugin at local scope.
+
+    ```shell
+    claude plugin install natelandau-web-ui@natelandau-cc-plugin --scope local         # htmx and daisyUI
+    claude plugin install natelandau-flask@natelandau-cc-plugin --scope local          # Flask
+    claude plugin install natelandau-tortoise@natelandau-cc-plugin --scope local       # Tortoise ORM
+    claude plugin install natelandau-nclutils@natelandau-cc-plugin --scope local       # nclutils package
+    claude plugin install natelandau-zensical@natelandau-cc-plugin --scope local       # Zensical docs
+    claude plugin install natelandau-visualization@natelandau-cc-plugin --scope local  # data visualization
+    ```
 
 To confirm the result, run `/plugin` and look at the **Installed** tab, which lists each plugin with its scope.
 
-> **Note:** Project scope (**Install for all collaborators on this repository**) records the plugin in the committed `.claude/settings.json` and turns it on for every collaborator. A collaborator who has not added this marketplace then gets a "not installed" error from Claude Code.
+> **Note:** Project scope (`--scope project`) records the plugin in the committed `.claude/settings.json` and turns it on for every collaborator. A collaborator who has not added this marketplace then gets a "not installed" error from Claude Code.
+
+### Update
+
+Updating a plugin does not install plugins that are new to the marketplace. After you update, install any plugin from the steps above that `/plugin` does not list as installed.
+
+```shell
+claude plugin marketplace update natelandau-cc-plugin
+claude plugin update natelandau-toolkit@natelandau-cc-plugin
+claude plugin update natelandau-git@natelandau-cc-plugin
+```
 
 ## natelandau-toolkit
 
