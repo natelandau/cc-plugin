@@ -16,9 +16,9 @@
       "description": "Git branch workflows: pull requests, squash and fast-forward landings, commit regrouping, post-merge cleanup, and GitHub Actions. Install at user scope."
     },
     {
-      "name": "natelandau-web-ui",
-      "source": "./plugins/natelandau-web-ui",
-      "description": "htmx and daisyUI skills for hypermedia web front ends. Install per repo."
+      "name": "natelandau-htmx",
+      "source": "./plugins/natelandau-htmx",
+      "description": "An htmx skill for hypermedia web front ends. Install per repo."
     },
     {
       "name": "natelandau-flask",

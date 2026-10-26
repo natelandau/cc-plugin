@@ -1,8 +1,0 @@
-{
-  "name": "natelandau-web-ui",
-  "version": "0.27.1",
-  "description": "htmx and daisyUI skills for hypermedia web front ends. Install per repo.",
-  "author": {
-    "name": "Nathaniel Landau"
-  }
-}

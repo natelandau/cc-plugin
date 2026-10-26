@@ -1,0 +1,8 @@
+{
+  "name": "natelandau-htmx",
+  "version": "0.27.1",
+  "description": "An htmx skill for hypermedia web front ends. Install per repo.",
+  "author": {
+    "name": "Nathaniel Landau"
+  }
+}

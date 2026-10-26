@@ -2,7 +2,7 @@
 
 This guide covers how to develop the plugin in this repository: hooks, skills, slash commands, and subagents. If you're here to install or configure it rather than work on it, see the [README](README.md) instead.
 
-This repo is a Claude Code marketplace that ships several plugins under `plugins/`. The core plugin, `natelandau-toolkit`, holds the PreToolUse safety hooks, the general skills and commands, and the shared subagents. The `natelandau-git` plugin holds the branch workflows. Each stack plugin (`natelandau-web-ui`, `natelandau-flask`, `natelandau-tortoise`, `natelandau-nclutils`, `natelandau-zensical`) holds the skills for one stack, so that a repository installs only the stacks it uses.
+This repo is a Claude Code marketplace that ships several plugins under `plugins/`. The core plugin, `natelandau-toolkit`, holds the PreToolUse safety hooks, the general skills and commands, and the shared subagents. The `natelandau-git` plugin holds the branch workflows. Each stack plugin (`natelandau-htmx`, `natelandau-flask`, `natelandau-tortoise`, `natelandau-nclutils`, `natelandau-zensical`) holds the skills for one stack, so that a repository installs only the stacks it uses.
 
 ## Contents
 
@@ -110,7 +110,7 @@ plugins/natelandau-git/                       Branch workflows; depends on the c
   skills/shared/*.md
   agents/<name>.md
 
-plugins/natelandau-<stack>/                   One stack plugin each: web-ui, flask, tortoise,
+plugins/natelandau-<stack>/                   One stack plugin each: htmx, flask, tortoise,
   .claude-plugin/plugin.json                  nclutils, zensical
   skills/<name>/SKILL.md
 

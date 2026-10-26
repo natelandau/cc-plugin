@@ -19,7 +19,7 @@ Two plugins are for every project. The other five each cover one stack. Every sk
 | --------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
 | `natelandau-toolkit`  | User          | All hooks, plus skills for refactoring, project review, documentation, and change explainers. |
 | `natelandau-git`      | User          | Skills for pull requests, squash and fast-forward merges, commit regrouping, and CI failures. |
-| `natelandau-web-ui`   | Local         | Skills for htmx and daisyUI.                                                                  |
+| `natelandau-htmx`     | Local         | A skill for htmx.                                                                             |
 | `natelandau-flask`    | Local         | A skill for Flask 3 applications.                                                             |
 | `natelandau-tortoise` | Local         | A skill for Tortoise ORM v1.                                                                  |
 | `natelandau-nclutils` | Local         | A skill for Python projects that depend on the `nclutils` package.                            |
@@ -57,7 +57,7 @@ The commands below run in a shell. To run one from inside Claude Code, type `!` 
 3. Install the stack plugins that you use. For local scope, go to the directory of each repository that uses the stack, and run the line for that stack there. To enable a stack plugin in every project, remove `--scope local`.
 
     ```shell
-    claude plugin install natelandau-web-ui@natelandau-cc-plugin --scope local    # htmx and daisyUI
+    claude plugin install natelandau-htmx@natelandau-cc-plugin --scope local      # htmx
     claude plugin install natelandau-flask@natelandau-cc-plugin --scope local     # Flask
     claude plugin install natelandau-tortoise@natelandau-cc-plugin --scope local  # Tortoise ORM
     claude plugin install natelandau-nclutils@natelandau-cc-plugin --scope local  # nclutils package
@@ -234,8 +234,7 @@ Each stack skill starts automatically wherever its plugin is enabled.
 
 | Plugin                | Skill               | Covers                                                                                       |
 | --------------------- | ------------------- | -------------------------------------------------------------------------------------------- |
-| `natelandau-web-ui`   | `htmx-expert`       | htmx attributes, HTML fragment responses, swaps, and hypermedia patterns.                    |
-| `natelandau-web-ui`   | `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and themes.                                   |
+| `natelandau-htmx`     | `htmx-expert`       | htmx attributes, HTML fragment responses, swaps, and hypermedia patterns.                    |
 | `natelandau-flask`    | `flask-development` | Flask 3 applications with the application factory pattern and blueprints.                    |
 | `natelandau-tortoise` | `tortoise-orm`      | Tortoise ORM v1 models, queries, relations, and migrations.                                  |
 | `natelandau-nclutils` | `nclutils`          | Python code in projects that depend on the `nclutils` package.                               |
