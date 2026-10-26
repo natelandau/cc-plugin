@@ -1,39 +1,45 @@
 # natelandau-cc-plugin
 
-A personal [Claude Code](https://code.claude.com) marketplace: guardrails and workflow tooling for everyday coding, split into plugins so that each repository loads only the skills it uses.
+A personal [Claude Code](https://code.claude.com) plugin marketplace. It adds safety hooks that block dangerous tool calls, and skills that teach Claude repeatable workflows for git, code review, documentation, and specific frameworks.
 
 > [!WARNING]
-> This is a personal toolkit, built for one developer's machine and habits. It's opinionated about tools (uv, ruff, conventional commits), workflows, and what counts as "safe." It changes whenever those habits change, often without notice and without backward compatibility. Install it to study or fork it, not as a stable dependency. Pin to a tag if you need things to stay put.
+> This is a personal toolkit, built for one developer's machine and habits. It is opinionated about tools (uv, ruff, conventional commits), workflows, and what counts as "safe." It changes when those habits change, often without notice and without backward compatibility. Install it to study or fork it, not as a stable dependency. Pin to a tag if you need a fixed version.
 
-## What you get
+## What is in the marketplace
 
-The marketplace ships seven plugins. Two of them are for every project. The others each cover one stack, and you install them only in the repositories that use that stack, so their skill descriptions do not take context in other projects.
+A marketplace is a catalog that Claude Code installs plugins from. This marketplace holds seven plugins. Each plugin is a bundle of components:
 
-| Plugin                | Install scope | Contents                                                                                             |
-| --------------------- | ------------- | ---------------------------------------------------------------------------------------------------- |
-| `natelandau-toolkit`  | User          | Safety hooks, review commands, a documentation-writing skill, branch explainers, and chart critique. |
-| `natelandau-git`      | User          | Branch workflows: pull requests, squash and fast-forward landings, post-merge cleanup.               |
-| `natelandau-web-ui`   | Local         | The `htmx-expert` and `daisyui` skills.                                                              |
-| `natelandau-flask`    | Local         | The `flask-development` skill.                                                                       |
-| `natelandau-tortoise` | Local         | The `tortoise-orm` skill.                                                                            |
-| `natelandau-nclutils` | Local         | The `nclutils` skill, for Python projects that depend on the `nclutils` package.                     |
-| `natelandau-zensical` | Local         | The `zensical` skill, for documentation sites built with Zensical.                                   |
+- Hooks are scripts that Claude Code runs before a tool call. They can block the call or ask you to approve it.
+- Skills are instruction files that Claude reads when it does a matching task, or when you type the skill's slash command.
+- Subagents are helpers that a skill starts to do one part of its job in a separate context.
 
-The `natelandau-git` and `natelandau-zensical` plugins depend on `natelandau-toolkit`. Claude Code installs it with them if it is not already installed.
+Two plugins are for every project. The other five each cover one stack. Every skill that Claude can start on its own adds its description to the context of each session. For this reason, we recommend that you install a stack plugin only in the repositories that use that stack. You can install any plugin at any scope.
+
+| Plugin                | Recommended scope | Contents                                                                                      |
+| --------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| `natelandau-toolkit`  | User          | All hooks, plus skills for refactoring, project review, documentation, and change explainers. |
+| `natelandau-git`      | User          | Skills for pull requests, squash and fast-forward merges, commit regrouping, and CI failures. |
+| `natelandau-web-ui`   | Local         | Skills for htmx and daisyUI.                                                                  |
+| `natelandau-flask`    | Local         | A skill for Flask 3 applications.                                                             |
+| `natelandau-tortoise` | Local         | A skill for Tortoise ORM v1.                                                                  |
+| `natelandau-nclutils` | Local         | A skill for Python projects that depend on the `nclutils` package.                            |
+| `natelandau-zensical` | Local         | A skill for documentation sites built with Zensical.                                          |
+
+The `natelandau-git` and `natelandau-zensical` plugins depend on `natelandau-toolkit`. If `natelandau-toolkit` is not installed, Claude Code installs it with them.
 
 ## Requirements
 
-The core plugin runs its hooks as standalone Python scripts through [uv](https://docs.astral.sh/uv/), so you need a working install before it does anything.
+The hooks run as Python scripts through [uv](https://docs.astral.sh/uv/). Without uv, the hooks do not run.
 
-- Claude Code (the host for all components).
-- `uv` on your `PATH`. The hook scripts launch with `uv run`, and uv fetches the required Python (3.14+) on first run.
-- `git`. The branch-protection hook reads repository state.
+- Claude Code.
+- `uv` on your `PATH`. On the first run, uv downloads the Python version that the hooks need (3.14 or later).
+- `git`. The branch-protection hook reads the repository state.
 
 ## Install
 
-The install scope decides where a plugin is active. User scope turns a plugin on in every project. Local scope turns it on for you in one repository only, and records it in that repository's `.claude/settings.local.json`.
+The install scope controls where a plugin is active. User scope enables a plugin in every project. Local scope enables it for you in one repository only, and records it in that repository's `.claude/settings.local.json`. The steps below use the recommended scope for each plugin. To use a different scope, change or remove the `--scope` flag.
 
-The commands below run in a shell. To run one from inside Claude Code, type `!` before it, for example `! claude plugin install natelandau-git@natelandau-cc-plugin`. After you install a plugin from an open session, run `/reload-plugins`.
+The commands below run in a shell. To run one from inside Claude Code, type `!` before it, for example `! claude plugin install natelandau-git@natelandau-cc-plugin`. If you install a plugin from an open session, run `/reload-plugins` after.
 
 1. Add the marketplace from GitHub:
 
@@ -48,7 +54,7 @@ The commands below run in a shell. To run one from inside Claude Code, type `!` 
     claude plugin install natelandau-git@natelandau-cc-plugin
     ```
 
-3. In each repository that uses a stack, go to the repository directory and run the line for that stack. Each line installs one plugin at local scope.
+3. Install the stack plugins that you use. For local scope, go to the directory of each repository that uses the stack, and run the line for that stack there. To enable a stack plugin in every project, remove `--scope local`.
 
     ```shell
     claude plugin install natelandau-web-ui@natelandau-cc-plugin --scope local    # htmx and daisyUI
@@ -58,13 +64,13 @@ The commands below run in a shell. To run one from inside Claude Code, type `!` 
     claude plugin install natelandau-zensical@natelandau-cc-plugin --scope local  # Zensical docs
     ```
 
-To confirm the result, run `/plugin` and look at the **Installed** tab, which lists each plugin with its scope.
+4. Run `/plugin` in Claude Code and open the **Installed** tab. Make sure that each plugin shows the scope that you chose.
 
-> **Note:** Project scope (`--scope project`) records the plugin in the committed `.claude/settings.json` and turns it on for every collaborator. A collaborator who has not added this marketplace then gets a "not installed" error from Claude Code.
+> **Note:** Project scope (`--scope project`) records the plugin in the committed `.claude/settings.json` and enables it for every collaborator. A collaborator who has not added this marketplace then gets a "not installed" error from Claude Code.
 
 ### Update
 
-Updating a plugin does not install plugins that are new to the marketplace. After you update, install any plugin from the steps above that `/plugin` does not list as installed.
+An update does not install plugins that are new to the marketplace. After you update, install each plugin from the steps above that `/plugin` does not show as installed.
 
 ```shell
 claude plugin marketplace update natelandau-cc-plugin
@@ -72,153 +78,200 @@ claude plugin update natelandau-toolkit@natelandau-cc-plugin
 claude plugin update natelandau-git@natelandau-cc-plugin
 ```
 
-## natelandau-toolkit
+### Uninstall
 
-The core plugin holds the hooks, the subagents that other components dispatch, two skills that load when your task matches, and five workflows that run only when you type their command.
+Remove each plugin, then remove the marketplace. Remove a local-scope plugin from inside the repository where you installed it.
 
-### Hooks
+```shell
+claude plugin uninstall natelandau-git@natelandau-cc-plugin
+claude plugin uninstall natelandau-toolkit@natelandau-cc-plugin
+claude plugin marketplace remove natelandau-cc-plugin
+```
 
-Hooks run automatically on every matching tool call. They block an action and explain why, so a guardrail holds even when the model would rather not. The active set depends on your profile (see [Configuration](#configuration)).
+## Hooks
 
-| Hook                   | Blocks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `branch-protection`    | Destructive git operations (any branch), plus file edits and direct commits on `main`, `master`, or any branch listed in `[hooks.branch-protection] protected_branches`. Merge commits onto a protected branch (from `merge`/`pull`) prompt for approval rather than being blocked outright. Checks are keyed off the branch of the file or repo each action targets, so they hold no matter which directory the shell sits in. Paths inside an exempt tree, declared in your global config or `$NATELANDAU_TOOLKIT_EXEMPT_PATHS`, skip the protected-branch rules but not the destructive ones. See [docs/branch-protection.md](docs/branch-protection.md) for the full allow/block/ask rules.                                                                                                                                                                                       |
-| `protect-secrets`      | Reading, editing, writing, or exfiltrating sensitive files like `.env` and credential stores.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `protect-system`       | System-destructive shell commands, plus removal of a `.git` directory (paths inside it stay allowed). The rules also match against the command with its own variable assignments resolved, so `S=~; rm -rf "$S"` is blocked.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `protect-remote`       | Remote-host commands (ssh, scp, sftp, remote rsync, ansible). Prompts for approval rather than blocking; you judge destructiveness per invocation. Hosts you list in `trusted_remote_hosts` in the global config run without a prompt.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `confirm-recursive-rm` | Recursive deletes (`rm -rf` and every other flag spelling) whose targets are not all rebuildable. Prompts for approval rather than blocking. Deletes confined to a temp root (`/tmp/`, `/private/tmp/`, or the literal `$TMPDIR/`) or to a directory a toolchain regenerates (`node_modules`, `.venv`, `.tox`, `.nox`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.ipynb_checkpoints`, `htmlcov`) run without interruption; one non-exempt target prompts for the whole command. A path the command assigns to one of its own variables is resolved before the match, so `S=/tmp/work; rm -rf "$S/out"` counts as a temp path. Other paths match as written, so a macOS `$TMPDIR` already expanded to `/var/folders/...` is hard-blocked by `protect-system` instead. |
-| `commit-message` | Commit messages and PR titles and bodies that break the rules in `[hooks.commit-message]` (see [Commit message rules](#commit-message-rules)). Commands aimed at an exempt tree (see `branch-protection`) are exempt. |
-| `config-protection`    | Edits that weaken a linter, formatter, or typechecker config.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `use-uv`               | Nothing. It's a non-blocking nudge toward `uv run` for a bare `python`, `pytest`, or `ruff` that the project's own `.venv` provides, and toward `uv add` for `pip install` inside a project with a `.venv`. A tool the venv lacks is assumed to live on your PATH and is left alone, as is any explicitly path-qualified executable such as `~/.local/bin/ruff`.                                                                                                                                                                                                                                                                                 |
+A hook is a script that Claude Code runs automatically at a point in a session. The hooks in this marketplace run before each `Read`, `Edit`, `Write`, `NotebookEdit`, and `Bash` tool call. Each hook examines the call and does one of three things:
 
-### Skills
+- Allows the call.
+- Blocks the call, and tells Claude the reason.
+- Asks you to approve the call, with the standard Claude Code permission prompt.
 
-These skills load when your task matches. You do not call them by name.
+Claude Code runs hooks outside the model, so a hook holds even when Claude tries to work around it. All hooks are in the `natelandau-toolkit` plugin. If a hook fails internally, it allows the call, so a hook error never stops your work.
 
-| Skill              | Use when you're working with                                                                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `safe-refactoring` | Behavior-preserving refactors in any language.                                                                                                              |
-| `technical-writer` | READMEs, changelogs, guides, and other user-facing prose. Governs document structure and applies ASD-STE100 Simplified Technical English to every sentence. |
+| Hook                   | What it does                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `branch-protection`    | Blocks destructive git commands on any branch. On a protected branch (`main`, `master`, and the branches you add), blocks file edits and direct commits, and asks before a merge commit. The hook checks the branch of the file or repository that each call targets. See [docs/branch-protection.md](docs/branch-protection.md) for the full rules. |
+| `protect-secrets`      | Blocks reads, edits, writes, and exfiltration of sensitive files, such as `.env` files and credential stores.                                                                                                                                                                                                                                         |
+| `protect-system`       | Blocks shell commands that destroy system files, and removal of a `.git` directory. The hook resolves variables that the command assigns, so `S=~; rm -rf "$S"` is blocked.                                                                                                                                                                         |
+| `protect-remote`       | Asks before remote-host commands: `ssh`, `scp`, `sftp`, remote `rsync`, and `ansible`. Commands to a host in `trusted_remote_hosts` run without a prompt.                                                                                                                                                                                           |
+| `confirm-recursive-rm` | Asks before a recursive delete (`rm -rf` in any flag spelling), unless every target is in a temp directory or is a directory that a tool rebuilds, such as `node_modules`, `.venv`, or `__pycache__`.                                                                                                                                               |
+| `commit-message`       | Blocks a `git commit -m` message, or a `gh pr` title or body, that breaks the rules in `[hooks.commit-message]`.                                                                                                                                                                                                                                     |
+| `config-protection`    | Blocks edits that make a linter, formatter, or typechecker config less strict.                                                                                                                                                                                                                                                                        |
+| `use-uv`               | Blocks nothing. It tells Claude to use `uv run` for a bare `python`, `pytest`, or `ruff` that the project's `.venv` provides, and `uv add` in place of `pip install`.                                                                                                                                                                              |
 
-### Commands
+### Enable and disable hooks
 
-These workflows run only when you type the command. Claude does not start them on its own, so their descriptions take no context until you use them.
+The hooks are enabled when you install `natelandau-toolkit`. Two keys in the [config file](#configure-hooks) control which hooks run. The `profile` key selects a set of hooks, and the `disabled_hooks` key disables individual hooks in any profile.
 
-| Command                                | What it does                                                                                                                        |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `/refactor [--quick] [--fix] [target]` | Multi-agent review for refactor opportunities, refutes weak findings, and optionally applies the safe ones.                         |
-| `/organize [target]`                   | Reviews project structure and produces a prioritized reorganization plan. Advisory only; never moves files.                         |
-| `/explain-diff`                        | Explains a code change, diff, branch, or PR as concepts and features rather than lines, in an HTML explainer.                       |
-| `/walkthrough`                         | Captures stills and clips of the web, iOS, macOS, or Android UI an agent built, in a local HTML walkthrough.                        |
-| `/tufte-viz`                           | Designs or critiques a data visualization with Tufte's principles: data-ink ratio, chartjunk, graphical integrity, small multiples. |
+| Profile              | Hooks that run                                                                                                       |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `minimal`            | `branch-protection`, `protect-secrets`, `protect-system`.                                                            |
+| `standard` (default) | The `minimal` hooks, plus `protect-remote`, `confirm-recursive-rm`, `commit-message`, `config-protection`, `use-uv`. |
+| `strict`             | The same hooks as `standard`.                                                                                        |
+
+To disable all hooks, disable the `natelandau-toolkit` plugin with `/plugin disable`. This also disables the skills in that plugin.
+
+### Configure hooks
+
+The hooks read an optional TOML config file named `natelandau-toolkit.toml`. If there is no config file, the hooks use their defaults. The location of the file sets its scope:
+
+- Global scope: put the file at `~/.claude/natelandau-toolkit.toml`. Its settings apply to every project.
+- Project scope: put the file at `<project>/.claude/natelandau-toolkit.toml`. Its settings apply to that project only, and override the global settings key by key. Keys that the project file does not set keep their global values.
+
+A project config file is committed inside the repository that the hooks protect. For this reason, a project file can make safety rules stricter but never less strict. The comments in the file below mark the keys that the hooks read from the global file only.
+
+The file below sets every key to its default value. Copy the keys that you want to change.
+
+```toml
+# ~/.claude/natelandau-toolkit.toml
+
+# The set of hooks that runs: "minimal", "standard", or "strict".
+profile = "standard"
+
+# Hooks to disable in any profile. IDs: branch-protection, protect-secrets,
+# protect-system, protect-remote, confirm-recursive-rm, commit-message,
+# config-protection, use-uv.
+disabled_hooks = []
+
+# Directory trees where the protected-branch rules and the commit message rules
+# do not apply. Destructive git commands stay blocked. GLOBAL FILE ONLY.
+# The NATELANDAU_TOOLKIT_EXEMPT_PATHS environment variable adds more paths,
+# separated by ":".
+exempt_paths = []                     # for example ["~/repos/notes-vault"]
+
+# Hosts that protect-remote allows without a prompt: hostnames, ssh aliases,
+# IP addresses, or globs. GLOBAL FILE ONLY.
+trusted_remote_hosts = []             # for example ["nas", "*.lan"]
+
+[hooks.branch-protection]
+# Branches to protect in addition to main and master, by name or glob.
+# The global and project lists combine, so a project cannot remove a branch.
+protected_branches = []               # for example ["develop", "release/*"]
+
+# Rules for `git commit -m` messages and `gh pr create|edit|merge` titles and
+# bodies. The defaults follow commitlint's config-conventional preset.
+# A project file can make these rules less strict.
+[hooks.commit-message]
+format = "conventional"               # "none" skips the type and format checks
+types = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"]
+require_scope = false                 # require a (scope) after the type
+max_subject_length = 100              # first line, with type and scope; 0 = no limit
+max_body_line_length = 0              # 0 = no limit; URL lines and git trailers are exempt
+subject_case = "lower-first"          # "any" allows an uppercase first letter
+forbid_trailing_punctuation = true    # block a subject that ends with ".", "!", or "?"
+forbid_wip_subject = true             # block a subject that starts with WIP or Draft
+force_imperative = false              # block "added", "fixing", "bumps" as the first word
+forbidden_patterns = []               # regexes; a match anywhere blocks the command
+check_pr_titles = true                # apply the subject rules to PR titles
+```
+
+The `force_imperative` option reads its verb list from `hooks/pretooluse/enforce_commit_message.verbs.txt` in the plugin directory. An update replaces that directory, so a local edit to the file does not survive an update.
+
+#### Project rules files
+
+A project can add its own block rules to four hooks: `protect-secrets`, `protect-system`, `protect-remote`, and `config-protection`. Put the rules in `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`, where `<hook>` is the name of the hook's built-in rules file. Project rules add blocks and never remove a built-in rule.
+
+```toml
+# <project>/.claude/natelandau-toolkit/protect_secrets.rules.toml
+[[rule]]
+id      = "acme-prod-conf"
+reason  = "production secrets live in this file"
+field   = "file_path"
+pattern = 'acme-prod\.conf$'
+```
+
+A `protect-remote` rule can also set `action = "ask"` or `action = "block"`. The default is `block`. The example config file, `hooks/natelandau-toolkit.toml.example` in the plugin directory, documents the full rule schema.
+
+## Skills
+
+A skill is a set of instructions that Claude reads before it does a task. Each skill in this marketplace starts in one of two ways:
+
+- Auto: Claude starts the skill when your request matches the skill's description. You can also start it with its slash command.
+- Manual: the skill starts only when you type its slash command. Its description does not use context until you run it.
+
+The slash command includes the plugin name, for example `/natelandau-toolkit:refactor` or `/natelandau-git:pull-request`. The tables below show the short name.
+
+### natelandau-toolkit
+
+| Skill              | Starts | What it does                                                                                                                                                    |
+| ------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `safe-refactoring` | Auto   | Keeps a refactor behavior-preserving, in any language.                                                                                                          |
+| `technical-writer` | Auto   | Writes and reviews user-facing docs, such as READMEs, changelogs, and guides. Applies ASD-STE100 Simplified Technical English.                                  |
+| `/refactor`        | Manual | Reviews code for refactor opportunities with several subagents, rejects weak findings, and applies the safe ones with `--fix`. Use `--quick` for a single pass. |
+| `/organize`        | Manual | Reviews the project's file and module structure and writes a prioritized reorganization plan. It does not move files.                                           |
+| `/explain-diff`    | Manual | Explains a diff, branch, or PR as concepts and features, in an HTML page.                                                                                       |
+| `/walkthrough`     | Manual | Captures screenshots and clips of a web, iOS, macOS, or Android UI, in a local HTML page.                                                                       |
+| `/tufte-viz`       | Manual | Designs or critiques a data visualization with Edward Tufte's principles.                                                                                       |
+
+### natelandau-git
+
+The git skills work on your local repository. Only `/pull-request` pushes a branch, and `/cleanup-branch` deletes the remote branch only if you agree. The finishing steps of `/pull-request`, `/squash`, and `/fast-forward` run your linters and tests, and examine the docs for statements that the branch made incorrect.
+
+| Skill              | Starts | What it does                                                                                                                             |
+| ------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `/pull-request`    | Auto   | Commits open work, runs linters and tests, pushes the branch, and opens a PR. The PR title and first paragraph become the squash commit. |
+| `/squash`          | Auto   | Merges a finished branch into `main` as one commit, then deletes the branch. You cannot undo this.                                       |
+| `/fast-forward`    | Auto   | Regroups a finished branch into a few commits, fast-forwards local `main` to them, then deletes the branch. You cannot undo this.        |
+| `/cleanup-branch`  | Auto   | After a PR merges on the remote, removes the local worktree and branch and updates `main`. Asks before it deletes unmerged work.         |
+| `/regroup-commits` | Manual | Regroups the branch's commits into fewer reviewable commits. The resulting code does not change.                                         |
+| `/gha`             | Manual | Finds the root cause of a GitHub Actions failure.                                                                                        |
+
+These skills write commit messages to your own commit conventions. To enforce a format, configure the [commit message rules](#commit-message-rules).
+
+### Stack plugins
+
+Each stack skill starts automatically wherever its plugin is enabled.
+
+| Plugin                | Skill               | Covers                                                                                       |
+| --------------------- | ------------------- | -------------------------------------------------------------------------------------------- |
+| `natelandau-web-ui`   | `htmx-expert`       | htmx attributes, HTML fragment responses, swaps, and hypermedia patterns.                    |
+| `natelandau-web-ui`   | `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and themes.                                   |
+| `natelandau-flask`    | `flask-development` | Flask 3 applications with the application factory pattern and blueprints.                    |
+| `natelandau-tortoise` | `tortoise-orm`      | Tortoise ORM v1 models, queries, relations, and migrations.                                  |
+| `natelandau-nclutils` | `nclutils`          | Python code in projects that depend on the `nclutils` package.                               |
+| `natelandau-zensical` | `zensical`          | Documentation sites built with Zensical: config, admonitions, Mermaid diagrams, tabs, grids. |
+
+### Enable and disable skills
+
+The skills in a plugin are enabled when you install the plugin. Claude Code's `skillOverrides` setting does not apply to plugin skills, so use one of these methods:
+
+- To disable every skill in a plugin, run `/plugin disable` and select the plugin. If you disable `natelandau-toolkit`, its hooks stop too.
+- To stop Claude from running one skill, add a deny rule for it to `permissions.deny` in your Claude Code settings:
+
+    ```json
+    {
+      "permissions": {
+        "deny": ["Skill(natelandau-toolkit:safe-refactoring)"]
+      }
+    }
+    ```
+
+- To keep a stack skill out of a repository, do not install its plugin there.
 
 ### Subagents
 
-Other components dispatch these subagents. Each one runs in its own context and returns a short summary. They are not meant for direct use.
+The skills start these subagents for part of their work. Each subagent runs in its own context and returns a short summary. You do not use them directly.
 
-| Subagent          | Job                                                                                         | Dispatched by                          |
-| ----------------- | ------------------------------------------------------------------------------------------- | -------------------------------------- |
-| `test-runner`     | Runs the project's linters and test suite, returns a pass/fail summary.                     | `/refactor` and the `natelandau-git` workflows |
-| `review-finder`   | Applies one analysis angle to a scope and returns candidate findings.                       | `/refactor` and `/organize`            |
-| `review-verifier` | Judges a candidate finding as kept, plausible, or refuted with a cited reason.              | `/refactor` and `/organize`            |
-
-## natelandau-git
-
-The `natelandau-git` plugin runs branch workflows. The git workflows are local-only and never push unless they say so. Claude runs `/pull-request`, `/squash`, `/fast-forward`, and `/cleanup-branch` on its own when you ask in plain words to open a PR, squash a branch into `main`, merge a branch into `main`, or clean up after a merged PR. The other two run only when you type the command.
-
-| Command            | What it does                                                                                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/pull-request`    | Commits outstanding work, runs linters and tests, pushes the branch, and opens a PR whose title and lead paragraph become the squash commit.                 |
-| `/regroup-commits` | Regroups the current branch's commits into fewer reviewable commits without changing the resulting code.                                                    |
-| `/squash`          | Squash-merges a finished branch into one commit on `main`, then deletes the branch. Irreversible.                                                           |
-| `/fast-forward`    | Lands a finished branch onto local `main` as a fast-forward of regrouped commits, then cleans up. Irreversible.                                             |
-| `/cleanup-branch`  | After a PR merges on the remote, removes the local worktree and branch and fast-forwards `main`. Asks before deleting a branch with work the merge left out. |
-| `/gha`             | Investigates GitHub Actions failures and finds the root cause.                                                                                              |
-
-The finishing steps of `/pull-request`, `/squash`, and `/fast-forward` dispatch the `doc-drift-reviewer` subagent, which compares user-facing docs against the branch and lists stale or missing coverage. They also dispatch `test-runner` from the core plugin.
-
-## Stack plugins
-
-Each stack plugin holds skills that load when your task matches, in the repositories where you installed the plugin.
-
-| Plugin                | Skill               | Use when you're working with                                                                    |
-| --------------------- | ------------------- | ----------------------------------------------------------------------------------------------- |
-| `natelandau-web-ui`   | `htmx-expert`       | htmx attributes, AJAX fragments, swaps, and hypermedia patterns.                                |
-| `natelandau-web-ui`   | `daisyui`           | daisyUI v5 and Tailwind CSS components, forms, and theming.                                     |
-| `natelandau-flask`    | `flask-development` | Flask 3+ apps using the app-factory pattern and blueprints.                                     |
-| `natelandau-tortoise` | `tortoise-orm`      | Tortoise ORM v1.x models, queries, relations, and migrations.                                   |
-| `natelandau-nclutils` | `nclutils`          | Python projects that depend on the `nclutils` package.                                          |
-| `natelandau-zensical` | `zensical`          | Authoring docs with the Zensical static-site engine: config, admonitions, Mermaid, tabs, grids. |
-
-## Configuration
-
-The core plugin reads an optional TOML config file for its hooks. Settings cascade: a global file at `~/.claude/natelandau-toolkit.toml` applies everywhere, and a project file at `<project>/.claude/natelandau-toolkit.toml` overrides it key by key. Every key is optional, so you can skip configuration entirely and take the defaults.
-
-The core plugin ships a `natelandau-toolkit.toml.example` template under its `hooks/` directory. Copy it to one of the paths above and edit.
-
-### Profiles and disabling hooks
-
-The toolkit groups its hooks into three profiles. `profile` selects the tier; `disabled_hooks` force-off individual hooks by id regardless of profile.
-
-| Profile              | Active hooks                                                                                  |
-| -------------------- | --------------------------------------------------------------------------------------------- |
-| `minimal`            | branch-protection, protect-secrets, protect-system.                                           |
-| `standard` (default) | minimal plus protect-remote, confirm-recursive-rm, commit-message, config-protection, use-uv. |
-| `strict`             | Same as standard, reserved for future use.                                                    |
-
-```toml
-# ~/.claude/natelandau-toolkit.toml
-profile = "standard"
-disabled_hooks = ["config-protection"]
-```
-
-### Commit message rules
-
-The `commit-message` hook checks `git commit -m` messages and `gh pr create|edit|merge` titles and bodies. Its defaults follow commitlint's `config-conventional`. Set the options in a `[hooks.commit-message]` table. A project file can loosen the global rules, because these rules control style and not safety.
-
-| Option                        | Default                                                                         | Effect                                                                                       |
-| ----------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `format`                      | `"conventional"`                                                                | `"conventional"` requires `<type>(<scope>): <subject>`. `"none"` skips the type and format checks. |
-| `types`                       | `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test` | The allowed commit types.                                                                    |
-| `require_scope`               | `false`                                                                         | Requires a `(scope)` after the type.                                                         |
-| `max_subject_length`          | `100`                                                                           | The maximum length of the first line, with the type and scope. `0` removes the limit.        |
-| `max_body_line_length`        | `0`                                                                             | The maximum length of a body line. `0` removes the limit. URL lines and git trailers are exempt. |
-| `subject_case`                | `"lower-first"`                                                                 | `"lower-first"` blocks an uppercase first letter. `"any"` allows it.                         |
-| `forbid_trailing_punctuation` | `true`                                                                          | Blocks a subject that ends with `.`, `!`, or `?`.                                            |
-| `forbid_wip_subject`          | `true`                                                                          | Blocks a subject that starts with a WIP or Draft marker.                                     |
-| `force_imperative`            | `false`                                                                         | Blocks a subject whose first word is a past-tense, "-ing", or "-s" form of a verb in `hooks/pretooluse/enforce_commit_message.verbs.txt`, or a word that file denies. |
-| `forbidden_patterns`          | `[]`                                                                            | Regular expressions. A match anywhere in the message, PR title, or PR body blocks the command. |
-| `check_pr_titles`             | `true`                                                                          | Applies the subject rules to PR titles. `forbidden_patterns` applies in all cases.           |
-
-```toml
-# ~/.claude/natelandau-toolkit.toml
-[hooks.commit-message]
-max_subject_length = 70
-force_imperative = true
-forbidden_patterns = ['(?im)^Co-Authored-By:.*Claude']
-```
-
-The verb file lists base verbs, one per line. A `form -> verb` line maps an irregular form, a `!word` line marks a word that is never blocked, and a `-word` line rejects a word as the first word. The file ships inside the plugin directory, which an update replaces, so a local edit does not survive an update. Change the list in a fork, or reapply the edit after each update.
-
-The `/pull-request`, `/squash`, and `/fast-forward` skills do not impose a message format. They write messages to your own commit conventions, and this hook enforces the rules you configure.
-
-### Project rules files
-
-You can also add project-specific rules without touching the built-in ones. The protect-secrets, protect-system, protect-remote, and config-protection hooks read an extra rules file from `<project>/.claude/natelandau-toolkit/<hook>.rules.toml`. These rules are additive: they can add new blocks but never weaken a built-in rule. A protect-remote rule may set `action = "ask"` or `"block"` (default `block`); a project `block` takes priority over the built-in prompts, so you can hard-stop specific remote commands per project. To turn a hook off, use `disabled_hooks`. The config template documents the schema.
-
-## Uninstalling
-
-Remove each installed plugin, then the marketplace, from inside Claude Code. Uninstall a local-scope plugin from inside the repository where you installed it.
-
-```
-/plugin uninstall natelandau-git@natelandau-cc-plugin
-/plugin uninstall natelandau-toolkit@natelandau-cc-plugin
-/plugin marketplace remove natelandau-cc-plugin
-```
+| Subagent             | Plugin               | Job                                                                       |
+| -------------------- | -------------------- | ------------------------------------------------------------------------- |
+| `test-runner`        | `natelandau-toolkit` | Runs the project's linters and tests, and returns a pass or fail summary. |
+| `review-finder`      | `natelandau-toolkit` | Examines code from one angle for `/refactor` and `/organize`.             |
+| `review-verifier`    | `natelandau-toolkit` | Accepts or rejects each finding from `review-finder`, with a reason.      |
+| `doc-drift-reviewer` | `natelandau-git`     | Finds docs that a branch made incorrect or incomplete.                    |
 
 ## Contributing
 
-This is a personal project, but the internals are documented for anyone forking it. See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture, the hook plugin contract, testing, and how to add a component.
+This is a personal project, but the internals are documented for anyone who forks it. See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture, the hook plugin contract, the tests, and how to add a component.
 
 ## License
 
