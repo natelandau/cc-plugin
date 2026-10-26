@@ -1,6 +1,6 @@
 {
   "name": "natelandau-git",
-  "version": "0.27.1",
+  "version": "0.28.0",
   "description": "Git branch workflows: pull requests, squash and fast-forward landings, commit regrouping, post-merge cleanup, and GitHub Actions. Install at user scope.",
   "author": {
     "name": "Nathaniel Landau"

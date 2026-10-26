@@ -1,3 +1,9 @@
+## v0.28.0 (2026-10-26)
+
+### Feat
+
+- **plugins**: rename web-ui to htmx and drop the daisyui skill
+
 ## v0.27.1 (2026-10-26)
 
 ### Fix
