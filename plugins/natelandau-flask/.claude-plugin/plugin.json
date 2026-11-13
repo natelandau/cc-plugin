@@ -1,6 +1,6 @@
 {
   "name": "natelandau-flask",
-  "version": "0.28.1",
+  "version": "0.28.2",
   "description": "Flask 3 application development skill. Install per repo.",
   "author": {
     "name": "Nathaniel Landau"
