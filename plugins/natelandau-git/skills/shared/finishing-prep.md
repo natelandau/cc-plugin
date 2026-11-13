@@ -70,8 +70,15 @@ here is the common, correct outcome.
 
 Dispatch the `doc-drift-reviewer` subagent (it ships with this plugin). It
 compares the project's documentation against the branch and returns a
-prioritized list of drift without editing anything. Then apply only the edits
-that clear this bar, in priority order:
+prioritized list of drift without editing anything. In the dispatch prompt,
+tell it to first read the repository's own documentation rules (for example
+in `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, or a docs style guide) and apply
+them before its default bar. Where the repository sets a stricter bar, such
+as documenting every new option or keeping a CHANGELOG current, the
+repository's rule wins.
+
+Then apply the edits that clear the repository's documentation rules, and
+otherwise this default bar, in priority order:
 
 - Fix what is wrong. A documented command, flag, path, default, or step that
   the branch renamed, moved, removed, or changed misleads a reader today.
@@ -90,8 +97,9 @@ git add -A
 git commit -m "<message>"
 ```
 
-If the subagent is unavailable, scan the README, CONTRIBUTING, and `docs/`
-yourself for anything the branch made stale.
+If the subagent is unavailable, read the repository's documentation rules
+first, then scan the README, CONTRIBUTING, and `docs/` yourself for anything
+the branch made stale.
 
 ## Step D: Get the branch green
 
