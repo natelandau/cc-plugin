@@ -49,14 +49,14 @@ repos:
         types: [python]
 
   - repo: "https://github.com/adhtruong/mirrors-typos"
-    rev: v1.51.1
+    rev: v1.52.2
     hooks:
       - id: typos
         args: ["--force-exclude"]
         stages: [commit-msg]
 
   - repo: "https://github.com/python-jsonschema/check-jsonschema"
-    rev: 0.38.2
+    rev: 0.39.0
     hooks:
       - id: check-github-workflows
         args: ["--verbose"]
@@ -67,7 +67,7 @@ repos:
       - id: gitleaks
 
   - repo: "https://github.com/crate-ci/committed"
-    rev: v1.1.11
+    rev: v1.1.12
     hooks:
       - id: committed
         stages: [commit-msg]
