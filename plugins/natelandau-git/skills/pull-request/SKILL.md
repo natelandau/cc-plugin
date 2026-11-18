@@ -77,6 +77,20 @@ git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null  # origin/main, th
   merged, stop before the prep rebases anything: the work has landed. Say so,
   and offer to clean up the local branch and worktree and pull the trunk
   instead of opening a new PR.
+- Check whether the branch carries unpushed commits from the local trunk.
+  Do this before the prep rebases anything, because the rebase rewrites those
+  commits and hides where they came from. Skip it when no local
+  `<default-branch>` exists.
+
+  ```bash
+  git fetch origin <default-branch>
+  git log --oneline origin/<default-branch>..$(git merge-base <default-branch> HEAD)
+  ```
+
+  Empty output is the common case: move on. Otherwise the branch was cut from
+  a local trunk that is ahead of the remote, and the PR would carry the listed
+  commits as if they were part of this work. Stop and show them. Ask the user
+  to push the trunk first, or to confirm that the commits belong in this PR.
 
 #### Commands per forge
 

@@ -182,6 +182,17 @@ git merge --ff-only origin/<trunk>    # expected: "Already up to date"
 If this reports that the trunk is behind or diverged, the remote moved since
 Step 1. Stop and report, then restart from Step 1.
 
+On every repo, local-only included, confirm that the feature branch still
+holds every commit on the local trunk:
+
+```bash
+git merge-base --is-ancestor <trunk> <feature-branch>   # exit 0: still rebased on the trunk
+```
+
+A non-zero exit means the local trunk moved since the Step B rebase, for
+example because another worktree landed work on it. Stop and report, then
+restart from Step 1 so the feature rebases onto the current trunk.
+
 Now fast-forward the trunk to the feature branch:
 
 ```bash
