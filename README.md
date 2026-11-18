@@ -238,7 +238,7 @@ Each stack skill starts automatically wherever its plugin is enabled.
 | `natelandau-flask`    | `flask-development` | Flask 3 applications with the application factory pattern and blueprints.                    |
 | `natelandau-tortoise` | `tortoise-orm`      | Tortoise ORM v1 models, queries, relations, and migrations.                                  |
 | `natelandau-nclutils` | `nclutils`          | Python code in projects that depend on the `nclutils` package.                               |
-| `natelandau-zensical` | `zensical`          | Documentation sites built with Zensical: config, admonitions, Mermaid diagrams, tabs, grids. |
+| `natelandau-zensical` | `zensical`          | Documentation sites built with Zensical: config, authoring extensions, plugins, search, blog, publishing. |
 
 ### Enable and disable skills
 

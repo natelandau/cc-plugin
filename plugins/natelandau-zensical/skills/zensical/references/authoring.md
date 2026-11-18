@@ -27,6 +27,8 @@ authoring bug.
 - [Images](#images)
 - [Math](#math)
 - [Page front matter](#page-front-matter)
+- [Links, titles, and Markdown quirks](#links-titles-and-markdown-quirks)
+- [Directives (variants)](#directives-variants)
 
 ---
 
@@ -100,6 +102,30 @@ Pick the type by intent: `warning`/`danger` for pitfalls and data loss, `tip`
 for shortcuts, `note`/`info` for asides, `example` for worked samples, `quote`
 for citations, `success` for confirmations.
 
+**Change an admonition icon** in config:
+
+```toml
+[project.theme.icon.admonition]
+note = "octicons/tag-16"
+```
+
+**GitHub callouts** (alerts), portable to GitHub and GitLab. Needs a
+non-default extension:
+
+```toml
+[project.markdown_extensions.pymdownx.quotes]
+callouts = true
+```
+
+```markdown
+> [!NOTE]
+> Lorem ipsum dolor sit amet.
+```
+
+The marker must be uppercase. `NOTE`, `TIP`, and `WARNING` map to the built-in
+types; `IMPORTANT` and `CAUTION` get the default style unless you add CSS. Any
+Zensical admonition type also works as a marker (`> [!DANGER]`).
+
 ---
 
 ## Code blocks
@@ -159,11 +185,20 @@ prefixed with `.`). Enable/disable copy, select, annotate individually:
 ``` { .yaml .copy }
 ``` { .yaml .no-copy }
 ``` { .yaml .select }
+``` { .yaml .no-select }
 ``` { .yaml .annotate }
+``` { .text .copy }
 ````
+
+Use the `.text` shortcode to toggle copy or select without syntax highlighting.
 
 **Copy button** and **selection button** can be enabled globally as theme
 features `content.code.copy` and `content.code.select` (see `configuration.md`).
+
+Global options under `[project.markdown_extensions.pymdownx.highlight]`:
+`auto_title = true` titles every block with its language, `linenums = true`
+numbers every block. For `linenums_style` use only `table` or
+`pymdownx-inline`; `inline` puts line numbers into copied text.
 
 **Embed external files** (`pymdownx.snippets`) with the `--8<--` notation:
 
@@ -177,7 +212,7 @@ features `content.code.copy` and `content.code.select` (see `configuration.md`).
 
 ## Code annotations
 
-*Theme feature `content.code.annotate` (or per-block `.annotate`). Requires Pygments highlighting.*
+*Theme feature `content.code.annotate` (or per-block `.annotate`). Requires Pygments highlighting; does not work with JS highlighters or languages without comments.*
 
 Attach rich Markdown content to a spot in a code block via a numeric marker
 placed inside a comment for that language. The marker is `(N)` and, to strip the
@@ -205,6 +240,9 @@ adding the Pygments lexeme class per language:
 [project.extra.annotate]
 json = [".s2"]   # .s2 is Pygments' double-quoted-string token
 ```
+
+This needs `pygments_lang_class = true` on `pymdownx.highlight` (in the default
+set).
 
 ````markdown
 ``` json
@@ -278,9 +316,10 @@ tabs. Each tab is `=== "Label"` with its body indented four spaces.
         ```
 ````
 
-Anchor links are auto-generated per tab. Enable theme feature
-`content.tabs.link` to link all same-labeled tabs site-wide (clicking "macOS"
-in one place switches every tab group to "macOS").
+Anchor links are auto-generated per tab. The default `combine_header_slug =
+true` prefixes each tab's anchor with the id of the heading above it. Enable
+theme feature `content.tabs.link` to link all same-labeled tabs site-wide
+(clicking "macOS" in one place switches every tab group to "macOS").
 
 Reach for tabs whenever you'd otherwise write "if you use X do this, if you use
 Y do that" as parallel prose.
@@ -372,7 +411,23 @@ erDiagram
 **Officially themed/supported:** flowcharts, sequence, state, class, and
 entity-relationship diagrams. Other Mermaid types (pie, gantt, user journey, git
 graph, requirement) render but are not officially supported and tend to read
-poorly on mobile, so avoid them.
+poorly on mobile, so prefer the themed types.
+
+**Per-diagram config** through Mermaid front matter inside the fence. Custom
+colors need `theme: base`:
+
+````markdown
+``` mermaid
+---
+config:
+  theme: base
+  themeVariables:
+    pie1: "#4051b5"
+---
+pie showData
+  "Reference" : 50
+```
+````
 
 Use a diagram whenever you're describing a flow, a sequence of interactions, a
 state machine, an object model, or a data model. A diagram beats a paragraph for
@@ -583,10 +638,20 @@ Over 10,000 icons and thousands of emojis via `:shortcode:` between colons.
 :fontawesome-regular-face-laugh-wink:
 ```
 
-Bundled icon sets: Lucide (`:simple-lucide:`), Material Design
-(`:material-material-design:`), FontAwesome
-(`:fontawesome-brands-font-awesome:`), Octicons (`:octicons-mark-github-16:`),
-Simple Icons (`:simple-simpleicons:`).
+Bundled icon sets and their prefixes:
+
+| Set | In Markdown | In front matter / config |
+| --- | ----------- | ------------------------ |
+| Lucide | `:lucide-<icon-name>:` | `lucide/<icon-name>` |
+| Material Design | `:material-<icon-name>:` | `material/<icon-name>` |
+| FontAwesome | `:fontawesome-<icon-name>:` | `fontawesome/<icon-name>` |
+| Octicons | `:octicons-<icon-name>:` | `octicons/<icon-name>` |
+| Simple Icons | `:simple-<icon-name>:` | `simple/<icon-name>` |
+
+FontAwesome names include the style: `:fontawesome-brands-github:`,
+`:fontawesome-solid-check:`. Add custom icon sets with
+`[project.markdown_extensions.pymdownx.emoji]` `options.custom_icons =
+["overrides/.icons"]`.
 
 **Colored / styled icon** via a CSS class from an additional stylesheet
 (`attr_list`):
@@ -652,7 +717,8 @@ Reference-style also works:
 ```
 
 **Abbreviations** (defined like a link reference, `*[TERM]: expansion`), applied
-site-wide to every occurrence of the term:
+to every occurrence of the term on the same page. Plain text only, no markup in
+the expansion:
 
 ```markdown
 The HTML specification is maintained by the W3C.
@@ -661,9 +727,9 @@ The HTML specification is maintained by the W3C.
 *[W3C]: World Wide Web Consortium
 ```
 
-**Project-wide glossary:** put all `*[...]` definitions in one file (outside
-`docs/`, e.g. `includes/abbreviations.md`) and auto-append it to every page via
-`pymdownx.snippets`:
+**Project-wide glossary:** to apply abbreviations site-wide, put all `*[...]`
+definitions in one file (outside `docs/`, e.g. `includes/abbreviations.md`) and
+auto-append it to every page via `pymdownx.snippets` (not in the default set):
 
 ```toml
 [project.markdown_extensions.pymdownx.snippets]
@@ -701,7 +767,8 @@ Lorem ipsum[^1] dolor sit amet.[^2]
 ![Image title](image.png){ align=left }
 ```
 
-**Caption** (renders as a `figure`). Two forms; the block syntax is preferred:
+**Caption** (renders as a `figure`). Two forms; the block syntax is preferred.
+`/// caption` also works after any block, such as a table or code block:
 
 ```markdown
 ![Image title](image.png){ width="300" }
@@ -730,6 +797,9 @@ hash fragment:
 ![Image title](light.png#only-light)
 ![Image title](dark.png#only-dark)
 ```
+
+GitHub's `#gh-light-mode-only` / `#gh-dark-mode-only` fragments also work.
+Custom color schemes must add the matching hide selectors in CSS.
 
 Centered alignment is not supported via `align`; use a caption instead. Lightbox
 galleries are available through the GLightbox extension.
@@ -766,16 +836,129 @@ before parsing and used to customize the page.
 title: Lorem ipsum dolor sit amet   # overrides nav + <title>
 description: Page description for the <meta> tag
 icon: lucide/braces                 # nav icon, from a bundled set
-status: new                         # requires [project.extra.status] mapping
+status: new                         # new/deprecated built in; others need [project.extra.status]
 template: my_homepage.html          # custom template from overrides dir
+tags: [setup, config]               # read by the tags plugin
+comments: true                      # needs a comments partial in overrides
+search:
+    exclude: true                   # leave this page out of search
 hide:
     - navigation                    # hide the left sidebar
     - toc                           # hide the right table of contents
+    - path                          # hide the breadcrumb path
+    - footer                        # hide prev/next footer links
+    - feedback                      # hide the analytics feedback widget
+    - tags                          # hide the tag list
 ---
 
 # Page title
 ```
 
 Built-in status identifiers: `new`, `deprecated`. Define others under
-`[project.extra.status]`. Any extra front-matter keys are available to custom
-templates (e.g. a `robots` value for a meta-robots tag).
+`[project.extra.status]`; identifiers allow only letters, digits, `-`, and `_`.
+Any extra front-matter keys are available to custom templates (e.g. a `robots`
+value for a meta-robots tag). To share metadata across a folder, use `meta.yml`
+files with the `meta` plugin.
+
+Exclude a single heading or block from search with `{ data-search-exclude }`.
+
+---
+
+## Links, titles, and Markdown quirks
+
+*Core Python Markdown; no extension needed.*
+
+**Links:** link to the `.md` source by relative path. Zensical rewrites it to
+the right URL. Never link to the generated `.html`, and avoid absolute links:
+
+```markdown
+[Basics](../setup/basics.md)
+[Colors](../setup/colors.md#primary-color)
+```
+
+**Page title priority:** the `nav` title, then front-matter `title`, then the
+first `# H1`, then the filename. If `nav` is set and the page has no H1,
+Zensical uses the filename as the H1. Always write
+a `# H1`.
+
+**Python Markdown quirks** (differs from CommonMark, which Zensical does not
+support yet):
+
+- Changing the list marker (`*` to `-`) does not start a new list.
+- Nested content needs four-space indentation.
+- `README.md` and `index.md` in the same folder give undefined behavior.
+- Turn off the right-hand table of contents with
+  `[project.markdown_extensions.toc]` `toc_depth = 0`, or limit it with
+  `toc_depth = 3`.
+
+---
+
+## Directives (variants)
+
+*Extension: `zensical.directives`. Early access through Zensical Spark; not on
+public PyPI. Install the wheel you were given:
+`pip install path/to/zensical_directives-<version>-py3-none-any.whl`.*
+
+Directives build focused variants of one site (products, editions, deployment
+models) from a single set of sources. Use them only when the project already
+has the extension; otherwise use content tabs.
+
+```toml
+[project.markdown_extensions]
+zensical.directives = {}   # or { content_dir = "shared" }; default "content"
+```
+
+Define variables and variants in `catalog.toml` at the project root:
+
+```toml
+default_variant = "cloud"
+
+[variables.deployment]
+values = ["cloud", "self-hosted"]
+
+[variants.cloud]
+deployment = "cloud"
+
+[variants.self-hosted]
+deployment = "self-hosted"
+```
+
+**Conditional blocks** (bodies indented four spaces; conditions accept `and`,
+`or`, `not`, and parentheses; quote values with whitespace or punctuation
+other than `-`):
+
+```markdown
+@if deployment = cloud
+
+    Cloud-only content.
+
+@elif deployment = self-hosted
+
+    Self-hosted content.
+
+@else
+
+    Fallback.
+```
+
+**Insert a value** and **reuse a file**:
+
+```markdown
+This guide covers the @var{deployment} deployment for the @var{_variant} variant.
+
+@use shared/security-notice.md
+@use "shared/security notice.md"
+```
+
+Build or preview a variant with `ZENSICAL_VARIANT=self-hosted zensical serve`;
+it overrides `default_variant`.
+
+Gotchas:
+
+- `@var` does not expand in code, math, Jinja, snippet paths, `@use` targets,
+  or conditions.
+- `@use` paths are relative to `content_dir` and must stay inside it. Relative
+  links in an included file resolve from that file.
+- Snippets and macros run before directives.
+- An unresolved directive does not fail the build: it logs a warning and
+  appears literally in the output. Check the build log.

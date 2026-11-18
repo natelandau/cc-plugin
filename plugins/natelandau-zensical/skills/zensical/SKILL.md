@@ -47,7 +47,8 @@ Reach for the right element by intent:
 | A tricky line or token inside a code sample | **Code annotation** (`# (1)!`) | Explains the exact spot without cluttering the code |
 | A config file or command worth copying | **Code block** with `title=` and copy button | Names the file and makes it one-click copyable |
 | An index/landing page summarizing sections | **Card grid** | Scannable overview with icons and links |
-| Acronyms readers may not know | **Abbreviations / glossary** | Auto-tooltips every occurrence site-wide |
+| Acronyms readers may not know | **Abbreviations / glossary** | Auto-tooltips every occurrence on the page, or site-wide via a snippets glossary |
+| Content that differs per product, edition, or deployment | **Directives** (`@if`, `@var`, `@use`) | One source builds several site variants (early access, needs an extension) |
 | Supplemental detail that interrupts the flow | **Footnote** | Keeps the main line clean |
 | Optional deep-dive content | **Collapsible admonition** (`??? note`) | Present but out of the way until wanted |
 
@@ -64,6 +65,10 @@ Rules of thumb:
 
 ## Quick start
 
+Zensical is a Python package. Install it with `uv add --dev zensical` (then
+prefix commands with `uv run`) or `pip install zensical` in a virtual
+environment.
+
 ```sh
 zensical new mydocs   # scaffold docs/, zensical.toml, a GitHub Pages workflow
 cd mydocs
@@ -75,6 +80,16 @@ zensical build        # build the static site into site/
 almost every feature below, so on a fresh project you can use them immediately.
 When you add a page, wire it into navigation (auto from the folder tree, or
 explicit `nav` in `zensical.toml`).
+
+Page rules that hold everywhere:
+
+- Start every page with one `# H1`. With an explicit `nav` and no H1, Zensical
+  titles the page from its filename.
+- Link to other pages by relative path to the `.md` source
+  (`[Setup](../setup/basics.md)`), never to generated `.html` or absolute URLs.
+  Link and anchor validation is on by default and reports broken targets.
+- Never put both `README.md` and `index.md` in one folder; the result is
+  undefined.
 
 Full CLI options, project layout, and every config setting are in
 `references/configuration.md`.
@@ -104,6 +119,10 @@ tables, math, images, and more), read `references/authoring.md`.
 Types: `note`, `abstract`, `info`, `tip`, `success`, `question`, `warning`,
 `failure`, `danger`, `bug`, `example`, `quote`.
 
+GitHub-style callouts (`> [!NOTE]`) also work once `pymdownx.quotes` is enabled
+with `callouts = true`. Prefer them when the same Markdown must render on GitHub
+too.
+
 ### Code blocks with title, line highlight, and annotations
 
 ````markdown
@@ -121,13 +140,13 @@ The `# (1)!` marker attaches the numbered note below to that exact line, and the
 ### Content tabs
 
 ````markdown
-=== "macOS"
+=== "uv"
 
     ``` sh
-    brew install zensical
+    uv add --dev zensical
     ```
 
-=== "Linux"
+=== "pip"
 
     ``` sh
     pip install zensical
@@ -146,8 +165,9 @@ graph LR
 ````
 
 Officially themed types: flowchart (`graph`), `sequenceDiagram`,
-`stateDiagram-v2`, `classDiagram`, `erDiagram`. Avoid pie/gantt/journey diagrams
-(unsupported, poor on mobile).
+`stateDiagram-v2`, `classDiagram`, `erDiagram`. Other Mermaid types (pie, gantt,
+journey) render but are not themed by Zensical and read poorly on mobile, so
+prefer the themed ones.
 
 ### Card grid (great for index pages)
 
@@ -192,6 +212,11 @@ The W3C maintains the spec.
 *[W3C]: World Wide Web Consortium
 ```
 
+Icon shortcodes use the set prefix plus the icon name: `:lucide-check:`,
+`:material-check:`, `:fontawesome-solid-check:`, `:octicons-check-16:`,
+`:simple-github:`. Front matter and config use slashes instead:
+`lucide/check`.
+
 ## Enabling features
 
 If a feature renders as literal text, its Markdown extension is not enabled. The
@@ -207,8 +232,14 @@ map, and theme flags are in `references/configuration.md`.
 ## Reference files
 
 - **`references/authoring.md`**: complete, verbatim Markdown syntax for every
-  authoring feature. Read this whenever writing or reviewing page content.
-- **`references/configuration.md`**: CLI commands and options, `zensical.toml`
-  settings, theme variant, colors/palette, navigation, theme feature flags, the
-  full default extensions block, and extra CSS/JS. Read this whenever setting up
-  or configuring a project.
+  authoring feature, including directives. Read this whenever writing or
+  reviewing page content.
+- **`references/configuration.md`**: install and upgrade, CLI commands and
+  options, `zensical.toml` settings, file patterns, validation, theme variant,
+  colors/palette, navigation, theme feature flags, the full default extensions
+  block, and extra CSS/JS. Read this whenever setting up or configuring a
+  project.
+- **`references/site-features.md`**: plugins and their support status, search,
+  tags, blog, redirects, offline, repository links, analytics and consent,
+  language, publishing to GitHub/GitLab Pages, template overrides, and
+  versioning with mike. Read this when adding one of these features.
