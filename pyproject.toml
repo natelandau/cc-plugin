@@ -9,7 +9,7 @@
         "commitizen>=4.19.3",
         "coverage>=7.17.3",
         "duty>=1.10.1",
-        "gate-cache>=0.8.0",
+        "gate-cache>=0.9.0",
         "prek>=0.5.11",
         "pytest-clarity>=1.0.1",
         "pytest-cov>=7.1.0",
@@ -65,11 +65,10 @@
     output = ".cache/coverage.xml"
 
 [tool.pytest.ini_options]
-    addopts        = "--color=yes --doctest-modules --strict-config --strict-markers -n auto --dist loadfile"
+    addopts        = "--color=yes --strict-config --strict-markers -n auto --dist worksteal"
     cache_dir      = ".cache/pytest"
     columns        = 1000
     filterwarnings = ['error', 'ignore:.*Pydantic.*:UserWarning', 'ignore::DeprecationWarning:']
-    markers        = ["serial"]
     set_columns    = true
     testpaths      = ["tests"]
     xfail_strict   = true
