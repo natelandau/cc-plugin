@@ -5,51 +5,21 @@ description: Use when the user asks to open, create, make, or raise a pull reque
 
 # Pull request
 
-Open a pull request for the current feature branch. Make sure that the branch is
-committed and green, push it, and open a PR whose title and description are the
-future squash commit.
+Get the current feature branch committed and green, push it, and open a PR whose title
+and lead block are the future squash commit.
 
 ## Guardrails
 
-- Push the feature branch only. The request for a PR authorizes that push.
-  Never push the trunk, and never merge anything.
-- The title and the lead block of the description become the squash commit.
-  They land in `git log` byte for byte, so write them to the user's commit
-  conventions, the same as every commit.
-- Every claim in the description must be true of this branch and visible in
-  the diff. No future work, no open questions, no speculation.
-- If the repo ships a PR template, fill its structure instead of the default
-  shape.
-- Open the PR ready for review. Make it a draft only when the user asks.
+- Push the feature branch only; the PR request authorizes that push. Never push the
+  trunk, never merge.
+- Title and lead block land in `git log` byte for byte, so write them to the user's
+  commit conventions. If rejected, fix them to the rules the block message lists.
+- Every claim in the description is true of this branch and visible in the diff. No
+  future work, open questions, or speculation; cut any that creeps in.
+- A repo PR template replaces the default shape.
+- Open ready for review; draft only when the user asks.
 
-## Workflow
-
-```dot
-digraph pr {
-  rankdir=TB; node [shape=box];
-  detect   [label="Step 0: detect feature branch,\ndefault branch, remote host, forge CLI"];
-  refuse   [label="On default branch or no remote?\nStop and explain" shape=diamond];
-  prep     [label="Steps A-D: shared prep\n(commit, rebase on trunk, docs, green)"];
-  regroup  [label="Step 4: regroup a sprawled history"];
-  exists   [label="PR already open for this branch?" shape=diamond];
-  show     [label="Show existing PR, stop"];
-  push     [label="Step 5: git push -u origin HEAD"];
-  body     [label="Step 6: title + lead block + review sections\n(template if the repo has one)"];
-  create   [label="Step 7: create the PR via the forge CLI"];
-  done     [label="Report PR URL" shape=doublecircle];
-
-  detect -> refuse;
-  refuse -> done [label="yes (stop)"];
-  refuse -> prep [label="no"];
-  prep -> regroup -> exists;
-  exists -> show [label="yes"];
-  show -> done;
-  exists -> push [label="no"];
-  push -> body -> create -> done;
-}
-```
-
-### Step 0: Detect the situation
+## Step 0: Detect the situation
 
 ```bash
 git branch --show-current                                      # the branch to PR
@@ -57,29 +27,24 @@ git remote get-url origin                                      # the remote host
 git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null  # origin/main, the base
 ```
 
-- The default branch is the PR base. Strip the `origin/` prefix. If the ref is
-  missing, run `git remote set-head origin --auto` and read it again.
-- If the current branch is the default branch, stop. A PR opens from a feature
-  branch.
-- If there is no remote, stop and say so.
-- Pick the forge CLI that matches the remote host, and use it for every PR
-  operation:
+- The default branch (strip `origin/`) is the PR base. If the ref is missing, run
+  `git remote set-head origin --auto` and read again.
+- On the default branch: stop; a PR opens from a feature branch. No remote: stop and
+  say so.
+- Pick the forge CLI for the host and use it for every PR operation:
   - github.com or GitHub Enterprise: `gh`
   - Gitea or Forgejo: `tea`
   - gitlab.com or self-hosted GitLab: `glab`
-  - A self-hosted host you cannot identify by name: the CLI whose configured
-    logins include that host (`tea login list`, `glab auth status`,
-    `gh auth status`)
-- If the matching CLI is not installed or not authenticated for the host, stop.
-  Ask the user to install it or log in (`gh auth login`, `tea login add`,
-  `glab auth login`). Do not fall back to another forge's CLI.
-- Run the "Existing PR for branch" command. If the branch's PR is already
-  merged, stop before the prep rebases anything: the work has landed. Say so,
-  and offer to clean up the local branch and worktree and pull the trunk
-  instead of opening a new PR.
-- Check whether the branch carries unpushed commits from the local trunk.
-  Do this before the prep rebases anything, because the rebase rewrites those
-  commits and hides where they came from. Skip it when no local
+  - Unidentifiable self-hosted host: the CLI whose logins include it (`tea login list`,
+    `glab auth status`, `gh auth status`)
+- Matching CLI missing or not authenticated for the host: stop and ask the user to
+  install it or log in (`gh auth login`, `tea login add`, `glab auth login`). Never fall
+  back to another forge's CLI.
+- Run "Existing PR for branch". If the PR already merged, stop before prep rebases
+  anything: the work landed. Say so and offer to clean up the local branch and worktree
+  and pull the trunk instead.
+- Check for unpushed local-trunk commits riding on the branch. Do it before prep,
+  because the rebase rewrites them and hides their origin. Skip when no local
   `<default-branch>` exists.
 
   ```bash
@@ -87,93 +52,78 @@ git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null  # origin/main, th
   git log --oneline origin/<default-branch>..$(git merge-base <default-branch> HEAD)
   ```
 
-  Empty output is the common case: move on. Otherwise the branch was cut from
-  a local trunk that is ahead of the remote, and the PR would carry the listed
-  commits as if they were part of this work. Stop and show them. Ask the user
-  to push the trunk first, or to confirm that the commits belong in this PR.
+  Empty (the common case): move on. Otherwise the branch was cut from a local trunk
+  ahead of the remote, and the PR would carry those commits as this work. Stop, show
+  them, and ask the user to push the trunk first or confirm they belong in this PR.
 
-#### Commands per forge
+### Commands per forge
 
-`<base>` is the default branch, `<branch>` the feature branch, and
-`<body-file>` the temp file that holds the description.
+`<base>` = default branch, `<branch>` = feature branch, `<body-file>` = temp file
+holding the description.
 
 | Operation              | GitHub (`gh`)                                                                          | Gitea / Forgejo (`tea`)                                                                            | GitLab (`glab`)                                                                                                            |
 | ---------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Create PR (ready)      | `gh pr create --base <base> --head <branch> --title "<title>" --body-file <body-file>` | `tea pr create --base <base> --head <branch> --title "<title>" --description "$(cat <body-file>)"` | `glab mr create --target-branch <base> --source-branch <branch> --title "<title>" --description "$(cat <body-file>)" --yes` |
 | Open as draft (opt-in) | add `--draft`                                                                          | append ` [WIP]` to the title (tea has no draft flag)                                               | add `--draft`                                                                                                              |
 
-Existing PR for branch. Each prints the PR with its state (open, merged, or
-closed), or reports none when the branch has no PR:
+`tea` and `glab` have no `--body-file`; pass `--description "$(cat <body-file>)"`.
+`glab mr create` is interactive unless given `--yes`. Either CLI opening an editor or
+hanging means one of these was missed.
+
+Existing PR for branch (prints the PR with its state, open, merged, or closed, or
+reports none):
 
 - `gh`: `gh pr view <branch> --json url,state -q '.url + " (" + .state + ")"'`
-- `tea`: `tea pulls list` cannot filter by branch, so use the API (tea fills
-  in `{owner}` and `{repo}`). Match `.head.label`, because Gitea rewrites
-  `.head.ref` once the head branch is deleted:
+- `tea`: `tea pulls list` can't filter by branch, so use the API (tea fills `{owner}`
+  and `{repo}`). Match `.head.label`; Gitea rewrites `.head.ref` once the head branch is
+  deleted:
   `tea api 'repos/{owner}/{repo}/pulls?state=all&sort=recentupdate&limit=50' | jq 'first(.[] | select(.head.label == "<branch>") | {html_url, state, merged})'`
-- `glab`: `glab mr list` shows open MRs only. Run it twice:
-  `glab mr list --source-branch <branch>` for an open MR, and
-  `glab mr list --merged --source-branch <branch>` for a merged one.
+- `glab`: `glab mr list` shows open MRs only, so run
+  `glab mr list --source-branch <branch>` and
+  `glab mr list --merged --source-branch <branch>`.
 
-- `tea` and `glab` take the body inline through `--description`. Write the body
-  to the temp file first, then pass `"$(cat <body-file>)"`.
-- `tea` has no draft flag. A Gitea draft is a title prefixed with `[WIP]`.
-- `glab mr create` is interactive by default. Pass `--yes`.
+## Steps A to D: Prepare the branch
 
-### Steps A to D: Prepare the branch
+Read `../shared/finishing-prep.md` (relative to this skill's base directory) and do
+every step, with `<rebase-onto>` = `origin/<default-branch>` (the PR merges into the
+remote trunk). Return here when done.
 
-Read `../shared/finishing-prep.md` (relative to this skill's base directory) and
-do every step in it. The PR merges into the remote trunk, so pass:
-
-- `<rebase-onto>` = `origin/<default-branch>`
-
-Return here when it is done.
-
-### Step 4: Regroup a sprawled history
+## Step 4: Regroup a sprawled history
 
 A few coherent commits review better than a trail of small or fixup commits.
-Record the tip, then run the shared regroup procedure:
 
 ```bash
-orig=$(git rev-parse HEAD)   # tip before any rewrite, for the byte-identical check
+orig=$(git rev-parse HEAD)   # pre-rewrite tip, for the byte-identical check
 ```
 
-Read `../shared/regroup-history.md` (relative to this skill's base directory)
-and do every step in it, with:
+Read `../shared/regroup-history.md` (relative to this skill's base directory) and do
+every step, with `<base>` = the default branch (the trunk from Step B) and
+`<original-tip>` = `$orig`. If its closing gate is red, the tree is unchanged: report
+the failures and stop. Don't open the PR and don't amend the group commits.
 
-- `<base>` = the default branch (the trunk from Step B)
-- `<original-tip>` = `$orig`
+## Step 5: Push the branch
 
-The procedure leaves a clean branch untouched, rebuilds a sprawled one, proves
-the tree is byte-for-byte identical, and runs the project's full gate at the
-end unless it just passed on the same files. If that gate is red, do not
-open the PR. The tree is unchanged, so report the failures and stop.
-
-### Step 5: Push the branch
-
-Run the "Existing PR for branch" command for your forge. If a PR is already
-open, show its URL and stop. Offer to update it instead.
-
-Otherwise push:
+Run "Existing PR for branch". If a PR is already open, show its URL, offer to update
+it, and stop. Otherwise:
 
 ```bash
 git push -u origin HEAD
 ```
 
-If the push is rejected as non-fast-forward, the branch was pushed before the
-Step B rebase rewrote it. Reconciling that needs a force push, which the
-`enforce_branch_protection` hook blocks. Do not try to force it. Ask the user to
-run `! git push --force-with-lease`, then continue.
+Rejected as non-fast-forward: the branch was pushed before the Step B rebase. That
+needs a force push, which `enforce_branch_protection` blocks. Never force it; ask the
+user to run `! git push --force-with-lease`, then continue.
 
-### Step 6: Write the title and the description
+## Step 6: Write the title and description
 
-Read the whole branch. The diff is the ground truth:
+Read the whole branch; the diff is the ground truth:
 
 ```bash
 git log --oneline <default-branch>..HEAD
 git diff <default-branch>...HEAD
 ```
 
-Then look for a PR template. Use the first path that exists:
+Look for a PR template; use the first path that exists:
 
 ```bash
 # directory of named templates (GitHub/Gitea/Forgejo, then GitLab)
@@ -186,49 +136,40 @@ ls .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md \
    docs/pull_request_template.md PULL_REQUEST_TEMPLATE.md 2>/dev/null
 ```
 
-- A directory of templates: use `default.md` if present. Otherwise ask the
-  user which one to use.
-- A single file: that file is the body skeleton. Keep every heading in its
-  order. Fill each section truthfully. Mark a section that does not apply
-  `N/A` rather than invent content.
-- No template: use the shape below.
+- Template directory: use `default.md` if present, else ask which one.
+- Single file: it is the body skeleton. Keep every heading in order, fill each truthfully,
+  and mark one that does not apply `N/A`. Never invent content.
+- No template: the shape below.
 
-#### Title and lead block
+**Title and lead block.** The title is the squash subject. The lead block (everything
+above the first markdown heading) is the squash body. Both follow the user's commit
+conventions and are written from the whole diff at branch altitude, not from commit
+subjects. Never paste a commit body or write a paragraph per commit.
 
-The title is the squash commit subject. The lead block is everything above
-the first markdown heading, and it becomes the squash commit body. Write both
-to the user's commit conventions. Write them from the whole diff, not from the
-commit subjects: commits describe steps, and the title summarizes the whole.
-Never paste a commit body, and never write a paragraph per commit.
-
-#### Breaking changes
-
-The squash keeps only the title and the lead block, so a breaking-change
-marker in a commit on the branch is lost unless the PR carries it. Scan the
-commits for markers in the form the user's conventions use. For Conventional
-Commits:
+**Breaking changes.** The squash keeps only title and lead block, so a branch commit's
+breaking marker is lost unless the PR carries it. Scan for markers in the conventions'
+form. For Conventional Commits:
 
 ```bash
 git log <default-branch>..HEAD --format='%s' | grep -E '^[a-z]+(\([^)]*\))?!:'
 git log <default-branch>..HEAD --format='%B' | grep -F 'BREAKING CHANGE'
 ```
 
-No hit does not settle it, so judge the diff too. A changed exit code, a
-removed or renamed flag, a new required argument, or a changed default that
-alters output is a break, whether or not a commit said so. Mark every break in
-the title and the lead block, the way the conventions require.
+No hit doesn't settle it; judge the diff. A changed exit code, removed or renamed flag,
+new required argument, or changed default that alters output is a break whether or not
+a commit said so. Mark every break in both title and lead block as the conventions
+require. Never one marker without the other: add the missing one, or drop both when the
+branch is not breaking.
 
-#### Review sections
+**Review sections.** After the lead block, `##` sections carry detail the lead block
+left out; they stay with the PR and are not squashed. Use the sections the user's
+conventions name. If none, write `## Changes` listing the concrete changes, unless the
+branch is a one-liner.
 
-After the lead block, add `##` sections that carry the detail the lead block
-left out. They stay with the PR and are not squashed. Use the sections the
-user's conventions name. If they name none, write a `## Changes` section that
-lists the concrete changes, unless the branch is a one-liner.
+## Step 7: Create the PR
 
-### Step 7: Create the PR
-
-Write the body to a temp file to avoid shell quoting problems, then run the
-"Create PR" command for your forge:
+Write the body to a temp file (avoids shell quoting), then run "Create PR" for your
+forge:
 
 ```bash
 cat > /tmp/pr-body.md <<'EOF'
@@ -244,25 +185,9 @@ gh pr create --base <default-branch> --head "$(git branch --show-current)" \
   --title "<title>" --body-file /tmp/pr-body.md
 ```
 
-Add `--draft` (`gh`, `glab`) or a `[WIP]` title prefix (`tea`) only when the
-user asked for a draft.
+Draft (`--draft` for `gh`/`glab`, `[WIP]` title prefix for `tea`) only when asked.
+"a pull request already exists": show it and offer to update it.
 
-Report the PR URL. State that the feature branch was pushed and the trunk was
-untouched. The merge is the user's or a reviewer's call. Add that once the PR
-merges, the local branch and worktree can be cleaned up and the trunk pulled.
-
-## Failure modes
-
-| Symptom                                          | Cause                                                      | Do this                                                                                       |
-| ------------------------------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Title or body rejected                           | It breaks the configured commit rules                      | Fix it to the rules the block message lists                                                   |
-| Push rejected (non-fast-forward)                 | Branch was pushed before the Step B rebase                 | Do not force. Ask the user to run `! git push --force-with-lease`                             |
-| A `pre-commit` hook fails or reformats in Step 4 | A group commit staged only part of the tree                | Commit each group with `--no-verify`. The full gate runs once at the end                      |
-| Step 4's closing gate is red                     | Pre-existing breakage. The regroup left the tree unchanged | Report it and stop. Do not open the PR and do not amend the group commits                     |
-| "a pull request already exists"                  | Branch already has an open PR                              | Show the existing PR. Offer to update it                                                      |
-| `tea` or `glab` opens an editor or hangs         | Body or title not passed non-interactively                 | Pass `--description "$(cat <body-file>)"`, and `--yes` for `glab`. `tea` has no `--body-file` |
-| Forge CLI not found or not authenticated         | Matching CLI missing or not logged in for the host         | Stop. Ask the user to install and authenticate it                                             |
-| Title has `!` but no footer, or the reverse      | Breaking marker applied in only one place                  | Add the missing marker, or drop both when the branch is not breaking                          |
-| Lead block reads like a design doc               | Future work, open questions, or speculation included       | Cut it. Keep what the change is and does, plus the footer when breaking                       |
-| Lead block matches a commit body                 | Promoted the dominant commit instead of the branch         | Rewrite from `git diff <base>...HEAD` at branch altitude                                      |
-| Template has sections you cannot fill            | Template asks for content not true of this branch          | Mark those sections `N/A`. Never invent prose                                                 |
+Report the PR URL. State the feature branch was pushed and the trunk untouched; merging
+is the user's or a reviewer's call. Add that once the PR merges, the local branch and
+worktree can be cleaned up and the trunk pulled.

@@ -5,95 +5,55 @@ description: Use when the user asks to squash a branch into main or master, squa
 
 # Squash
 
-Collapse a completed feature branch (or its worktree) into a single commit on
-the local `main` or `master` branch, then clean up. This skill is destructive
-and irreversible once the deletions run.
+Collapse a finished feature branch (or its worktree) into one commit on the local
+`main` or `master`, then clean up. Destructive and irreversible once deletions run.
 
 ## Guardrails
 
-- Never push. The squash lands on the local trunk only. Stop after cleanup and
-  let the user push.
-- Write the squash commit message, commit it without an approval pause, and
-  report the message you used.
-- Confirm that the squash commit exists and holds the work before you delete
-  any branch or worktree.
-- Every commit this skill makes follows the user's commit conventions. The
-  `enforce_commit_message` hook rejects a message that breaks the configured
-  rules.
+- Never push. Stop after cleanup; the user pushes.
+- Write and commit the squash message without an approval pause; report it.
+- Confirm the squash commit exists and holds the work before deleting any branch or
+  worktree.
+- Every commit follows the user's commit conventions. `enforce_commit_message` rejects
+  a message that breaks them; fix it to the rules its block message lists.
+- `enforce_branch_protection` blocks commits on `main`/`master` except during a squash
+  merge (it detects `SQUASH_MSG` in the git dir, or a `git merge --squash ... && git
+  commit` chain). The final commit must go through `git merge --squash` then
+  `git commit`; never commit on the trunk another way.
 
-## Why this works with branch protection
-
-The `enforce_branch_protection` hook blocks commits on `main` and `master`
-except while a squash merge is in progress. It detects `SQUASH_MSG` in the git
-dir, or a `git merge --squash ... && git commit` chain. The final commit must
-therefore go through `git merge --squash` followed by `git commit`. Any other
-commit on the trunk is blocked.
-
-## Workflow
-
-```dot
-digraph squash {
-  rankdir=TB; node [shape=box];
-  detect   [label="Step 0: detect feature branch, trunk name,\nworktree or single checkout"];
-  refuse   [label="On trunk already, or nothing to squash?\nStop and explain" shape=diamond];
-  sync     [label="Step 1: sync local trunk to remote\n(ff-only, stop if diverged)"];
-  prep     [label="Steps A-D: shared prep\n(commit, rebase feature onto local trunk, docs, green)"];
-  goto     [label="Step 4: move to the trunk checkout,\ngit merge --squash <branch>"];
-  conflict [label="Conflicts?" shape=diamond];
-  resolve  [label="Stop. Report conflict, let user resolve"];
-  commit2  [label="Write ONE user-facing message,\ngit commit (allowed: squash in progress)"];
-  verify   [label="Confirm commit landed and holds the work"];
-  cleanup  [label="Step 5: remove worktree (if any),\ngit branch -D"];
-  done     [label="Report result. Do NOT push." shape=doublecircle];
-
-  detect -> refuse;
-  refuse -> done [label="yes"];
-  refuse -> sync [label="no"];
-  sync -> prep -> goto -> conflict;
-  conflict -> resolve [label="yes"];
-  conflict -> commit2 [label="no"];
-  commit2 -> verify -> cleanup -> done;
-}
-```
-
-### Step 0: Detect the situation
+## Step 0: Detect the situation
 
 ```bash
-git branch --show-current       # the feature branch to squash
+git branch --show-current       # the feature branch
 git rev-parse --git-dir         # differs from the next line inside a worktree
-git rev-parse --git-common-dir  # points at the real .git
+git rev-parse --git-common-dir  # the real .git
 git worktree list               # every checkout and its branch
 ```
 
-- Trunk name: `main`, or `master` when that is the branch that exists
-  (`git rev-parse --verify main`).
-- Layout: when `--git-dir` and `--git-common-dir` resolve to different paths,
-  you are in a linked worktree, and the trunk lives in a separate checkout.
-  Find it in `git worktree list`. It is the checkout on the trunk. If no
-  checkout is on the trunk, stop and report. Otherwise this is a single
-  checkout, and you switch it to the trunk yourself in Step 4.
+- Trunk: `main`, or `master` if that is the one that exists (`git rev-parse --verify main`).
+- Layout: if `--git-dir` and `--git-common-dir` differ, you are in a linked worktree;
+  the trunk is the checkout on the trunk in `git worktree list`. No checkout on the
+  trunk: stop and report. Otherwise it is a single checkout, switched to the trunk in
+  Step 4.
 
-Stop and explain if the current branch is the trunk. Also stop if the branch
-has no commits beyond the trunk and `git status --porcelain` prints nothing.
-A branch level with the trunk but with uncommitted changes is not a refusal.
-The shared prep commits that work, and one commit then remains to squash.
+Stop and explain if the current branch is the trunk, or if the branch has no commits
+beyond the trunk and `git status --porcelain` is empty. A branch level with the trunk
+but with uncommitted changes is fine: prep commits it, leaving one commit to squash.
 
-### Step 1: Sync the local trunk
+## Step 1: Sync the local trunk
 
-The squash lands on the local trunk, which can be ahead of its remote (prior
-unpushed squashes) or behind it. Bring the local trunk current before the prep
-rebases the feature onto it, so any conflict surfaces during prep. Skip this
-step on a local-only repo.
+The local trunk can be ahead (unpushed squashes) or behind its remote. Bring it current
+before prep rebases onto it, so conflicts surface during prep. Skip on a local-only
+repo.
 
 ```bash
 git fetch --all --prune
 ```
 
-Then fast-forward the local trunk without rewinding a locally-ahead trunk. The
-mechanics depend on the layout from Step 0.
+Fast-forward without rewinding a locally-ahead trunk:
 
-- Single checkout. The trunk is not checked out, and the tree can still be
-  dirty. Update the trunk ref only when the remote is strictly ahead:
+- Single checkout (trunk not checked out; the tree can be dirty). Update the ref only
+  when the remote is strictly ahead:
 
   ```bash
   ahead=$(git rev-list --count origin/<trunk>..<trunk>)    # local-only commits
@@ -106,120 +66,92 @@ mechanics depend on the layout from Step 0.
   # ahead-only or equal: nothing to do
   ```
 
-- Worktree. The trunk is checked out in the other worktree. Fast-forward it in
-  place:
+- Worktree (trunk checked out elsewhere). Fast-forward in place:
 
   ```bash
   git -C <trunk-checkout> merge --ff-only origin/<trunk>   # diverged: fails, so stop
   ```
 
-If either form reports divergence, stop and report. Never force it.
+On divergence, stop and report. Never force.
 
-### Steps A to D: Prepare the branch
+## Steps A to D: Prepare the branch
 
-Read `../shared/finishing-prep.md` (relative to this skill's base directory) and
-do every step in it. Every commit it makes goes onto the feature branch. The
-squash lands on the local trunk you synced in Step 1, so pass:
+Read `../shared/finishing-prep.md` (relative to this skill's base directory) and do
+every step. Its commits go on the feature branch. Pass `<rebase-onto>` = the local
+`<trunk>` (synced in Step 1), not `origin/<trunk>`. Return here when done.
 
-- `<rebase-onto>` = the local `<trunk>` branch, not `origin/<trunk>`
-
-Return here when it is done.
-
-### Step 4: Squash onto the trunk
+## Step 4: Squash onto the trunk
 
 Get onto the trunk checkout:
 
 - Single checkout: `git checkout <trunk>`.
-- Worktree: `cd` into the trunk's checkout from `git worktree list`. Run
-  `git status` and confirm that the tree is clean. If it is dirty, stop and ask
-  the user.
+- Worktree: `cd` into the trunk's checkout. If `git status` shows a dirty tree, stop
+  and ask the user.
 
-On a remote-backed repo, confirm that the trunk is still current:
+Remote-backed repo: confirm the trunk is still current.
 
 ```bash
 git merge --ff-only origin/<trunk>    # expected: "Already up to date"
 ```
 
-If this reports that the trunk is behind or diverged, the remote moved since
-Step 1. Stop and report, then restart from Step 1.
+Behind or diverged means the remote moved since Step 1: stop, report, restart from
+Step 1.
 
-On every repo, local-only included, confirm that the feature branch still
-holds every commit on the local trunk:
+Every repo, local-only included:
 
 ```bash
 git merge-base --is-ancestor <trunk> <feature-branch>   # exit 0: still rebased on the trunk
 ```
 
-A non-zero exit means the local trunk moved since the Step B rebase, for
-example because another worktree landed work on it. The squash would then
-commit a tree that the Step D gate never ran on, and could silently undo the
-newer trunk work. Stop and report, then restart from Step 1.
+Non-zero means the local trunk moved since Step B (for example, another worktree
+landed work). The squash would commit a tree Step D never gated and could silently
+undo the newer trunk work. Stop, report, restart from Step 1.
 
-Now squash-merge the branch:
+Squash-merge:
 
 ```bash
 git merge --squash <feature-branch>
 ```
 
-This stages every change from the branch as uncommitted work and writes
-`SQUASH_MSG`. If it reports conflicts, stop. Report which files conflict and
-let the user resolve them. Do not guess at resolutions.
+This stages the branch's changes and writes `SQUASH_MSG`. On conflicts, stop, report
+the files, and let the user resolve them (then resume at the commit). Never guess at
+resolutions.
 
 Read the branch for context:
 
 ```bash
-git log --oneline <trunk>..<feature-branch>   # the commits being collapsed
-git diff --staged --stat                      # the net change landing on the trunk
+git log --oneline <trunk>..<feature-branch>   # commits being collapsed
+git diff --staged --stat                      # net change landing on the trunk
 ```
 
-Write one commit that summarizes the work on the branch as a whole, to the
-user's commit conventions. Write the message from the whole staged diff
-rather than the intermediate commits.
-
-Commit it without an approval pause:
+Write one commit summarizing the whole branch, to the user's conventions, from the
+staged diff rather than the intermediate commits. Commit without an approval pause and
+confirm:
 
 ```bash
 git commit -m "<subject>" -m "<body>"
-```
-
-Confirm that it landed:
-
-```bash
 git log -1 --stat        # the squash commit exists and holds the work
 ```
 
-### Step 5: Clean up
+If a `pre-commit` formatter rewrites the staged tree, re-stage and re-commit; the
+squash is still in progress. Never `--no-verify` on this whole-tree commit.
 
-Do this only after the commit is confirmed. A squash merge records no merge
-ancestry, so `git branch -d` fails with "not fully merged". Use `-D`. The hook
-permits it, because it only protects `main` and `master` from force-deletion.
+## Step 5: Clean up
 
-A branch checked out in a worktree cannot be deleted, so remove the worktree
-first:
+Only after the commit is confirmed. A squash records no merge ancestry, so
+`git branch -d` fails "not fully merged": use `-D` (the hook protects only
+`main`/`master` from force-deletion). A branch checked out in a worktree can't be
+deleted, so remove the worktree first:
 
 ```bash
-# Worktree case only. Never rm -rf the directory by hand.
-git worktree remove <worktree-path>
-
-# Both cases. Force-delete because the squash left no merge ancestry.
+git worktree remove <worktree-path>   # worktree case only; never rm -rf by hand
 git branch -D <feature-branch>
 ```
 
-If `git worktree remove` reports untracked or dirty files, stop and report.
-Forcing it discards those files.
+If `git worktree remove` reports untracked or dirty files, stop and show the user.
+Forcing it discards their files.
 
-### Finish
+## Finish
 
-Summarize the squash commit (hash and subject) on the local trunk, the branch
-deleted, and the worktree removed. Remind the user that the trunk is not pushed.
-
-## Failure modes
-
-| Symptom                                        | Cause                                         | Do this                                                                                                   |
-| ---------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Commit on trunk blocked                        | No squash merge in progress                   | Use `git merge --squash`, then `git commit`. Never commit on the trunk another way                        |
-| `branch -d` says "not fully merged"            | Squash merge records no merge ancestry        | Use `git branch -D`. This is expected                                                                     |
-| `worktree remove` refuses                      | Untracked or dirty files in the worktree      | Stop and show the user. Do not force-discard their files                                                  |
-| Merge conflict on squash                       | Trunk diverged from the branch's base         | Stop. Let the user resolve it, then resume at the commit step                                             |
-| Commit rejected by hook                        | Message breaks the configured commit rules    | Fix the message to the rules the block message lists                                                      |
-| A `pre-commit` hook reformats the squash commit | A formatter rewrote the staged tree          | Re-stage and re-commit. The squash is still in progress. Never use `--no-verify` on a whole-tree commit   |
+Report the squash commit (hash, subject) on the local trunk, the deleted branch, and
+the removed worktree. Remind the user the trunk is not pushed.

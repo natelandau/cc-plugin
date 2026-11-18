@@ -1,136 +1,94 @@
 # Finishing a branch: shared preparation
 
-The `/pull-request`, `/squash`, and `/fast-forward` skills run this preparation between
-their own detection step and their own terminal step. Do every step below, in
-order, then return to the calling skill.
+Run by `/pull-request`, `/squash`, and `/fast-forward` between their detection and
+terminal steps. Do every step in order, then return to the caller.
 
-Write every commit message here to the commit conventions in your
-instructions and in the repository's own tooling, such as a commitlint or
-commitizen config or CONTRIBUTING. The `enforce_commit_message` hook
-validates each `git commit` against the user's configured rules, and its
-block message lists the rules in force.
-
-Every commit here stages the whole working tree with `git add -A`, so the
-project's `pre-commit` hooks see a complete tree. Let them run. If a formatting
-hook rewrites files and aborts the commit, re-stage and re-commit. Never use
-`git commit --no-verify` in this preparation. That flag belongs only to the
-partial, one-group-at-a-time commits of a history regroup.
+- Commit messages follow the commit conventions in your instructions and the repo's
+  tooling (commitlint, commitizen, CONTRIBUTING). The `enforce_commit_message` hook
+  validates each `git commit`; its block message lists the rules in force.
+- Every commit here stages the whole tree with `git add -A` so `pre-commit` hooks see a
+  complete tree. Let them run. If a formatter rewrites files and aborts the commit,
+  re-stage and re-commit. Never `--no-verify` here; that flag belongs only to the
+  partial per-group commits of a history regroup.
 
 ## Step A: Commit outstanding work
 
-The terminal step acts on committed history only.
-
-```bash
-git status --porcelain    # anything here must be committed
-```
-
-If the tree is dirty, stage and commit with a message that describes the
-changes:
+The terminal step acts on committed history only. If `git status --porcelain` prints
+anything:
 
 ```bash
 git add -A
-git commit -m "<message>"
+git commit -m "<message>"   # message describes the changes
 ```
-
-If the tree is clean, skip this step.
 
 ## Step B: Rebase onto the trunk
 
-Bring the feature branch up to date with the trunk now, so integration
-conflicts surface here instead of mid-squash or after the PR opens. You rebase
-the feature branch, never the trunk. This works the same in a linked worktree.
+Surfaces integration conflicts now, not mid-squash or after the PR opens. Rebase the
+feature branch, never the trunk. Same in a linked worktree.
 
 ```bash
-git fetch --all --prune    # safe no-op without a remote
-```
-
-Rebase onto the ref the calling skill passed as `<rebase-onto>`:
-
-- `/pull-request` passes `origin/<trunk>`. The PR merges into the remote trunk, and the
-  fetch above refreshed it.
-- `/squash` and `/fast-forward` pass the local `<trunk>` branch. The work
-  lands there, and the local trunk can be ahead of the remote. The calling
-  skill already fast-forwarded it to the remote before sending you here.
-
-```bash
+git fetch --all --prune     # safe no-op without a remote
 git rebase <rebase-onto>    # local-only repo: git rebase <trunk>
 ```
 
-If the rebase reports conflicts, stop. Report which files conflict and let the
-user resolve them, or run `git rebase --abort` if they prefer not to rebase now.
-Do not guess at resolutions. Resume only when the rebase completes cleanly. If
-the branch was already current, the rebase is a no-op.
+`<rebase-onto>` comes from the caller:
 
-## Step C: Fix documentation that the branch made wrong
+- `/pull-request`: `origin/<trunk>`. The PR merges into the remote trunk, refreshed by
+  the fetch.
+- `/squash`, `/fast-forward`: the local `<trunk>`. The work lands there, it can be ahead
+  of the remote, and the caller already fast-forwarded it to the remote.
 
-The goal is narrow: nothing in the docs is out of date, and no major new
-capability is undocumented. The docs serve a reader who uses the project, not
-a changelog of the diff. Most branches need no doc change, and an empty diff
-here is the common, correct outcome.
+On conflicts, stop. Report the conflicting files and let the user resolve them, or run
+`git rebase --abort` if they prefer not to rebase now. Never guess at resolutions.
+Resume only after a clean rebase.
 
-Dispatch the `doc-drift-reviewer` subagent (it ships with this plugin). It
-compares the project's documentation against the branch and returns a
-prioritized list of drift without editing anything. In the dispatch prompt,
-tell it to first read the repository's own documentation rules (for example
-in `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, or a docs style guide) and apply
-them before its default bar. Where the repository sets a stricter bar, such
-as documenting every new option or keeping a CHANGELOG current, the
-repository's rule wins.
+## Step C: Fix documentation the branch made wrong
 
-Then apply the edits that clear the repository's documentation rules, and
-otherwise this default bar, in priority order:
+Narrow goal: nothing in the docs is out of date, and no major new capability is
+undocumented. Docs serve a user of the project, not a changelog of the diff. Most
+branches need no doc change; an empty diff here is the common, correct outcome.
 
-- Fix what is wrong. A documented command, flag, path, default, or step that
-  the branch renamed, moved, removed, or changed misleads a reader today.
-- Document a major new capability only if a reader looks for it: a new
-  command, a new public option, a changed install step, or a prominent
-  user-facing feature.
-- Skip the rest. Do not add lines for internal refactors, private helpers,
-  renamed internals, test changes, or minor options. When in doubt, leave it
-  out.
+Dispatch the `doc-drift-reviewer` subagent (ships with this plugin). It compares the
+docs against the branch and returns a prioritized drift list without editing. Tell it
+to first read the repo's own documentation rules (`CLAUDE.md`, `AGENTS.md`,
+`CONTRIBUTING*`, a docs style guide) and apply them before its default bar. A stricter
+repo rule (document every new option, keep a CHANGELOG current) wins.
 
-If the `technical-writer` skill is available, use it for the writing. Commit
-any documentation change on its own:
+Apply edits that clear the repo's rules, else this default bar, in priority order:
 
-```bash
-git add -A
-git commit -m "<message>"
-```
+- Fix what is wrong: a documented command, flag, path, default, or step the branch
+  renamed, moved, removed, or changed.
+- Document a major new capability only if a reader looks for it: a new command, new
+  public option, changed install step, or prominent user-facing feature.
+- Skip the rest: internal refactors, private helpers, renamed internals, test changes,
+  minor options. When in doubt, leave it out.
 
-If the subagent is unavailable, read the repository's documentation rules
-first, then scan the README, CONTRIBUTING, and `docs/` yourself for anything
-the branch made stale.
+Use the `technical-writer` skill for the writing if available. Commit any doc change on
+its own (`git add -A`, `git commit`).
+
+Subagent unavailable: read the repo's documentation rules, then scan the README,
+CONTRIBUTING, and `docs/` yourself for anything the branch made stale.
 
 ## Step D: Get the branch green
 
-Land only work that passes the project's own gates. This step comes after the
-documentation commit so the gate runs once on the final tree, which is the
-tree every later gate (a history regroup, the pre-push hook) sees.
+Land only work that passes the project's gates. Runs after the doc commit so the gate
+sees the final tree, the one every later gate (regroup, pre-push hook) sees.
 
-Do not repeat a run you just made. If you already ran the tests or the
-linters in this conversation, they passed, and no file changed since, that
-gate is green. Skip it. Committing files does not change them, and neither
-does a rebase that was a no-op. Tests and linters count separately: if you
-ran only one of them, run only the other, and tell `test-runner` which one.
+Don't repeat a run: if you already ran tests or linters this conversation, they passed,
+and no file changed since, that gate is green. Committing files changes no files;
+neither does a no-op rebase. Tests and linters count separately: if you ran only one,
+run only the other, and tell `test-runner` which.
 
-A full lint and test run produces output you do not need in this conversation,
-so dispatch the `natelandau-toolkit:test-runner` subagent (it ships with the
-natelandau-toolkit plugin, which this plugin depends on). It discovers the
-project's tooling, modifies nothing, and returns a `GREEN` or `RED` verdict
-with the failures.
+Dispatch `natelandau-toolkit:test-runner` (ships with natelandau-toolkit, a dependency)
+to keep full output out of this conversation. It discovers the tooling, modifies
+nothing, and returns `GREEN` or `RED` with the failures.
 
 - `GREEN`: move on.
-- `RED`: fix what it reported, commit the fixes, and dispatch `test-runner`
-  again. Repeat until green. If a fix changes behavior that Step C documented,
-  update those docs in the same commit.
+- `RED`: fix, commit the fixes (`git add -A`, `git commit`), and dispatch again until
+  green. If a fix changes behavior Step C documented, update those docs in the same
+  commit.
 
-```bash
-git add -A
-git commit -m "<message>"
-```
-
-If the subagent is unavailable, discover the gates yourself from
-`pyproject.toml`, `package.json`, `Makefile`, `justfile`, or the CI workflows,
-and run them directly. When a project task (a `just` recipe, an npm script, a
-`make` target) runs a gate, run the task rather than the tool it wraps. Do not
-proceed to the terminal step with failing linters or tests.
+Subagent unavailable: discover the gates from `pyproject.toml`, `package.json`,
+`Makefile`, `justfile`, or CI workflows and run them directly. When a project task (a
+`just` recipe, npm script, `make` target) runs a gate, run the task, not the tool it
+wraps. Never proceed to the terminal step with failing linters or tests.

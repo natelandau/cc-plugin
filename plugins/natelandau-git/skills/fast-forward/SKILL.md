@@ -5,103 +5,61 @@ description: Use when the user asks to merge a finished branch into main or mast
 
 # Fast-forward
 
-Land a completed feature branch (or its worktree) onto the local `main` or
-`master` branch as a fast-forward of its commits, then clean up. The branch's
-commits move onto the trunk unchanged, with no merge commit and no squash. Those
-commits become the trunk's permanent public history, so every one of them must
-read as a changelog entry before it lands.
-
-This skill is destructive and irreversible once the deletions run.
+Land a finished feature branch (or its worktree) on the local `main` or `master` as a
+fast-forward: commits move over unchanged, no merge commit, no squash. They become the
+trunk's permanent public history, so each must read as a changelog entry. Destructive
+and irreversible once deletions run.
 
 ## Guardrails
 
-- Never push. The fast-forward lands on the local trunk only. Stop after
-  cleanup and let the user push.
-- Fast-forward only. Use `git merge --ff-only`. If it refuses, the trunk moved
-  since the prep rebase. Stop and report. Never fall back to a `--no-ff`
-  merge, because a merge commit defeats the linear history this skill exists
-  to produce.
-- Every landing commit is changelog-worthy. Step 4 gives the bar.
-- Verify before you delete. Confirm that the trunk fast-forwarded and holds the
-  work before you remove any branch or worktree.
-- Every commit this skill makes follows the user's commit conventions. The
-  `enforce_commit_message` hook rejects a message that breaks the configured
-  rules.
+- Never push. Stop after cleanup; the user pushes.
+- Fast-forward only (`git merge --ff-only`). If it refuses, the trunk moved since the
+  prep rebase: stop and report. Never fall back to `--no-ff`; a merge commit defeats
+  the linear history.
+- Every landing commit is changelog-worthy (Step 4).
+- Confirm the trunk fast-forwarded and holds the work before removing any branch or
+  worktree.
+- Every commit follows the user's commit conventions. `enforce_commit_message` rejects
+  a message that breaks them; fix it to the rules its block message lists.
+  `--no-verify` does not bypass it.
+- `enforce_branch_protection` blocks commits and file edits on `main`/`master`. This
+  skill never trips it: every commit lands on the checked-out feature branch, and
+  `git merge --ff-only` advances the trunk ref without writing a commit. A bare
+  `git merge` or `--no-ff` writes a merge commit, which the hook holds for approval.
 
-## Why this works with branch protection
-
-The `enforce_branch_protection` hook blocks commits and file edits on `main`
-and `master`. This skill never trips it. Every commit lands on the feature
-branch while it is checked out. The trunk changes only through
-`git merge --ff-only`, which advances the trunk ref and writes no commit. A bare
-`git merge` or `--no-ff` writes a merge commit onto the trunk, and the hook
-stops that for approval.
-
-## Workflow
-
-```dot
-digraph fast_forward {
-  rankdir=TB; node [shape=box];
-  detect   [label="Step 0: detect feature branch, trunk name,\nworktree or single checkout"];
-  refuse   [label="On trunk already, or nothing to land?\nStop and explain" shape=diamond];
-  sync     [label="Step 1: sync local trunk to remote\n(ff-only, stop if diverged)"];
-  prep     [label="Steps A-D: shared prep\n(commit, rebase feature onto local trunk, docs, green)"];
-  regroup  [label="Step 4: regroup into a few commits,\nmake every message changelog-worthy"];
-  goto     [label="Step 5: move to the trunk checkout,\ngit merge --ff-only <branch>"];
-  fffail   [label="Fast-forward refused?" shape=diamond];
-  stop     [label="Trunk moved since prep.\nStop and report"];
-  verify   [label="Verify trunk tip == feature tip"];
-  cleanup  [label="Step 6: remove worktree (if any),\ngit branch -d"];
-  done     [label="Report result. Do NOT push." shape=doublecircle];
-
-  detect -> refuse;
-  refuse -> done [label="yes"];
-  refuse -> sync [label="no"];
-  sync -> prep -> regroup -> goto -> fffail;
-  fffail -> stop [label="yes"];
-  fffail -> verify [label="no"];
-  verify -> cleanup -> done;
-}
-```
-
-### Step 0: Detect the situation
+## Step 0: Detect the situation
 
 ```bash
-git branch --show-current       # the feature branch to land
+git branch --show-current       # the feature branch
 git rev-parse --git-dir         # differs from the next line inside a worktree
-git rev-parse --git-common-dir  # points at the real .git
+git rev-parse --git-common-dir  # the real .git
 git worktree list               # every checkout and its branch
 ```
 
-- Trunk name: `main`, or `master` when that is the branch that exists
-  (`git rev-parse --verify main`).
-- Layout: when `--git-dir` and `--git-common-dir` resolve to different paths,
-  you are in a linked worktree, and the trunk lives in a separate checkout.
-  Find it in `git worktree list`. It is the checkout on the trunk. If no
-  checkout is on the trunk, stop and report. Otherwise this is a single
-  checkout, and you switch it to the trunk yourself in Step 5.
+- Trunk: `main`, or `master` if that is the one that exists (`git rev-parse --verify main`).
+- Layout: if `--git-dir` and `--git-common-dir` differ, you are in a linked worktree;
+  the trunk is the checkout on the trunk in `git worktree list`. No checkout on the
+  trunk: stop and report. Otherwise it is a single checkout, switched to the trunk in
+  Step 5.
 
-Stop and explain if the current branch is the trunk. Also stop if the branch
-has no commits beyond the trunk and `git status --porcelain` prints nothing.
-A branch level with the trunk but with uncommitted changes is not a refusal.
-The shared prep commits that work, and one commit then remains to land.
+Stop and explain if the current branch is the trunk, or if the branch has no commits
+beyond the trunk and `git status --porcelain` is empty. A branch level with the trunk
+but with uncommitted changes is fine: prep commits it, leaving one commit to land.
 
-### Step 1: Sync the local trunk
+## Step 1: Sync the local trunk
 
-The fast-forward lands on the local trunk, which can be ahead of its remote
-(prior unpushed landings) or behind it. Bring the local trunk current before
-the prep rebases the feature onto it, so any conflict surfaces during prep.
-Skip this step on a local-only repo.
+The local trunk can be ahead (unpushed landings) or behind its remote. Bring it current
+before prep rebases onto it, so conflicts surface during prep. Skip on a local-only
+repo.
 
 ```bash
 git fetch --all --prune
 ```
 
-Then fast-forward the local trunk without rewinding a locally-ahead trunk. The
-mechanics depend on the layout from Step 0.
+Fast-forward without rewinding a locally-ahead trunk:
 
-- Single checkout. The trunk is not checked out, and the tree can still be
-  dirty. Update the trunk ref only when the remote is strictly ahead:
+- Single checkout (trunk not checked out; the tree can be dirty). Update the ref only
+  when the remote is strictly ahead:
 
   ```bash
   ahead=$(git rev-list --count origin/<trunk>..<trunk>)    # local-only commits
@@ -114,138 +72,96 @@ mechanics depend on the layout from Step 0.
   # ahead-only or equal: nothing to do
   ```
 
-- Worktree. The trunk is checked out in the other worktree. Fast-forward it in
-  place:
+- Worktree (trunk checked out elsewhere). Fast-forward in place:
 
   ```bash
   git -C <trunk-checkout> merge --ff-only origin/<trunk>   # diverged: fails, so stop
   ```
 
-If either form reports divergence, stop and report. Never force it.
+On divergence, stop and report. Never force the trunk to either side.
 
-### Steps A to D: Prepare the branch
+## Steps A to D: Prepare the branch
 
-Read `../shared/finishing-prep.md` (relative to this skill's base directory) and
-do every step in it. Every commit it makes goes onto the feature branch. The
-fast-forward lands on the local trunk you synced in Step 1, so pass:
+Read `../shared/finishing-prep.md` (relative to this skill's base directory) and do
+every step. Its commits go on the feature branch. Pass `<rebase-onto>` = the local
+`<trunk>` (synced in Step 1), not `origin/<trunk>`. That makes the feature a linear
+descendant of the exact commit it lands on, which guarantees the Step 5 fast-forward.
+Return here when done.
 
-- `<rebase-onto>` = the local `<trunk>` branch, not `origin/<trunk>`
-
-Rebasing onto the local trunk makes the feature a linear descendant of the exact
-commit it will land on. That is what guarantees a fast-forward in Step 5. Return
-here when it is done.
-
-### Step 4: Regroup into changelog-worthy commits
-
-Record the tip, then run the shared regroup procedure:
+## Step 4: Regroup into changelog-worthy commits
 
 ```bash
-orig=$(git rev-parse HEAD)   # tip before any rewrite, for the byte-identical check
+orig=$(git rev-parse HEAD)   # pre-rewrite tip, for the byte-identical check
 ```
 
-Read `../shared/regroup-history.md` (relative to this skill's base directory)
-and do every step in it, with:
+Read `../shared/regroup-history.md` (relative to this skill's base directory) and do
+every step, with `<base>` = the local `<trunk>` (from Step B) and `<original-tip>` =
+`$orig`. Two additions:
 
-- `<base>` = the local `<trunk>` branch (the commit from Step B)
-- `<original-tip>` = `$orig`
+1. Rewrite when any message breaks the user's commit conventions, even if the grouping
+   is already clean. The rewrite stays tree-preserving; only messages change.
+2. Write every subject and body to those conventions.
 
-The procedure groups the commits, rebuilds them with a soft reset, proves the
-tree is byte-for-byte identical, and runs the project's full gate at the end
-unless it just passed on the same files. If that gate is red, stop and
-report. Do not fast-forward. If the procedure rolled back, the branch is
-exactly as it was. Re-read the diff and regroup again before you continue.
+If the closing gate is red, stop and report; do not land and do not amend the group
+commits. If the procedure rolled back, the branch is unchanged: re-read the diff and
+regroup again before continuing.
 
-This skill adds two rules to the procedure:
-
-1. Rewrite when any message breaks the user's commit conventions, even if the
-   grouping is already clean. The rewrite stays tree-preserving. Only the
-   messages change.
-2. Write every subject and body to those conventions. The
-   `enforce_commit_message` hook validates each commit, and `--no-verify` does
-   not bypass it.
-
-### Step 5: Fast-forward onto the trunk
+## Step 5: Fast-forward onto the trunk
 
 Get onto the trunk checkout:
 
 - Single checkout: `git checkout <trunk>`.
-- Worktree: `cd` into the trunk's checkout from `git worktree list`. Run
-  `git status` and confirm that the tree is clean. If it is dirty, stop and ask
-  the user.
+- Worktree: `cd` into the trunk's checkout. If `git status` shows a dirty tree, stop
+  and ask the user.
 
-On a remote-backed repo, confirm that the trunk is still current:
+Remote-backed repo: confirm the trunk is still current.
 
 ```bash
 git merge --ff-only origin/<trunk>    # expected: "Already up to date"
 ```
 
-If this reports that the trunk is behind or diverged, the remote moved since
-Step 1. Stop and report, then restart from Step 1.
+Behind or diverged means the remote moved since Step 1: stop, report, restart from
+Step 1.
 
-On every repo, local-only included, confirm that the feature branch still
-holds every commit on the local trunk:
+Every repo, local-only included:
 
 ```bash
 git merge-base --is-ancestor <trunk> <feature-branch>   # exit 0: still rebased on the trunk
 ```
 
-A non-zero exit means the local trunk moved since the Step B rebase, for
-example because another worktree landed work on it. Stop and report, then
-restart from Step 1 so the feature rebases onto the current trunk.
-
-Now fast-forward the trunk to the feature branch:
+Non-zero means the local trunk moved since Step B (for example, another worktree
+landed work). Stop, report, and restart from Step 1 so the feature rebases onto the
+current trunk.
 
 ```bash
 git merge --ff-only <feature-branch>
 ```
 
-Success creates no commit. The trunk ref advances to the feature tip. If
-`--ff-only` refuses ("Not possible to fast-forward"), the trunk moved since the
-Step B rebase. Stop and report. Do not retry with `--no-ff`. Restart from Step 1
-so the feature rebases onto the current trunk.
+Success writes no commit; the trunk ref advances to the feature tip. If it refuses
+("Not possible to fast-forward"), the trunk moved since Step B: stop, report, restart
+from Step 1. Never retry with `--no-ff`.
 
-### Step 6: Verify, then clean up
-
-Confirm that the trunk points at the work:
+## Step 6: Verify, then clean up
 
 ```bash
 git log -1 --stat                       # the feature tip is now the trunk tip
 git rev-parse HEAD <feature-branch>     # both SHAs identical
 ```
 
-Then remove the leftovers. The branch is now an ancestor of the trunk, so
-`git branch -d` (safe delete) succeeds. If it ever says "not fully merged", the
-merge did not land. Stop rather than force it.
-
-A branch checked out in a worktree cannot be deleted, so remove the worktree
-first:
+The branch is now an ancestor of the trunk, so the safe `git branch -d` succeeds and
+doubles as a final merge check. If it says "not fully merged", the merge did not land:
+stop, never `-D`, and find out why the trunk tip is not the feature tip. A branch
+checked out in a worktree can't be deleted, so remove the worktree first:
 
 ```bash
-# Worktree case only. Never rm -rf the directory by hand.
-git worktree remove <worktree-path>
-
-# Both cases. The safe delete doubles as a final merge check.
+git worktree remove <worktree-path>   # worktree case only; never rm -rf by hand
 git branch -d <feature-branch>
 ```
 
-If `git worktree remove` reports untracked or dirty files, stop and report.
-Forcing it discards those files.
+If `git worktree remove` reports untracked or dirty files, stop and show the user.
+Forcing it discards their files.
 
-### Finish
+## Finish
 
-Summarize the commits now on the local trunk (hashes and subjects from
-`git log <old-trunk-tip>..HEAD --oneline`), the branch deleted, and the
-worktree removed. Remind the user that the trunk is not pushed.
-
-## Failure modes
-
-| Symptom                                          | Cause                                                      | Do this                                                                                    |
-| ------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `--ff-only` refuses                              | Trunk moved since the prep rebase                          | Stop. Restart from Step 1 so the feature rebases onto the current trunk. Never `--no-ff`   |
-| Local trunk sync reports divergence              | Local and remote trunk both have unique commits            | Stop and report. Never force the trunk to either side                                      |
-| Regroup verify failed and rolled back            | A group's paths were staged wrong                          | The branch is unchanged. Re-read the diff and regroup again before landing                 |
-| Commit rejected by hook                          | A message breaks the configured commit rules               | Fix the message to the rules the block message lists. `--no-verify` does not bypass the gate |
-| A `pre-commit` hook fails or reformats in Step 4 | A group commit staged only part of the tree                | Commit each group with `--no-verify`. The full gate runs once at the end                   |
-| Step 4's closing gate is red                     | Pre-existing breakage. The regroup left the tree unchanged | Report it and stop. Do not land on the trunk and do not amend the group commits            |
-| `branch -d` says "not fully merged"              | The fast-forward did not land                              | Stop. Do not use `-D`. Find out why the trunk tip is not the feature tip                   |
-| `worktree remove` refuses                        | Untracked or dirty files in the worktree                   | Stop and show the user. Do not force-discard their files                                   |
+Report the commits now on the local trunk (`git log <old-trunk-tip>..HEAD --oneline`),
+the deleted branch, and the removed worktree. Remind the user the trunk is not pushed.

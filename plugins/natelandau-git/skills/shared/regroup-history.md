@@ -1,27 +1,22 @@
 # Regrouping a branch's history: shared procedure
 
-Repackage a feature branch's commits into fewer, logically grouped, reviewable
-commits without changing the resulting code. The files on disk end up
-byte-for-byte identical. Only the commit boundaries change.
+Repackage a feature branch's commits into fewer, logically grouped, reviewable commits.
+Files on disk end up byte-for-byte identical; only commit boundaries change.
 
-The calling skill passes two values. Substitute them wherever they appear:
+The caller passes two values:
 
-- `<base>`: the commit to regroup on top of. Everything in `<base>..HEAD` is
-  repackaged, and `<base>` itself is untouched. A caller that already rebased
-  onto the trunk passes the trunk. A caller that did not passes
-  `git merge-base <trunk> HEAD`.
-- `<original-tip>`: a ref or SHA at the branch tip before any rewrite, used to
-  prove the tree is unchanged. A caller passes a backup branch or a SHA it
-  recorded with `orig=$(git rev-parse HEAD)`.
+- `<base>`: the commit to regroup on. `<base>..HEAD` is repackaged; `<base>` is
+  untouched. A caller that rebased onto the trunk passes the trunk; one that did not
+  passes `git merge-base <trunk> HEAD`.
+- `<original-tip>`: a ref or SHA at the pre-rewrite tip (a backup branch, or
+  `orig=$(git rev-parse HEAD)`), used to prove the tree is unchanged.
 
-Do every step in order, then return to the calling skill.
+Do every step in order, then return to the caller.
 
-Write every commit message here to the commit conventions in your
-instructions and in the repository's own tooling, such as a commitlint or
-commitizen config or CONTRIBUTING. The `enforce_commit_message` hook
-validates each `git commit` against the user's configured rules, and its
-block message lists the rules in force. `--no-verify` does not
-bypass the hook, so a rejected message blocks the rewrite mid-way.
+Commit messages follow the commit conventions in your instructions and the repo's
+tooling (commitlint, commitizen, CONTRIBUTING). The `enforce_commit_message` hook
+validates each `git commit` and its block message lists the rules in force.
+`--no-verify` does not bypass it, so a rejected message blocks the rewrite mid-way.
 
 ## Step 1: Decide whether regrouping helps
 
@@ -29,106 +24,85 @@ bypass the hook, so a rejected message blocks the rewrite mid-way.
 git log --oneline <base>..HEAD   # the story the branch tells
 ```
 
-There is no commit-count threshold. Judge the log. If it already reads as a
-small set of commits that each describe one coherent change, report that and
-return without rewriting. Regroup when the log has sprawled: many tiny edits,
-`wip` or `fixup` commits, or back-and-forth corrections.
+No commit-count threshold; judge the log. If it already reads as a small set of
+commits, each one coherent change, report that and return without rewriting. Regroup
+a sprawl: many tiny edits, `wip` or `fixup` commits, back-and-forth corrections.
 
-One more trigger, even on a clean log: a standalone doc commit that documents
-code also changed on this branch. Step 2 folds it into that code's commit.
+Also regroup a clean log that has a standalone doc commit documenting code changed on
+this branch. Step 2 folds it into that code's commit.
 
 ## Step 2: Decide the logical groups
 
-The groups live in the diff, not in the existing commit boundaries:
+Groups come from the diff, not the existing commit boundaries:
 
 ```bash
-git diff <base>..HEAD   # the full change, the ground truth for grouping
+git diff <base>..HEAD   # ground truth for grouping
 ```
 
-Choose a grouping in which:
+- One area or concern per commit.
+- Docs ride with the code they document. A README, CHANGELOG, guide, or inline-doc
+  change explaining code in this branch goes in that code's commit. Docs get their own
+  commit only when they stand alone.
+- Reading order: groundwork first (refactor, new helper, schema change), then the work
+  built on it.
+- Each message names what the commit does, to the conventions above.
 
-- Each commit covers one area or concern.
-- Documentation rides with the code it documents. A README, CHANGELOG, guide,
-  or inline-doc change that explains code in this branch goes into that code's
-  commit, not a standalone docs commit. Docs get their own commit only when
-  they stand alone.
-- Commits read top to bottom: groundwork first (a refactor, a new helper, a
-  schema change), then the work that builds on it.
-- Each message names what the commit does, written to the commit
-  conventions above.
-
-Aim for a handful of commits split by area. If one file spans every concern,
-do not force an artificial split. Fewer honest commits beat many contrived
-ones.
+Aim for a handful of commits split by area. If one file spans every concern, don't
+force a split. Fewer honest commits beat many contrived ones.
 
 ## Step 3: Rebuild the history
 
-Interactive rebase is unavailable in this environment, so rebuild with a soft
-reset and re-commit by group. A soft reset moves the branch ref and leaves the
-working tree and index untouched, so no commit is replayed and no conflict is
-possible. The only risk is a wrong grouping, which Step 4 catches.
+Interactive rebase is unavailable, so soft-reset and re-commit by group. A soft reset
+moves the branch ref and leaves the tree and index untouched: nothing replays, no
+conflict is possible. The only risk is a wrong grouping, which Step 4 catches.
 
 ```bash
-git reset --soft <base>   # uncommit the branch's commits; working tree untouched
-git restore --staged .    # unstage everything so each group commits on its own
-```
+git reset --soft <base>   # uncommit the branch's commits; tree untouched
+git restore --staged .    # unstage so each group commits on its own
 
-Then, in reading order, stage each group's paths and commit it with
-`--no-verify`:
-
-```bash
-git add <paths for group 1>
+# per group, in reading order, groundwork first:
+git add <paths for group>
 git commit --no-verify -m "<message>"
-# repeat for each remaining group, groundwork commits first
 ```
 
-Each group stages only a slice of the tree, so a `pre-commit` hook would run
-against an index that is incomplete by design: a helper without its caller, an
-implementation without its test. A linter or test hook fails on the slice and
-strands the branch mid-rewrite. A formatting hook rewrites files and breaks the
-byte-identical check in Step 4. Neither is a real quality signal. Skip the
-hooks per group and run the gate once, on the finished tree, in Step 5.
+Why `--no-verify`: each group stages a deliberately incomplete slice (a helper without
+its caller, code without its test). A lint or test hook fails on the slice and strands
+the branch mid-rewrite; a formatter rewrites files and breaks Step 4's byte-identical
+check. Neither is a real quality signal. Step 5 runs the gate once on the finished tree.
 
-Two limits on `--no-verify`:
+Limits on `--no-verify`:
 
-- Never use `git rebase --no-verify`. It skips only the `pre-rebase` hook, and
-  the `enforce_branch_protection` hook blocks it. Nothing here needs it.
-- Never use it on a whole-tree commit. A prep commit or a fix commit after
-  Step 5 stages the full tree, so its hooks run normally.
+- Never `git rebase --no-verify`. It skips only `pre-rebase`, and
+  `enforce_branch_protection` blocks it. Nothing here needs it.
+- Never on a whole-tree commit (a prep commit, a fix commit after Step 5). Its hooks
+  run normally.
 
 ## Step 4: Verify the tree is unchanged
-
-Prove that nothing changed but the commit boundaries:
 
 ```bash
 git diff <original-tip> HEAD --stat   # MUST be empty
 git status --porcelain                # MUST be empty
 ```
 
-If both are empty, continue to Step 5. If either is non-empty, content was lost
-or altered. Restore and abort:
+Both empty: continue. Either non-empty means content was lost or altered. Restore:
 
 ```bash
 git reset --hard <original-tip>
 ```
 
-Report that the rewrite was rolled back and the branch is exactly as it was.
-Do not retry blindly. Re-read the diff and fix the grouping first.
+Report that the rewrite rolled back and the branch is exactly as it was. Don't retry
+blindly; re-read the diff and fix the grouping first.
 
-## Step 5: Run the project's full gate unless it just passed
+## Step 5: Run the full gate unless it just passed
 
-Step 3 skipped the per-commit hooks, so the finished tree needs one green run
-of the project's lint and test gates. Step 4 proved the files are unchanged,
-so a regroup cannot break a gate. If you already ran the tests or the linters
-in this conversation, they passed, and no file changed since, that gate is
-green. Skip it. Run only the gates that have not passed: dispatch the
-`natelandau-toolkit:test-runner` subagent and tell it which ones. If it is
-unavailable, discover the project's lint and test gates yourself (prefer what
-CI runs) and run them directly.
+Step 3 skipped per-commit hooks, so the finished tree needs one green lint and test
+run. If you already ran tests or linters this conversation, they passed, and no file
+changed since, that gate is green; skip it. Dispatch `natelandau-toolkit:test-runner`
+for the gates that have not passed and tell it which. If it is unavailable, discover
+the lint and test gates (prefer what CI runs) and run them directly.
 
-- Green: the rewrite is done. Return to the calling skill.
-- Red: do not amend the group commits. Step 4 proved this tree is byte-for-byte
-  what the branch already had, so the failure predates the rewrite. Stop,
-  report the failures, state that the regrouped history is sound, and let the
-  calling skill or the user decide whether to fix forward or reset to
-  `<original-tip>`.
+- Green: done. Return to the caller.
+- Red: never amend the group commits. Step 4 proved the tree is what the branch
+  already had, so the failure predates the rewrite. Stop, report the failures, state
+  that the regrouped history is sound, and let the caller or user decide: fix forward,
+  or reset to `<original-tip>`.

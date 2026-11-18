@@ -5,46 +5,30 @@ argument-hint: <url>
 disable-model-invocation: true
 ---
 
-Investigate this GitHub Actions URL: $ARGUMENTS
+Investigate this GitHub Actions URL with the `gh` CLI: $ARGUMENTS
 
-Use the `gh` CLI to analyze the workflow run.
+1. **Actual failure.** Which workflow and job failed, when, on which commit. Read the
+   full logs for what caused the non-zero exit. Separate warnings and non-fatal errors
+   from the real failure: look for markers such as "failing:" and "fatal:" and the
+   script logic that decides when to exit 1. With both, focus on the one that caused
+   the exit.
 
-1. Identify the actual failure. Find which workflow and job failed, when, and
-   on which commit. Read the full logs to find what caused the non-zero exit.
-   Separate warnings and non-fatal errors from the real failure. Look for
-   markers such as "failing:" and "fatal:", and for the script logic that
-   decides when to exit 1. When the logs show both non-fatal and fatal errors,
-   focus on the one that caused the exit.
+2. **Flakiness.** Review the past 10 to 20 runs of the exact failed job, not the whole
+   workflow: `gh run list --workflow=<workflow-name>` for run ids, then
+   `gh run view <run-id> --json jobs` for that job's status. One-time or recurring?
+   Recent success rate? Last pass?
 
-2. Check flakiness. Review the past 10 to 20 runs of the exact job that
-   failed, not the workflow as a whole. Use
-   `gh run list --workflow=<workflow-name>` to get the run ids, then
-   `gh run view <run-id> --json jobs` to read that job's status in each run.
-   Answer three questions: is this a one-time failure or a recurring pattern
-   for this job, what is its recent success rate, and when did it last pass?
+3. **Breaking commit**, if the job fails in a pattern. Find the first failing and last
+   passing run and the commit between. Report it only when confirmed: the job fails in
+   every run after it and passes in every run before.
 
-3. Identify the breaking commit, if the job fails in a pattern. Find the first
-   run where the job failed and the last run where it passed, and identify the
-   commit between them. Confirm it: the job fails in every run after that
-   commit and passes in every run before it. Report the commit only when
-   confirmed.
+4. **Root cause.** Combine logs, history, and any breaking commit. Focus on what caused
+   the failure, not every logged error. Confirm the hypothesis against the logs and the
+   failure logic.
 
-4. Find the root cause. Combine the logs, the history, and any breaking commit
-   into the likely cause. Focus on what caused the failure, not on every error
-   in the logs. Confirm your hypothesis against the logs and the failure
-   logic.
+5. **Existing fix.** `gh pr list --state open --search "<keywords>"` with error messages
+   or file names; check whether an open PR modifies the failing file or workflow.
 
-5. Check for an existing fix. Search open PRs with
-   `gh pr list --state open --search "<keywords>"`, using the error messages
-   or file names. Check whether any open PR modifies the failing file or
-   workflow. If a fix PR exists, include it in the report and skip the
-   recommendation.
-
-Write a final report with:
-
-- the failure summary: what triggered the non-zero exit;
-- the flakiness assessment: one-time or recurring, with the success rate;
-- the breaking commit, if identified and confirmed;
-- the root cause;
-- the existing fix PR, if found, with its number and link;
-- a recommendation, unless a fix PR exists.
+Report: failure summary (what triggered the exit); flakiness (one-time or recurring,
+success rate); confirmed breaking commit, if any; root cause; existing fix PR with
+number and link, if found; a recommendation, unless a fix PR exists.
