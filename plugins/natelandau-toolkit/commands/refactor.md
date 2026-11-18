@@ -7,259 +7,222 @@ argument-hint: "[--quick] [--fix] [<target>]"
 
 # /refactor: behavior-preserving refactor
 
-Restructure code to improve readability, maintainability, and design without
-changing external behavior. This is a disciplined review-and-apply process, not
-freeform editing. It complements `/code-review`, which hunts bugs in a diff.
-This command reviews existing code for refactor quality.
+Restructure code for readability, maintainability, and design without changing external
+behavior. A disciplined review-and-apply process, not freeform editing. `/code-review`
+hunts bugs in a diff; this reviews existing code for refactor quality.
 
 ## Scope and promise
 
-- Behavior is always preserved. Every change applied with `--fix` must produce
-  identical outputs and side effects. A fix that changes behavior is reported,
-  never applied.
-- Security is out of scope. Use a dedicated security review.
-- Bugs, behavior-changing optimizations, and language pitfalls (Python mutable
-  default arguments, JS `==` coercion, Go nil-map writes) are reported as
-  out-of-scope notes that point at `/code-review`. They are never auto-fixed.
-- The golden rules of refactoring hold: behavior preserved, small steps, one
-  concern at a time, tests as the baseline.
+- Behavior is always preserved. Every `--fix` change yields identical outputs and side
+  effects. A behavior-changing fix is reported, never applied.
+- Security is out of scope; use a dedicated security review.
+- Bugs, behavior-changing optimizations, and language pitfalls (Python mutable default
+  arguments, JS `==` coercion, Go nil-map writes) are reported as out-of-scope notes
+  pointing at `/code-review`. Never auto-fixed.
+- Golden rules: behavior preserved, small steps, one concern at a time, tests as the
+  baseline.
 
 ## Arguments
 
-Parse `$ARGUMENTS` into three values:
+Parse `$ARGUMENTS`:
 
-- QUICK: `true` if the token `--quick` appears anywhere, otherwise `false`.
-  `false` (the default) runs the full multi-agent deep review. `true` runs a
-  fast inline pass with no subagents.
-- FIX: `true` if the token `--fix` appears anywhere, otherwise `false`.
-- TARGET: everything left after removing `--quick` and `--fix`. It can name a
-  function, class, file, folder, module, or package, or be empty. If empty,
-  default to the current working directory (the whole project).
+- QUICK: `true` if `--quick` appears anywhere. Default `false` runs the full multi-agent
+  deep review; `true` runs a fast inline pass with no subagents.
+- FIX: `true` if `--fix` appears anywhere.
+- TARGET: the rest. A function, class, file, folder, module, or package; empty means the
+  whole project under the cwd.
 
-Echo the parsed mode (`quick` or `deep`), FIX, and TARGET back to the user in
-one line before you proceed.
+Echo mode (`quick` or `deep`), FIX, and TARGET in one line before proceeding.
 
 ## Phase 1: Scope
 
-1. Resolve TARGET into concrete files or regions:
-   - A path (file or folder): that path.
-   - A dotted module or package (`pkg.sub`): its files on disk.
-   - A bare symbol (a function or class name): grep for its definition. If it
-     resolves to more than one definition, list them and ask which one.
-   - Empty: the whole project under the current working directory.
+1. Resolve TARGET to files or regions:
+   - Path: that path.
+   - Dotted module or package (`pkg.sub`): its files on disk.
+   - Bare symbol: grep for its definition. Several matches: list them and ask which.
+   - Empty: the whole project.
 
-   If the resolved set is empty, stop and report "nothing to review".
+   Empty result: stop and report "nothing to review".
 
-2. Identify the target languages and load the standards a refactor must
-   honor. Read each that exists:
-   - `~/.claude/CLAUDE.md` (user global)
-   - the repo-root `CLAUDE.md` and any `CLAUDE.md` in an ancestor directory of
-     a target file
-   - any language standards or style rules that apply to the target's file
-     types, plus any project rules
+2. Identify the target languages and read every standard that exists:
+   - `~/.claude/CLAUDE.md`
+   - repo-root `CLAUDE.md` and any `CLAUDE.md` in an ancestor directory of a target file
+   - language standards or style rules for the target's file types, plus project rules
 
-3. Record the test BASELINE. If FIX is true, get a `GREEN` or `RED` baseline
-   from the project's gates. In deep mode, dispatch the `test-runner` subagent
-   (it ships with this plugin, discovers the project's own tooling, and returns
-   the verdict plus any failures). In quick mode, run the gates inline. If FIX
-   is false, run nothing. Only note whether a test suite exists, because Phase
-   6 will not run.
+3. Record the test BASELINE. FIX true: get `GREEN` or `RED` from the project's gates
+   (deep mode: dispatch the `test-runner` subagent, which ships with this plugin,
+   discovers the tooling, and returns the verdict plus failures; quick mode: run the
+   gates inline). FIX false: run nothing; only note whether a test suite exists, since
+   Phase 6 will not run.
 
-4. Build the SCOPE BLOCK that goes to every finder: the resolved file list, a
-   one-paragraph summary of what the code does, the loaded conventions, and
-   the verbatim TARGET instructions. Focus or skip instructions in TARGET
-   override an angle's default breadth.
+4. Build the SCOPE BLOCK for every finder: resolved file list, one-paragraph summary of
+   what the code does, loaded conventions, and the verbatim TARGET instructions. Focus
+   or skip instructions in TARGET override an angle's default breadth.
 
 ## Phase 2: Find
 
-In quick mode, dispatch no subagents. Skip the rest of Phase 2 and all of
-Phase 3, and go to the "Quick path" below.
+Quick mode: no subagents. Skip the rest of Phase 2 and all of Phase 3; go to "Quick
+path".
 
-In deep mode, select the finder angles by TARGET and dispatch each in parallel
-as the `review-finder` subagent (it ships with this plugin and is read-only).
-Give each one the SCOPE BLOCK, its single angle prompt, and the candidate
-schema. It returns candidate findings in that schema.
+Deep mode: dispatch each angle in parallel as the read-only `review-finder` subagent
+(ships with this plugin), with the SCOPE BLOCK, its single angle prompt, and the
+candidate schema.
 
-Angle selection: dispatch idioms, simplification, reuse, conventions,
-docs-and-comments, efficiency, pitfalls, and altitude. Add structure only when
-TARGET is a directory. Up to 8 candidates per angle. After the first pass, run
-one gap-sweep finder (Phase 4).
+Angles: idioms, simplification, reuse, conventions, docs-and-comments, efficiency,
+pitfalls, altitude. Add structure only when TARGET is a directory. Up to 8 candidates
+per angle. After the first pass, run one gap-sweep finder (Phase 4).
 
-Candidate schema, per finding:
+Candidate schema:
 
 - `file` (string), `line` (number), `summary` (one line)
 - `rationale`: why it improves the code
 - `proposed_change`: the concrete simpler or clearer form
-- `kind`: `mechanical` (a local, behavior-neutral edit) or `structural`
-  (extract, move, split, or generalize)
-- `angle`: the angle id that produced it
+- `kind`: `mechanical` (local, behavior-neutral edit) or `structural` (extract, move,
+  split, generalize)
+- `angle`: the producing angle id
 
-A finder passes every candidate with a real rationale through, including
-half-believed ones. The verifier judges them next. An angle that finds nothing
-returns an empty list.
+Finders pass through every candidate with a real rationale, half-believed ones too; the
+verifier judges next. Nothing found: empty list.
 
 ### Angle prompts
 
-Every angle applies to the target file's language. For a mixed-language
-target, judge each file by its own language's idioms, standards, and pitfalls.
+Every angle applies to the file's own language; in a mixed-language target, judge each
+file by its language's idioms, standards, and pitfalls.
 
-**idioms**: Review the code for adherence to the target language's idioms,
-typing, naming, and style per the loaded standards, and for behavior-preserving
-modernizations. Examples: Python `os.path` to `pathlib`, `%` or `.format` to
-f-strings, `List` or `Optional` to `list` or `| None`. JS `var` to `const` or
-`let`, callbacks to async/await. Apply the equivalent for the file's language.
-Surface only changes that preserve behavior. Mark all `mechanical`.
+**idioms**: Adherence to the language's idioms, typing, naming, and style per the
+loaded standards, and behavior-preserving modernizations. Examples: Python `os.path` to
+`pathlib`, `%` or `.format` to f-strings, `List`/`Optional` to `list`/`| None`; JS `var`
+to `const`/`let`, callbacks to async/await. Equivalent for other languages. Behavior-
+preserving changes only. All `mechanical`.
 
-**simplification**: Flag unnecessary complexity: redundant or derivable state,
-copy-paste with slight variation, deep nesting that an early return or guard
-clause can flatten, and dead code (unreachable branches, unused locals or
-imports). Name the simpler form that does the same job. Dead-code removal and
-flattening are `mechanical`. Consolidating duplicated logic is `structural`.
+**simplification**: Unnecessary complexity: redundant or derivable state, copy-paste
+with slight variation, deep nesting an early return or guard clause can flatten, dead
+code (unreachable branches, unused locals or imports). Name the simpler form. Dead-code
+removal and flattening are `mechanical`; consolidating duplicated logic is `structural`.
 
-**reuse**: Flag code that re-implements something the project already
-provides. Grep the shared and utility modules and the files adjacent to the
-target, and name the existing helper to call instead. Mark `structural`.
+**reuse**: Code re-implementing something the project already provides. Grep shared and
+utility modules and files adjacent to the target; name the helper to call. `structural`.
 
-**structure** (directory targets only): Recommend file and directory
-organization improvements: modules that do too many things, code in the wrong
-module, and circular-import-prone layouts. Mark `structural`.
+**structure** (directory targets only): File and directory organization: modules doing
+too much, code in the wrong module, circular-import-prone layouts. `structural`.
 
-**efficiency**: Flag wasted work: redundant computation or repeated I/O,
-independent operations run sequentially, and blocking work on a hot path. Also
-flag long-lived objects built from closures that keep an entire scope alive.
-Prefer a class that copies only the fields it needs. Name the cheaper
-alternative.
-For each, state whether the fix preserves behavior (hoisting an invariant,
-de-duplicating I/O, memoizing a pure call, copying fields) or changes it
-(parallelization, laziness that shifts side effects, caching a mutable value).
-Behavior-preserving ones are `mechanical` or `structural`. Flag
-behavior-changing ones so Phase 3 routes them to report-only.
+**efficiency**: Wasted work: redundant computation or repeated I/O, independent
+operations run sequentially, blocking work on a hot path, long-lived objects built from
+closures that keep a whole scope alive (prefer a class copying only the fields it
+needs). Name the cheaper alternative and state whether the fix preserves behavior
+(hoisting an invariant, de-duplicating I/O, memoizing a pure call, copying fields) or
+changes it (parallelization, laziness that shifts side effects, caching a mutable
+value). Preserving: `mechanical` or `structural`. Changing: flag so Phase 3 routes it to
+report-only.
 
-**altitude**: Check that code is implemented at the right depth rather than as
-a fragile workaround. Special cases layered on shared infrastructure signal
-that the code is not deep enough. Prefer generalizing the underlying mechanism
-over adding special cases. Mark `structural`.
+**altitude**: Code at the right depth, not a fragile workaround. Special cases layered
+on shared infrastructure mean the code is not deep enough; prefer generalizing the
+underlying mechanism. `structural`.
 
-**conventions**: Find the CLAUDE.md, rules, and standards that govern the
-target and flag clear violations. Quote the exact rule and the exact line that
-breaks it. No style preferences and no "spirit of the doc" inferences. Name the
-source path so the report can cite it. Mark each finding `mechanical` (a
-naming, formatting, or docstring rule) or `structural` (a rule that requires
-reorganizing code). If nothing applies, return nothing.
+**conventions**: Find the CLAUDE.md, rules, and standards governing the target and flag
+clear violations. Quote the exact rule and the exact breaking line, and name the source
+path. No style preferences, no "spirit of the doc" inferences. `mechanical` (naming,
+formatting, docstring rule) or `structural` (a rule requiring reorganization). Nothing
+applies: return nothing.
 
-**docs-and-comments**: Rewrite API docs in the language's documentation
-convention (Python docstrings, JSDoc, godoc, rustdoc) and the project's
-required format, explaining why a developer uses the unit. Rewrite inline
-comments to explain why, not what. Flag and remove comments that restate the
-code. Mark `mechanical`.
+**docs-and-comments**: Rewrite API docs in the language's convention (Python
+docstrings, JSDoc, godoc, rustdoc) and the project's required format, explaining why a
+developer uses the unit. Rewrite inline comments to explain why, not what. Flag and
+remove comments that restate the code. `mechanical`.
 
-**pitfalls** (report-only): Flag the classic bug-class traps of the target
-language. Examples: Python mutable default arguments and late-binding
-closures, JS falsy-zero and `==` coercion, Go nil-map writes and
-range-variable capture, SQL injection, float equality. These are bug fixes, not refactors, so they are
-reported and never applied. Leave `kind` unset. Phases 3 and 4 route every
+**pitfalls** (report-only): The language's classic bug-class traps: Python mutable
+default arguments and late-binding closures, JS falsy-zero and `==` coercion, Go
+nil-map writes and range-variable capture, SQL injection, float equality. Bug fixes, not
+refactors: reported, never applied. Leave `kind` unset; Phases 3 and 4 route every
 pitfalls finding to REPORT_ONLY by angle.
 
 ## Phase 3: Verify and refute
 
-In deep mode, dispatch one `review-verifier` subagent (read-only) per
-candidate. Quick mode skips this phase. Give it the SCOPE BLOCK and the
-candidate, and ask it to also judge behavior preservation. It returns one
-verdict (`KEEP`, `PLAUSIBLE`, or `REFUTED`) plus "behavior-preserving?
-yes/no": whether applying the change keeps outputs and side effects identical.
+Deep mode only. Dispatch one read-only `review-verifier` per candidate with the SCOPE
+BLOCK and the candidate, asking it to also judge behavior preservation. It returns
+`KEEP`, `PLAUSIBLE`, or `REFUTED` plus "behavior-preserving? yes/no".
 
-Drop REFUTED candidates, and record them briefly for the report.
+Drop REFUTED candidates; record them briefly for the report.
 
-Routing, the cardinal rule: the behavior-preserving judgment decides, not the
-angle.
+Routing: the behavior-preserving judgment decides, not the angle.
 
-- behavior-preserving and KEEP or PLAUSIBLE: apply-eligible
-- behavior-changing, or any `pitfalls` finding: report-only
+- Behavior-preserving and KEEP or PLAUSIBLE: apply-eligible.
+- Behavior-changing, or any `pitfalls` finding: report-only.
 
 ## Phase 4: Synthesize
 
-1. Gap sweep (deep mode): dispatch one fresh `review-finder` that sees the
-   surviving candidates and hunts only for opportunities not already found.
-   Examples: moved code that lost clarity, second-tier duplication, asymmetric
-   setup and teardown. Verify any new candidates through Phase 3.
-2. Merge candidates that describe the same root cause. Keep the one with the
-   clearest rationale.
-3. Partition the survivors into three lists:
+1. Gap sweep (deep mode): one fresh `review-finder` sees the survivors and hunts only
+   for missed opportunities (moved code that lost clarity, second-tier duplication,
+   asymmetric setup and teardown). Verify new candidates through Phase 3.
+2. Merge candidates with the same root cause; keep the clearest rationale.
+3. Partition:
    - `APPLY_MECHANICAL`: behavior-preserving, `kind: mechanical`
    - `APPLY_STRUCTURAL`: behavior-preserving, `kind: structural`
    - `REPORT_ONLY`: behavior-changing, including all pitfalls
-4. Rank each list most-impactful first. Cap the combined total at 12 in deep
-   mode (5 in quick mode). If the cap forces a cut, drop the least impactful.
-   Never drop a REPORT_ONLY safety note silently. Note the count if trimmed.
+4. Rank each list most-impactful first. Cap the combined total at 12 (deep) or 5
+   (quick), dropping the least impactful and noting the trimmed count. Never drop a
+   REPORT_ONLY safety note silently.
 
 ## Phase 5: Report
 
-Always print these sections. This is the full output when `--fix` is absent.
+Always print these sections. This is the full output without `--fix`.
 
-1. Apply-eligible findings: `APPLY_MECHANICAL` then `APPLY_STRUCTURAL`, each
-   as `path/to/file:LINE - summary`, followed by the rationale, the proposed
-   change, and one confidence label from the `review-verifier` mapping
-   (Confirmed or Worth considering). Never print the raw verdict tokens.
+1. Apply-eligible: `APPLY_MECHANICAL` then `APPLY_STRUCTURAL`, each as
+   `path/to/file:LINE - summary`, then rationale, proposed change, and one confidence
+   label from the `review-verifier` mapping (Confirmed or Worth considering). Never
+   print raw verdict tokens.
 2. Out of scope (report-only): each `REPORT_ONLY` finding with its summary and
-   the note "behavior-changing; consider `/code-review`."
-3. Refuted: each REFUTED entry on one line, so the user sees what was
-   considered and dropped.
+   "behavior-changing; consider `/code-review`."
+3. Refuted: one line each, so the user sees what was considered and dropped.
 
-If FIX is false, stop here. If FIX is true, continue to Phase 6.
+FIX false: stop. FIX true: Phase 6.
 
 ## Phase 6: Apply (--fix)
 
-Never touch `REPORT_ONLY` findings.
+Never touch `REPORT_ONLY`.
 
-Precondition: the BASELINE must be green. If it is red, or absent where the
-project clearly expects tests, refuse to apply and explain why. A red suite is
-not a trustworthy regression detector. Report the findings and stop.
+Precondition: BASELINE green. If red, or absent where the project clearly expects tests,
+refuse to apply and explain (a red suite is no regression detector). Report the findings
+and stop.
 
-Apply `APPLY_MECHANICAL` only. Group the fixes into coherent batches: all
-dead-code removals together, all docstring rewrites together, all idiom
-modernizations together. A batch boundary must be a state where the code is
+Apply `APPLY_MECHANICAL` only, in coherent batches (all dead-code removals, all
+docstring rewrites, all idiom modernizations). Every batch boundary leaves the code
 internally consistent, never a half-finished restructure.
 
-Per-batch gate:
+Per batch:
 
-1. Apply the batch.
-2. Re-run the gates. In deep mode, dispatch the `test-runner` subagent again.
-   In quick mode, run the suite (and pre-commit if configured) inline.
-3. `GREEN`: commit with a message that names the technique, such as "remove
-   dead code in <area>". `RED`: revert the batch, stop, and
-   report the failure.
+1. Apply it.
+2. Re-run the gates (deep: dispatch `test-runner` again; quick: run the suite, and
+   pre-commit if configured, inline).
+3. `GREEN`: commit with a message naming the technique ("remove dead code in <area>").
+   `RED`: revert the batch, stop, and report the failure.
 
-Protected branches: on `main` or `master`, apply and verify but do not commit.
-The branch-protection hook blocks it. Tell the user to create a feature branch,
-and leave the changes staged.
+On `main` or `master`: apply and verify but don't commit (the branch-protection hook
+blocks it). Leave the changes staged and tell the user to create a feature branch.
 
-`APPLY_STRUCTURAL` is never auto-applied. Emit it as a proposed, ordered
-refactor plan for the user's sign-off.
+`APPLY_STRUCTURAL` is never auto-applied. Emit it as an ordered refactor plan for the
+user's sign-off.
 
 ### Characterization-test scaffolding (deep mode)
 
-Before you propose a structural change to untested code, scaffold a safety net
-so the refactor can be verified. Quick mode skips this.
+Before proposing a structural change to untested code, scaffold a safety net. Quick
+mode skips this.
 
-- Test at the stable seam, one level above the largest thing the refactor
-  moves, so the tests survive the restructuring:
-  - function internals with the signature kept: a unit test on that function
+- Test at the stable seam, one level above the largest thing the refactor moves, so the
+  tests survive it:
+  - function internals, signature kept: a unit test on the function
   - class methods: the class's public methods
-  - module or package: the module's public API
+  - module or package: its public API
   - whole project: end-to-end or smoke tests on the CLI or HTTP entry points
-- Pin current behavior, including bugs. These tests detect change, not
-  correctness. If one reveals a bug, that is a separate fix in a separate
-  commit.
-- Surface the generated tests for review, then commit them on their own before
-  any refactor commit. For complex output, prefer a golden-master snapshot:
-  capture output, refactor, diff.
+- Pin current behavior, bugs included. These detect change, not correctness. A revealed
+  bug is a separate fix in a separate commit.
+- Surface the tests for review, then commit them on their own before any refactor
+  commit. For complex output, prefer a golden-master snapshot: capture, refactor, diff.
 
 ## Quick path
 
-When `--quick` is set, dispatch no subagents and scaffold no tests. Read the
-target code once and surface at most 5 behavior-preserving findings across
-simplification, reuse, dead code, and docstrings or comments. There is no
-verifier pass. Judge the findings yourself. Partition them into the same
-`APPLY_MECHANICAL`, `APPLY_STRUCTURAL`, and `REPORT_ONLY` lists. `REFUTED` is
-empty. Then go to Phase 5, and to Phase 6 if `--fix` is set, applying only
-mechanical findings under the same green precondition and per-batch gate.
+No subagents, no test scaffolding, no verifier. Read the target once and surface at most
+5 behavior-preserving findings across simplification, reuse, dead code, and docstrings
+or comments, judging them yourself. Partition into the same three lists (`REFUTED` is
+empty). Go to Phase 5, then Phase 6 if `--fix`, applying only mechanical findings under
+the same green precondition and per-batch gate.

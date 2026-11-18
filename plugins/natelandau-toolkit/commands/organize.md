@@ -7,177 +7,140 @@ argument-hint: "[<target>]"
 
 # /organize: project navigability review
 
-Review how a project is organized so developers can find what they need and
-change it safely. This looks at file and directory topology, naming, and module
-boundaries, not the inside of individual functions. It complements `/refactor`,
-which works at the line level.
+Review how a project is organized so developers can find what they need and change it
+safely: file and directory topology, naming, module boundaries. Not the inside of
+functions; `/refactor` works at the line level.
 
 ## Scope and promise
 
-- Advisory only. This command produces a report and an ordered reorganization
-  plan. It never moves, renames, splits, or merges files, and it makes no
-  commits. File moves rewrite imports across the project, so a human reviews
-  and executes them with the `safe-refactoring` discipline.
-- Organization, not code quality. Line-level refactors (idioms,
-  simplification, reuse, docs, efficiency) belong to `/refactor`. Bugs and
-  security belong to `/code-review` and a security review. If an
-  organizational finding overlaps those, name it and point at the right tool.
-- Grounded in the stack's conventions. Justify every recommendation against
-  the detected ecosystem's norms (Python src-layout, Flask blueprints, JS
-  feature folders) and the loaded project standards, not generic taste.
+- Advisory only: a report and an ordered reorganization plan. Never moves, renames,
+  splits, or merges files; no commits. File moves rewrite imports project-wide, so a
+  human reviews and executes them with the `safe-refactoring` discipline.
+- Organization, not code quality. Line-level refactors (idioms, simplification, reuse,
+  docs, efficiency) belong to `/refactor`; bugs and security to `/code-review` and a
+  security review. Name any overlap and point at the right tool.
+- Grounded in the stack's conventions. Justify every recommendation against the
+  detected ecosystem's norms (Python src-layout, Flask blueprints, JS feature folders)
+  and the loaded standards, not generic taste.
 
 ## Arguments
 
-Parse `$ARGUMENTS` into one value:
+TARGET is all of `$ARGUMENTS`: a folder, a dotted module or package, or empty (the whole
+project under the cwd). A bare file is allowed but a weak signal; prefer a directory or
+the whole project, and say so when given a single file.
 
-- TARGET: everything in `$ARGUMENTS`. It can name a folder or a dotted module
-  or package, or be empty. If empty, default to the current working directory
-  (the whole project). A bare file is allowed but a weak signal. Prefer a
-  directory or the whole project, and say so when given a single file.
-
-Echo the resolved TARGET back to the user in one line before you proceed.
+Echo the resolved TARGET in one line before proceeding.
 
 ## Phase 1: Map
 
-Build the REPO MAP once. It goes to every finder.
+Build the REPO MAP once; it goes to every finder.
 
-1. Resolve TARGET into a concrete tree:
-   - A path (folder or file): that path.
-   - A dotted module or package: its directory or files on disk.
-   - Empty: the whole project under the current working directory.
+1. Resolve TARGET to a tree: a path is that path; a dotted module or package is its
+   directory or files; empty is the whole project. Empty result: stop and report
+   "nothing to review".
 
-   If the resolved set is empty, stop and report "nothing to review".
+2. Detect the stack (languages, frameworks, package layout) from manifests
+   (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`) and directory shape. Read
+   each standards source that exists and note the organizational norms to honor:
+   - `~/.claude/CLAUDE.md`
+   - repo-root `CLAUDE.md` and any `CLAUDE.md` in an ancestor directory of a target file
+   - language or framework standards for the target's file types
 
-2. Detect the stack and load conventions. Identify the languages, frameworks,
-   and package layout from the manifest files (`pyproject.toml`,
-   `package.json`, `go.mod`, `Cargo.toml`) and the directory shape. Read each
-   standards source that exists and note the organizational norms a
-   recommendation must honor:
-   - `~/.claude/CLAUDE.md` (user global)
-   - the repo-root `CLAUDE.md` and any `CLAUDE.md` in an ancestor directory of
-     a target file
-   - any language or framework standards that apply to the target's file types
+3. Summarize the dependency shape: top-level modules and the edges between them, a
+   coarse "what imports what" map, not a full graph. Raw material for spotting
+   grab-bags, miswired layers, and code that changes together but lives apart.
 
-3. Summarize the dependency shape. Produce a coarse "what imports what"
-   summary for the target: the top-level modules and the edges between them.
-   This is the raw material for detecting grab-bags, miswired layers, and code
-   that changes together but lives apart. Keep it a map, not a full import
-   graph.
-
-4. Assemble the REPO MAP: the resolved tree, the detected stack and its
-   conventions, the loaded standards, the dependency summary, and the verbatim
-   TARGET instructions. Focus or skip instructions in TARGET override an
-   angle's default breadth.
+4. Assemble the REPO MAP: resolved tree, stack and conventions, loaded standards,
+   dependency summary, verbatim TARGET instructions. Focus or skip instructions in
+   TARGET override an angle's default breadth.
 
 ## Phase 2: Find
 
-Dispatch each angle below in parallel as the `review-finder` subagent (it
-ships with this plugin and is read-only). Give each one the REPO MAP, its
-single angle prompt, and the candidate schema. It returns up to 8 candidate
-findings in that schema.
+Dispatch each angle in parallel as the read-only `review-finder` subagent (ships with
+this plugin), with the REPO MAP, its single angle prompt, and the candidate schema. Up
+to 8 candidates per angle.
 
-Candidate schema, per finding:
+Candidate schema:
 
-- `area` (string): the path, directory, or cluster the finding is about
-- `problem` (one line): what about the organization is hard to navigate or
-  change
-- `proposed_change`: the concrete reorganization (move, split, merge, rename,
-  or introduce a class or module), named in `safe-refactoring` vocabulary
-  where it fits
-- `navigation_cost`: the concrete friction a developer pays today, not a
-  hypothetical
-- `angle`: the angle id that produced it
+- `area` (string): the path, directory, or cluster
+- `problem` (one line): what is hard to navigate or change
+- `proposed_change`: the concrete reorganization (move, split, merge, rename, introduce
+  a class or module), in `safe-refactoring` vocabulary where it fits
+- `navigation_cost`: the concrete friction a developer pays today, not hypothetical
+- `angle`: the producing angle id
 
-A finder passes every candidate with a real `navigation_cost` through,
-including half-believed ones. The verifier judges them next. An angle that
-finds nothing returns an empty list.
+Finders pass through every candidate with a real `navigation_cost`, half-believed ones
+too; the verifier judges next. Nothing found: empty list.
 
 ### Angle prompts
 
-Judge every angle against the detected stack's conventions and the loaded
-standards. For a mixed-stack target, judge each area by its own ecosystem's
-norms.
+Judge every angle against the stack's conventions and loaded standards; in a
+mixed-stack target, judge each area by its own ecosystem.
 
-**topology**: Review the directory layout and grouping against this
-ecosystem's conventions. Flag flat dumping grounds, inconsistent grouping (part
-by feature, part by type), and packages that mix unrelated concerns. Flag code
-in the wrong layer, such as business logic under a `models/` or `routes/`
-directory. Name the conventional layout for this stack and where the project diverges in
-a way that costs navigation.
+**topology**: Directory layout and grouping against the ecosystem's conventions. Flag
+flat dumping grounds, inconsistent grouping (part by feature, part by type), packages
+mixing unrelated concerns, and code in the wrong layer (business logic under `models/`
+or `routes/`). Name the conventional layout and where the project diverges in a way that
+costs navigation.
 
-**cohesion**: Owns all splitting and merging of existing containers. Find
-files and packages whose contents do not belong together, in two directions.
-First, grab-bags and god-files: `utils`, `helpers`, `misc`, `common`, or
-oversized multi-responsibility files that split along their internal seams.
-Name the seams and the target homes. Second, over-fragmentation: many tiny
-files or packages that fragment one cohesive concept and belong together.
-Justify each by the friction the current shape causes. Functions spread across
-several files with no proper home belong to **boundaries**, not here.
+**cohesion**: Owns all splitting and merging of existing containers, in two directions.
+Grab-bags and god-files (`utils`, `helpers`, `misc`, `common`, oversized
+multi-responsibility files): name the internal seams and target homes.
+Over-fragmentation: many tiny files or packages splitting one cohesive concept. Justify
+each by the friction the current shape causes. Functions scattered across files with no
+home belong to **boundaries**.
 
-**boundaries**: Owns only the gather-the-homeless case. Functions, constants,
-and state operate on one domain or resource, but they are scattered across
-several files with no module or class that owns them. Recommend consolidating
-them into a focused module, or into a service or handler class when the
-cluster shares state or lifecycle. Name the scattered members and the new
-boundary. Do not flag oversized or grab-bag files that merely need splitting
-(that is **cohesion**), and do not recommend a class where a plain module is
-the idiomatic home for this stack.
+**boundaries**: Owns only the gather-the-homeless case: functions, constants, and state
+for one domain or resource scattered across files with no owning module or class.
+Recommend a focused module, or a service or handler class when the cluster shares state
+or lifecycle. Name the scattered members and the new boundary. Not oversized or grab-bag
+files that merely need splitting (**cohesion**), and no class where a plain module is the stack's
+idiomatic home.
 
-**naming**: Flag file, directory, and module names that do not communicate
-what they contain: generic, misleading, or abbreviated past recognition. Flag
-naming-convention inconsistency across the tree, such as mixed casing or
-pluralization for the same kind of thing. Propose the clearer name and cite
-the inconsistency.
+**naming**: File, directory, and module names that don't communicate their contents:
+generic, misleading, or abbreviated past recognition. Also inconsistent conventions
+across the tree (mixed casing or pluralization for the same kind of thing). Propose the
+clearer name and cite the inconsistency.
 
-**colocation**: Find code that changes together but lives apart: a feature
-whose pieces are scattered across distant directories, so one logical change
-means editing many far-flung files. Use the dependency summary and naming
-patterns to identify the clusters, and name where they belong together.
+**colocation**: Code that changes together but lives apart: a feature scattered across
+distant directories, so one logical change edits many far-flung files. Use the
+dependency summary and naming patterns to find clusters; name where they belong.
 
-**wayfinding**: Take the newcomer's view. Flag what makes the project hard to
-enter: unclear or missing entry points, no obvious "start here", and critical
-modules buried deep in the tree. Also flag missing or misleading index or
-README signposting at directory level, and orphaned modules that nothing
-imports. Name the concrete wayfinding fix.
+**wayfinding**: The newcomer's view. Unclear or missing entry points, no obvious "start
+here", critical modules buried deep, missing or misleading directory-level index or
+README signposting, orphaned modules nothing imports. Name the concrete fix.
 
 ## Phase 3: Verify and refute
 
-Dispatch one `review-verifier` subagent (read-only) per candidate. Give it the
-REPO MAP and the candidate. It returns one verdict (`KEEP`, `PLAUSIBLE`, or
-`REFUTED`). No behavior-preservation judgment is needed here. For a `KEEP`, it
-must cite a navigation or maintenance cost the change removes. Examples: "a
-new developer hunting for auth logic must grep four directories", or "editing
-the billing feature forces touching `utils.py`, which 30 unrelated modules
-import".
+Dispatch one read-only `review-verifier` per candidate with the REPO MAP and the
+candidate. It returns `KEEP`, `PLAUSIBLE`, or `REFUTED`; no behavior-preservation
+judgment. A `KEEP` must cite a navigation or maintenance cost the change removes ("a new
+developer hunting for auth logic must grep four directories"; "editing billing forces
+touching `utils.py`, which 30 unrelated modules import").
 
-Drop REFUTED candidates, and record them briefly for the report. A finding
-survives only if it names a cost a developer pays today.
+Drop REFUTED candidates; record them briefly for the report. A finding survives only if
+it names a cost a developer pays today.
 
 ## Phase 4: Synthesize and report
 
-1. Merge candidates that describe the same root cause. Keep the clearest
-   statement.
-2. Rank the survivors by impact: navigation cost times how often the area
-   changes. Most impactful first.
-3. Cap the list at 10. If the cap forces a cut, drop the least impactful and
-   note the trimmed count.
+1. Merge same-root-cause candidates; keep the clearest statement.
+2. Rank by impact, most impactful first: navigation cost times how often the area
+   changes.
+3. Cap at 10, dropping the least impactful and noting the trimmed count.
 
-Then always print these sections:
+Always print:
 
-1. Today's map: one short paragraph on how the project is organized now and
-   the top friction points.
-2. Recommendations: the ranked survivors, grouped by theme, each as
-   `area - summary`, followed by the proposed change, the cited
-   `navigation_cost`, and one confidence label from the `review-verifier`
-   mapping (Confirmed or Worth considering). Never print the raw verdict
+1. Today's map: one short paragraph on the current organization and top friction
+   points.
+2. Recommendations: ranked survivors grouped by theme, each as `area - summary`, then
+   the proposed change, the cited `navigation_cost`, and one confidence label from the
+   `review-verifier` mapping (Confirmed or Worth considering). Never print raw verdict
    tokens.
-3. Ordered reorganization plan: the recommendations sequenced into safe steps
-   that respect dependencies (create the package, move files into it, update
-   imports, rename). Each step carries a one-line risk note. Open the plan
-   with a reminder to establish test coverage at a stable seam before any
-   structural move. Note that execution follows the `safe-refactoring`
-   discipline: small steps, green tests between batches, behavior preserved.
-   This command does not execute the plan.
+3. Ordered reorganization plan: safe steps respecting dependencies (create the package,
+   move files, update imports, rename), each with a one-line risk note. Open with a
+   reminder to establish test coverage at a stable seam before any structural move.
+   Execution follows the `safe-refactoring` discipline: small steps, green tests between
+   batches, behavior preserved. This command does not execute it.
 4. Considered and dropped: each REFUTED candidate on one line.
 
-Stop after the report. This command never moves files and never commits.
+Stop after the report. Never move files or commit.

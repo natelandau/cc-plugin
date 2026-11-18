@@ -1,18 +1,15 @@
 # Output directory: shared location rule
 
-A skill that writes a generated file for the user reads this document to decide
-where the file goes. The file goes in a per-user cache directory outside the
-repo, so it never lands in version control and the skill never changes the
-repo to hide it. The cache survives a reboot, so the user can open the file, or
-run a saved script, again later.
+Where a skill writes a generated file for the user: a per-user cache directory outside
+the repo, so it never lands in version control and the repo is never changed to hide
+it. The cache survives a reboot, so the user can reopen the file or rerun a saved
+script.
 
-The calling skill picks a `<kind>` name for its output, such as `explanations`.
-Replace `<kind>` below with that name.
+The calling skill picks a `<kind>` (such as `explanations`); substitute it below.
 
 ## Choose the location
 
-1. Find the cache root. Use `$XDG_CACHE_HOME` when it is set to an absolute
-   path. Otherwise use `$HOME/.cache`:
+1. Cache root: `$XDG_CACHE_HOME` when set to an absolute path, else `$HOME/.cache`:
 
    ```bash
    case "${XDG_CACHE_HOME:-}" in
@@ -21,28 +18,17 @@ Replace `<kind>` below with that name.
    esac
    ```
 
-2. Find the repo name, the last path component of the repo root:
-
-   ```bash
-   basename "$(git rev-parse --show-toplevel)"
-   ```
-
-   In a git worktree, the repo root is the root of that worktree, so each
-   worktree gets its own folder. If the command fails, the directory is not in
-   a git repo. Use `no-repo` as the repo name.
-3. Make the target directory, and its parents, if it does not exist:
-
-   ```bash
-   mkdir -p "$cache/natelandau-toolkit/<repo-name>/<kind>"
-   ```
-
-4. Write the file into the target directory. Tell the user its absolute path.
+2. Repo name: `basename "$(git rev-parse --show-toplevel)"`. In a worktree this is the
+   worktree root, so each worktree gets its own folder. If the command fails (not a git
+   repo), use `no-repo`.
+3. `mkdir -p "$cache/natelandau-toolkit/<repo-name>/<kind>"`
+4. Write the file there and tell the user its absolute path.
 
 ## Name the file
 
-Start each file or folder name with today's date as `YYYY-MM-DD-`, so the
-entries sort by time. For example:
+Prefix each file or folder name with today's date as `YYYY-MM-DD-` so entries sort by
+time, for example
 `~/.cache/natelandau-toolkit/<repo-name>/explanations/2026-07-08-explanation-<slug>.html`.
 
-Two repos can share a name, so never overwrite an entry that already exists.
-If the name is taken, add `-2`, `-3`, and so on before the extension.
+Two repos can share a name, so never overwrite an existing entry. If the name is taken,
+add `-2`, `-3`, and so on before the extension.

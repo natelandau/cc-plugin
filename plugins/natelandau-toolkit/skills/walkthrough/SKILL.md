@@ -6,21 +6,20 @@ disable-model-invocation: true
 
 # Walkthrough
 
-The user wants to see the front-end work that you built, without launching the
-app themselves. You capture stills and short clips of each built behavior and
-put them into one local HTML page. From that page alone, the user must be able
-to tell whether each behavior works and looks right, and what you did not show.
+Capture stills and short clips of each front-end behavior you built and assemble them
+into one local HTML page, so the user can see the work without launching the app. From
+the page alone, the user must be able to tell whether each behavior works and looks
+right, and what you did not show.
 
 ## Skill files
 
-The skill directory is `${CLAUDE_SKILL_DIR}`. The scripts are in
-`${CLAUDE_SKILL_DIR}/scripts/`. Only this file shows the resolved absolute path.
-The reference files and the `run.sh` skeleton write the skill directory as the
-placeholder `CLAUDE_SKILL_DIR` in shell-variable form. In a command that you
-run, replace that placeholder with the absolute path above. In `run.sh`, set it
-once as a shell variable at the top, as the skeleton shows.
+The skill directory is `${CLAUDE_SKILL_DIR}`; scripts are in
+`${CLAUDE_SKILL_DIR}/scripts/`. Only this file shows the resolved absolute path. The
+references and the `run.sh` skeleton write it as the shell-variable placeholder
+`CLAUDE_SKILL_DIR`: in a command you run, substitute the absolute path; in `run.sh`, set
+it once at the top as the skeleton shows.
 
-Read only the references for the platforms that you capture:
+Read only the references for the platforms you capture:
 
 | File | Read it when |
 |---|---|
@@ -33,142 +32,115 @@ Read only the references for the platforms that you capture:
 
 ## When you stop for the user
 
-The run waits for the user at these times, and at no other time:
+The run waits for the user at these times and no others:
 
-1. The scene plan, before any capture. The user confirms or trims it. If the
-   run installs the app on an iOS simulator or an Android virtual device, name
-   that device in the plan. The run uses a device that the user already has,
-   running or shut down, and the install replaces any build of the app that
-   the user had on it. If the run uses a project script that quits, replaces,
-   or installs over a copy of the app, name that behavior in the plan too.
-   If the run must switch to another device during the run, that switch is
-   a new stop of this kind: name the device, and wait for a yes.
-2. A tool or permission that preflight reports as missing. For a tool, show
-   the install command, and run it only after the user says yes. For a
-   permission, name the System Settings pane, for example **Privacy &
-   Security > Screen Recording**. Skip that platform unless the user grants the
-   permission and asks you to continue.
-3. The focus notice, once, before `run.sh` starts. `run.sh` cannot pause in
-   the middle of a run, so name every step that can take focus in this one
-   notice: the macOS UI test or launch, a possible second macOS capture with
-   the app in front when Stage Manager gives a thumbnail, bringing an
-   off-screen window to the front for Peekaboo or for region video, the
-   region video, and the Simulator window that an iOS XCUITest run can open.
-   Give a rough total of N seconds, with N estimated from the steps. Wait
-   until the user says to start.
-4. Peekaboo. Get the user's yes for each run, because Peekaboo clicks and
-   types in the real app, and it can bring the app to the front.
-5. A scene that needs a sign-in, when you find no test account. Ask for one.
-6. A sample flag that writes into the app's normal data store. Ask before you
-   use it, because it changes the data of the user's own copy of the app.
-7. A copy of the app that is already running. Stop and ask the user to quit
-   it. Never quit or signal it yourself.
+1. **The scene plan**, before any capture. The user confirms or trims it. Name in the
+   plan: the iOS simulator or Android virtual device the run installs on, and any project script that quits, replaces, or installs over a copy of the
+   app. Switching to another device mid-run is a new stop of this kind: name the device
+   and wait for a yes. Use a device the user already has, running or shut down. The
+   install replaces any build of the app on it.
+2. **A missing tool or permission** from preflight. Tool: show the install command and
+   run it only on a yes. Permission: name the System Settings pane (for example
+   **Privacy & Security > Screen Recording**), and skip that platform unless the user
+   grants it and asks to continue.
+3. **The focus notice**, once, before `run.sh` starts. `run.sh` can't pause mid-run, so
+   name every step that can take focus: the macOS UI test or launch, a possible second
+   macOS capture with the app in front when Stage Manager gives a thumbnail, bringing an
+   off-screen window to the front for Peekaboo or region video, the region video (it
+   records part of the real screen; keep clips short), and the Simulator window an iOS
+   XCUITest run can open. Give a rough total of N seconds estimated from the steps. Wait
+   until the user says start.
+4. **Peekaboo**: a yes for each run, because it clicks and types in the real app and can
+   bring it to the front.
+5. **A sign-in scene with no test account**: ask for one.
+6. **A sample flag that writes to the app's normal data store**: ask first; it changes
+   the data of the user's own copy.
+7. **A copy of the app already running**: ask the user to quit it. Never quit or signal
+   it yourself. (Drivers stop a running app, and so do iOS and Android installs.)
 
-If the app does not launch, the run ends. Report the error, because that
-failure is the finding. Do not look for a way around it.
+If the app does not launch, the run ends. Report the error; that failure is the finding.
+Don't look for a way around it.
 
 ## Flow
 
 ### 1. Find the scope
 
-Start from the conversation: what did the user ask you to build? Then read the
-diff, `git diff main...HEAD` plus the uncommitted changes, to find UI changes
-that the conversation did not mention. If the default branch is not `main`, use
-the default branch. If the change is already on the default branch, read the
-commits of the change with `git show <sha>` instead.
+Start from the conversation: what did the user ask you to build? Then read the diff
+(`git diff <default-branch>...HEAD` plus uncommitted changes) for UI changes the
+conversation didn't mention. If the change is already on the default branch, read its
+commits with `git show <sha>`.
 
 ### 2. Find the platforms
 
-Choose the platforms from the files that the diff touches, not from all the
-platforms that the repo contains. A web-only change in a repo with an iOS app
-gets only web captures.
+From the files the diff touches, not every platform in the repo. A web-only change in a
+repo with an iOS app gets only web captures.
 
 ### 3. Plan the scenes, then stop
 
-A scene is one behavior that a user can see. For each scene, write down:
+A scene is one user-visible behavior. Per scene:
 
-- The starting state.
-- The steps.
-- Stills or a clip. Use a clip only when the behavior is motion or a sequence.
-- The viewports or devices. The web defaults are desktop `1440x900` and mobile
-  `390x844`.
-- Whether a before/after applies. See "Before and after".
+- Starting state.
+- Steps.
+- Stills or a clip (a clip only for motion or a sequence).
+- Viewports or devices. Web defaults: desktop `1440x900`, mobile `390x844`.
+- Whether a before/after applies (see "Before and after").
 
-Show the plan to the user and wait. Nothing slow runs until the user confirms or
-trims the plan.
+Show the plan and wait. Nothing slow runs until the user confirms or trims it.
 
 ### 4. Find the launch state
 
-First read the project's agent instructions (`CLAUDE.md`, `AGENTS.md`) and its
-task runner (`justfile`, `Makefile`, `package.json` scripts). Use the project's
-own recipes for worktrees, dev servers, builds, app launch and quit, seed data,
-and test accounts. The recipes in this skill are the fallback when the project
-has none.
+First read the project's agent instructions (`CLAUDE.md`, `AGENTS.md`) and task runner
+(`justfile`, `Makefile`, `package.json` scripts). Use the project's own recipes for
+worktrees, dev servers, builds, app launch and quit, seed data, and test accounts; this
+skill's recipes are the fallback.
 
-A project script can quit or replace a running copy of its app, for example a
-script that installs one shared dev app and holds a lease on it. Use that
-script as the project intends, with these limits:
+A project script can quit or replace a running copy of its app (for example, one that
+installs a shared dev app and holds a lease on it). Use it as intended, but: do this
+skill's running-app check before calling it (stop 7), name its effects in the plan
+(stop 1), and run the project's matching quit or release command in cleanup. This
+skill's rules still apply to every command the skill itself runs.
 
-- Before you call the script, do the running-app check of this skill. If a
-  copy of the app runs, stop and ask the user to quit it.
-- Name what the script quits, replaces, or installs in the scene plan (stop
-  1 in "When you stop for the user").
-- In the cleanup, run the matching quit or release command of the project.
-
-The rules of this skill still apply to every command that the skill itself
-runs.
-
-Then find how the project reaches each starting state: its dev-server command,
-seed data, sample-mode launch arguments, and test accounts. If you cannot reach
-a starting state, put that scene under "Not shown" with the reason. Never use
-the user's real data, and never show a sign-in wall in place of the scene.
+Find how the project reaches each starting state: dev-server command, seed data,
+sample-mode launch arguments, test accounts. An unreachable starting state goes under
+"Not shown" with the reason. Never use the user's real data, and never show a sign-in
+wall in place of the scene.
 
 ### 5. Preflight and capture
 
-Run the preflight for the confirmed platforms. For macOS, add a flag that makes
-Screen Recording a required check:
-
-- Add `--screen` when a macOS still comes from `screencapture -l`, which is
-  every still that no UI test takes.
-- Add `--video` when a macOS scene needs a clip. `--video` includes the
-  `--screen` check.
+Run preflight for the confirmed platforms. For macOS, make Screen Recording a required
+check: `--screen` when a macOS still comes from `screencapture -l` (every still no UI
+test takes); `--video` when a macOS scene needs a clip (includes `--screen`).
 
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/preflight.py web macos --screen
 ```
 
-Exit code `1` means that a required tool or permission is missing. The output
-shows the install command or the settings pane under each `MISSING` line. If
-the user declines, skip that platform and list its scenes under "Not shown".
+Exit `1`: a required tool or permission is missing; the install command or settings pane
+is under each `MISSING` line. If the user declines, skip that platform and list its
+scenes under "Not shown".
 
-Then write the capture files and `run.sh` into the walkthrough `scripts/`
-folder, run `run.sh`, and let it encode the clips. Follow the platform
-references for each command.
+Write the capture files and `run.sh` into the walkthrough `scripts/` folder, run
+`run.sh`, and let it encode the clips. Follow the platform references for each command.
 
 ### 6. Check every capture
 
-Look at every still, and at the poster frame of every clip. A capture fails the
-check when it shows a spinner, an error, or the wrong state. Give a failed
-capture one retry with a longer wait or a wait for an element. If the retry also
-fails, move the capture to "Not shown" with the reason. Never present a bad
-capture as a good one.
+Look at every still and every clip's poster frame. A spinner, an error, or the wrong
+state fails. Retry once with a longer wait or a wait for an element; a second failure
+goes under "Not shown" with the reason. Never present a bad capture as good.
 
 ### 7. Assemble and open the page
 
-Write `index.html` as "The page" describes. Then open it in the background
-from the walkthrough folder that "Output folder" chose:
+Write `index.html` per "The page", open it in the background, and print its absolute
+path for later:
 
 ```bash
 open -g <walkthrough-folder>/index.html
 ```
 
-Print the absolute path of `index.html`, so the user can open it again later.
-
 ## Output folder
 
-Read `../shared/output-dir.md` (relative to this skill's base directory) and
-follow it with `<kind>` set to `walkthroughs`. Each walkthrough gets its own
-dated folder:
+Read `../shared/output-dir.md` (relative to this skill's base directory) and follow it
+with `<kind>` = `walkthroughs`. Each walkthrough gets a dated folder:
 
 ```text
 <walkthroughs-dir>/YYYY-MM-DD-<slug>/
@@ -180,124 +152,100 @@ dated folder:
   before-src/    temporary worktree for a web before/after, removed on exit
 ```
 
-`run.sh` regenerates `media/` with one command, so the user can run it again
-later. The capture files and the media go only into the walkthrough folder.
-The run changes these things outside it:
+`run.sh` regenerates `media/` in one command. Capture files and media go only into this
+folder. The run changes these things outside it:
 
-- The temporary copy of `WalkthroughTests.swift` that `run.sh` puts into a UI
-  test target and removes on exit.
-- The temporary copy of a web e2e spec that `run.sh` puts into the project's
-  e2e folder and removes on exit, and the throwaway database that the
-  project's e2e run owns.
-- The normal build output of the project, such as Xcode DerivedData, Gradle
-  `build/` folders, and the output folder of a web build. A build writes there
-  as it does when the user builds.
-- The app on the iOS simulator or Android virtual device that the run uses.
-  That device belongs to the user, whether it was running or shut down, and
-  the install replaces any build of the app that the user had on it. Stop 1
-  in "When you stop for the user" discloses this install.
-- What a project script changes when the run uses it, for example a dev app
-  that it installs to a fixed path, a lease that it holds, or a running copy
-  that it quits or replaces. Stop 1 discloses this too.
+- A temporary `WalkthroughTests.swift` copy in a UI test target, removed on exit.
+- A temporary web e2e spec copy in the project's e2e folder, removed on exit, and the
+  throwaway database the project's e2e run owns.
+- Normal build output (Xcode DerivedData, Gradle `build/`, the web build folder),
+  written as a user build would.
+- The app on the iOS simulator or Android virtual device used, which belongs to the
+  user; the install replaces any build on it (disclosed at stop 1).
+- What a project script changes: a dev app installed to a fixed path, a lease it holds,
+  a running copy it quits or replaces (disclosed at stop 1).
 
 ## Do not take over the screen
 
-The user keeps working while the captures run. Every capture runs in the
-background and leaves the focus, the mouse, and the keyboard alone, where the
-platform allows it.
+The user keeps working during captures. Every capture runs in the background and leaves
+focus, mouse, and keyboard alone where the platform allows.
 
-- Web: use headless browsers only. Never use a headed or `--interactive` mode.
-- iOS: boot simulators with `xcrun simctl boot`. Never open Simulator.app or
-  DeviceHub.
-- Android: start emulators with `-no-window`.
-- macOS: this platform cannot run fully in the background. Take stills first,
-  and put every macOS capture into one run. Start an app that no UI test drives
-  with the project's launch script, or with `open -g`. Stops 3 and 4 in "When
-  you stop for the user" cover the focus notice and Peekaboo.
-- iOS XCUITest: `xcodebuild test` can open the Simulator window. Stop 3 covers
-  it.
-- In the focus notice, tell the user that macOS region video records part of
-  the real screen. Keep each clip short.
-- Open the finished page with `open -g`, so the browser does not take focus.
+- Web: headless browsers only, never headed or `--interactive`.
+- iOS: boot simulators with `xcrun simctl boot`. Never open Simulator.app or DeviceHub.
+  `xcodebuild test` (XCUITest) can open the Simulator window (stop 3).
+- Android: emulators with `-no-window`.
+- macOS can't run fully in the background. Take stills first and put every macOS capture
+  in one run. Start an app no UI test drives with the project's launch script or
+  `open -g`. Stops 3 and 4 cover focus and Peekaboo.
+- Open the finished page with `open -g` so the browser doesn't take focus.
 
 ## The page
 
-Write one scrolling HTML page with inline CSS and a table of contents. Do not use
-tabs for the top-level structure, because the user must scroll the whole page and
-search it with Cmd-F. Make it responsive, so it reads on a phone. Reference media
-as relative files in `media/`, never as base64. `references/media.md` gives the
-HTML for stills, clips, and side-by-side viewports.
+One scrolling HTML page with inline CSS and a table of contents. No tabs for top-level
+structure; the user must scroll and Cmd-F the whole page. Responsive for phones. Media
+as relative files in `media/`, never base64. `references/media.md` has the HTML for
+stills, clips, and side-by-side viewports.
 
-At the top of the page:
+Top of the page:
 
-- A title, and one paragraph that summarizes the work in user terms.
+- A title and one paragraph summarizing the work in user terms.
 - A scene index of thumbnails, each linked to its scene.
-- **Coverage**: the platforms and viewports that you captured, and a **Not
-  shown** list with one reason for each gap.
+- **Coverage**: platforms and viewports captured, and a **Not shown** list with one
+  reason per gap.
 
-For each scene:
+Per scene:
 
-- A heading that names the behavior.
-- How to reach it by hand: the starting state and the steps, in words.
-- The media. Put stills in a row with a caption for each step. Embed clips as
-  `<video controls muted loop playsinline poster=...>`. Put the captures of
-  different viewports or platforms side by side at the same step.
-- **What to look for**: one or two sentences that point at the changed detail.
-- **Where it lives**: the main files for the scene, as plain paths. This is a
-  pointer, not a code walkthrough.
+- A heading naming the behavior.
+- How to reach it by hand: starting state and steps, in words.
+- The media. Stills in a row, one caption per step. Clips as
+  `<video controls muted loop playsinline poster=...>`. Different viewports or platforms
+  side by side at the same step.
+- **What to look for**: one or two sentences pointing at the changed detail.
+- **Where it lives**: the scene's main files as plain paths. A pointer, not a code
+  walkthrough.
 
-At the bottom of the page:
+Bottom of the page:
 
 - The re-run command and its prerequisites.
-- A capture log: tool versions, devices, simulator runtimes, and the date.
+- A capture log: tool versions, devices, simulator runtimes, date.
 
 ### Before and after
 
-The "before" is the code without the change. It is the merge base of `HEAD`
-and the default branch. If the change is already on the default branch,
-because `HEAD` is the default branch or the change is a merged commit, the
-"before" is the parent of the change (`<sha>^`).
+"Before" is the code without the change: the merge base of `HEAD` and the default
+branch, or, if the change is already on the default branch (`HEAD` is the default
+branch, or the change is a merged commit), its parent (`<sha>^`).
 
-Show a "before" capture only when it is straightforward. That means the
-"before" commit checks out into a temporary worktree and starts with the same
-command and launch state, with no migrations, new seed data, or other setup.
-Otherwise, write one sentence that describes the old behavior.
-
-The worktree steps in `references/web.md` cover web only. For an iOS, macOS, or
-Android scene, write the one-sentence "before", because a build of the "before"
-commit replaces the installed app.
+Capture a "before" only when straightforward: the commit checks out into a temporary
+worktree and starts with the same command and launch state, with no migrations, new
+seed data, or other setup. Otherwise write one sentence describing the old behavior.
+The worktree steps in `references/web.md` are web only; iOS, macOS, and Android scenes
+always get the one sentence, because building the "before" commit replaces the
+installed app.
 
 ## Cleanup and failures
 
-- `run.sh` cleans up on success and on failure with `trap cleanup EXIT`. It
-  stops the dev servers and the macOS app instances that it started, shuts
-  down the simulators that it booted, stops the emulators that it started,
-  clears the status-bar overrides, removes the XCUITest copy and the e2e spec
-  copy, and removes the before/after worktree. For a macOS app that a project
-  script launched, it runs the project's quit or release command. An app that
-  the run launched on a reused simulator or emulator keeps running after the
-  run.
-- Never stop a server, simulator, emulator, or app instance that was running
-  before the run, and never erase app data. If the app already runs, stop and
-  ask the user to quit it. The drivers stop a running app, and so does the
-  install on iOS and Android.
-- If some scenes fail, keep the scenes that captured. List the others under "Not
-  shown" with the error.
-- If a platform is not available, for example because of a declined install or a
-  missing permission, skip it and note it under "Not shown".
-- If the app does not launch, the run ends. See "When you stop for the user".
+- `run.sh` cleans up on success and failure with `trap cleanup EXIT`: stops the dev
+  servers and macOS app instances it started, shuts down simulators it booted, stops
+  emulators it started, clears status-bar overrides, removes the XCUITest and e2e spec
+  copies, and removes the before/after worktree. For a macOS app a project script
+  launched, it runs the project's quit or release command. An app launched on a reused
+  simulator or emulator keeps running after the run.
+- Never stop a server, simulator, emulator, or app instance that was running before the
+  run, and never erase app data.
+- Failed scenes: keep the ones that captured; list the others under "Not shown" with the
+  error.
+- Unavailable platform (declined install, missing permission): skip it and note it under
+  "Not shown".
 
 ## Privacy
 
-Use seed data, sample modes, and test accounts only. If a scene needs a sign-in
-and the project has no test account, ask the user for one. Never capture the
-user's own accounts, files, or data.
+Seed data, sample modes, and test accounts only. No test account for a sign-in scene:
+ask the user for one. Never capture the user's own accounts, files, or data.
 
 ## Always pair with technical-writer
 
-This skill covers the mechanics of the walkthrough: what to capture, how to
-capture it without taking over the screen, and how to build the page. Writing
-quality lives in the `technical-writer` skill. Before you assemble the page,
-invoke `technical-writer`, and follow it for every piece of text that you write
-into `index.html`: the summary, the captions, the steps, each "What to look
-for", and each "Not shown" reason.
+This skill covers the mechanics: what to capture, how without taking over the screen,
+and how to build the page. Writing quality lives in the `technical-writer` skill. Before
+assembling the page, invoke `technical-writer` and follow it for every piece of text in
+`index.html`: the summary, captions, steps, each "What to look for", and each "Not
+shown" reason.
