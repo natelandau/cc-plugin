@@ -1,6 +1,6 @@
 {
   "name": "natelandau-nclutils",
-  "version": "0.28.3",
+  "version": "0.28.4",
   "description": "Skill for projects that depend on the nclutils package. Install per repo.",
   "author": {
     "name": "Nathaniel Landau"
