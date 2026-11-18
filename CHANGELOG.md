@@ -1,3 +1,14 @@
+## v0.28.3 (2026-11-18)
+
+### Fix
+
+- **git**: check the local trunk before landing or opening a PR
+
+### Refactor
+
+- **toolkit**: tighten skill, command, and agent prose
+- **git**: tighten branch workflow skill prose
+
 ## v0.28.2 (2026-11-13)
 
 ### Fix
