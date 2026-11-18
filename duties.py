@@ -34,6 +34,16 @@ SH_SRC_LIST = tuple(
 CI = os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}
 PROJECT_ROOT = Path(__file__).parent
 VERSION = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
+# Gate scopes: files each gate reads, so a Markdown-only edit skips the Python gates
+PY_GATE_PATHS = ("*.py", "pyproject.toml", "uv.lock")
+TEST_GATE_PATHS = (
+    "plugins/",
+    "tests/",
+    ".claude-plugin/",
+    "pyproject.toml",
+    "uv.lock",
+    "duties.py",
+)
 
 
 def strip_ansi(text: str) -> str:
@@ -51,17 +61,20 @@ def strip_ansi(text: str) -> str:
     return ansi_chars.sub("", text).replace("[", r"\[")
 
 
-def gated(name: str, cmd: list[str]) -> list[str]:
+def gated(name: str, cmd: list[str], paths: tuple[str, ...] = ()) -> list[str]:
     """Wrap a gate command in gate-cache so it skips on a tree where it already passed.
 
     Args:
         name (str): Marker name for the gate.
         cmd (list[str]): Command to run.
+        paths (tuple[str, ...]): Git pathspecs the command reads. When given, a change
+            outside them does not rerun the gate, so list every tracked file it reads.
 
     Returns:
         list[str]: The command prefixed with the gate-cache invocation.
     """
-    return ["gate-cache", "--name", name, "--", *cmd]
+    scope = [arg for path in paths for arg in ("--path", path)]
+    return ["gate-cache", "--name", name, *scope, "--", *cmd]
 
 
 def pyprefix(title: str) -> str:
@@ -92,7 +105,11 @@ def clean(ctx: Context) -> None:
 def ruff(ctx: Context) -> None:
     """Check the code quality with ruff."""
     ctx.run(
-        gated("ruff", ["ruff", "check", "--config", "pyproject.toml", "--no-fix", *PY_SRC_LIST]),
+        gated(
+            "ruff",
+            ["ruff", "check", "--config", "pyproject.toml", "--no-fix", *PY_SRC_LIST],
+            paths=PY_GATE_PATHS,
+        ),
         title=pyprefix("code quality check"),
     )
 
@@ -101,7 +118,11 @@ def ruff(ctx: Context) -> None:
 def format(ctx: Context) -> None:  # noqa: A001
     """Format the code with ruff."""
     ctx.run(
-        gated("format", ["ruff", "format", "--check", "--config", "pyproject.toml", *PY_SRC_LIST]),
+        gated(
+            "format",
+            ["ruff", "format", "--check", "--config", "pyproject.toml", *PY_SRC_LIST],
+            paths=PY_GATE_PATHS,
+        ),
         title=pyprefix("code formatting"),
     )
 
@@ -110,7 +131,7 @@ def format(ctx: Context) -> None:  # noqa: A001
 def ty(ctx: Context) -> None:
     """Check the code with ty."""
     ctx.run(
-        gated("ty", ["ty", "check"]),
+        gated("ty", ["ty", "check"], paths=PY_GATE_PATHS),
         title="ty check",
     )
 
@@ -119,7 +140,7 @@ def ty(ctx: Context) -> None:
 def vulture(ctx: Context) -> None:
     """Find unused code with vulture."""
     ctx.run(
-        gated("vulture", ["vulture"]),
+        gated("vulture", ["vulture"], paths=PY_GATE_PATHS),
         title=pyprefix("vulture check"),
     )
 
@@ -192,7 +213,7 @@ def test(ctx: Context, *cli_args: str) -> None:
     ]
     # A marker covers the name, not the arguments, so a filtered pass must not skip the full suite
     ctx.run(
-        cmd if cli_args else gated("test", cmd),
+        cmd if cli_args else gated("test", cmd, paths=TEST_GATE_PATHS),
         title=pyprefix("Running tests - this may take a while"),
         capture=CI,
     )

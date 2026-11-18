@@ -132,9 +132,10 @@ repos:
           (?x)^(
           plugins/|
           tests/|
+          \.claude-plugin/|
+          duties\.py|
           uv\.lock|
-          pyproject\.toml
-          )
+          pyproject\.toml)
 
       # Workaround until commitizen fixes its commitizen-branch hook (see commitizen #1923).
       # The upstream hook's args contain the literal "$PRE_COMMIT_FROM_REF..$PRE_COMMIT_TO_REF",

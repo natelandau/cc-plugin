@@ -23,6 +23,11 @@ uv run ruff format . # apply formatting (duty format only checks)
 `ty` is the sole typechecker; ignore Pyright. Skills, commands, and agents are content
 with no test harness. Run the gates before committing a code change.
 
+- Run checks only through these duties, never the bare tool (`pytest`, `ruff`). Each
+  gate runs through gate-cache, and a direct run skips its shared pass records.
+- Run `gate-cache --skill` before adding or changing a gate in `duties.py`. A scoped
+  gate (`PY_GATE_PATHS`, `TEST_GATE_PATHS`) must list every tracked file it reads.
+
 ## Hook code
 
 - **Live docs drift.** Before authoring or modifying a hook/skill/command/agent, fetch

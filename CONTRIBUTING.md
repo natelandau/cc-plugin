@@ -59,7 +59,7 @@ uv run duty test tests/test_use_uv.py
 
 Each linter also runs on its own, for example `uv run duty ty` or `uv run duty ruff`. `duty format` only checks formatting. To apply it, run `uv run ruff format .`. Tests resolve paths through `conftest.py` fixtures, so they run from any working directory.
 
-Each gate runs through [gate-cache](https://github.com/natelandau/gate-cache). When a gate passes, gate-cache records the content of the working tree. The next run on the same content skips the gate and exits at once. Your terminal, agents, and the git hooks share these records, so a gate that passed before a commit does not run again in the commit hook. A filtered `duty test` run is never cached. CI sets `CI=true`, which turns the cache off. To run a gate without the cache, set `GATE_CACHE_DISABLE=1`.
+Each gate runs through [gate-cache](https://github.com/natelandau/gate-cache). When a gate passes, gate-cache records the content of the files that the gate reads. The next run skips the gate and exits at once, unless one of those files changed. The file lists are `PY_GATE_PATHS` and `TEST_GATE_PATHS` in `duties.py`. For example, a change to Markdown only does not run ruff, format, ty, or vulture again. When you add a gate or change what a gate reads, list every tracked file that it reads. Your terminal, agents, and the git hooks share these records, so a gate that passed before a commit does not run again in the commit hook. A filtered `duty test` run is never cached. CI sets `CI=true`, which turns the cache off. To run a gate without the cache, set `GATE_CACHE_DISABLE=1`.
 
 To install the git hooks, run `uv run prek install`.
 
