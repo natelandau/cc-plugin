@@ -44,6 +44,7 @@ TEST_GATE_PATHS = (
     "uv.lock",
     "duties.py",
 )
+TEST_JUNIT_REPORT = ".cache/junit/test.xml"
 
 
 def strip_ansi(text: str) -> str:
@@ -61,7 +62,9 @@ def strip_ansi(text: str) -> str:
     return ansi_chars.sub("", text).replace("[", r"\[")
 
 
-def gated(name: str, cmd: list[str], paths: tuple[str, ...] = ()) -> list[str]:
+def gated(
+    name: str, cmd: list[str], paths: tuple[str, ...] = (), junit: str | None = None
+) -> list[str]:
     """Wrap a gate command in gate-cache so it skips on a tree where it already passed.
 
     Args:
@@ -69,12 +72,16 @@ def gated(name: str, cmd: list[str], paths: tuple[str, ...] = ()) -> list[str]:
         cmd (list[str]): Command to run.
         paths (tuple[str, ...]): Git pathspecs the command reads. When given, a change
             outside them does not rerun the gate, so list every tracked file it reads.
+        junit (str | None): JUnit XML report the command writes. gate-cache records
+            each test's outcome and duration from it, so stats can name slow and flaky
+            tests. Keep it under a git-ignored path, or the new file blocks the pass.
 
     Returns:
         list[str]: The command prefixed with the gate-cache invocation.
     """
     scope = [arg for path in paths for arg in ("--path", path)]
-    return ["gate-cache", "--name", name, *scope, "--", *cmd]
+    report = ["--junit", junit] if junit else []
+    return ["gate-cache", "--name", name, *scope, *report, "--", *cmd]
 
 
 def pyprefix(title: str) -> str:
@@ -213,7 +220,14 @@ def test(ctx: Context, *cli_args: str) -> None:
     ]
     # A marker covers the name, not the arguments, so a filtered pass must not skip the full suite
     ctx.run(
-        cmd if cli_args else gated("test", cmd, paths=TEST_GATE_PATHS),
+        cmd
+        if cli_args
+        else gated(
+            "test",
+            [*cmd, f"--junitxml={TEST_JUNIT_REPORT}"],
+            paths=TEST_GATE_PATHS,
+            junit=TEST_JUNIT_REPORT,
+        ),
         title=pyprefix("Running tests - this may take a while"),
         capture=CI,
     )
