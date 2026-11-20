@@ -15,7 +15,8 @@ description: >-
     or revised, even when the user never says "documentation" explicitly. Governs
     both the structure of the document (what to include, how to order it, how deep
     to go) and the craft of every sentence in it (ASD-STE100 rules for clear,
-    unambiguous prose that carries no AI slop).
+    unambiguous prose that carries no AI slop). Not for text an agent reads, such
+    as skills, subagent definitions, CLAUDE.md, or prompts.
 metadata:
     standard: ASD-STE100 Issue 9 (2025-01-15)
 ---
@@ -36,9 +37,9 @@ perfect sentences in the wrong order.
 Structure decides what is on the page. STE decides how each sentence and paragraph
 reads. They never touch the same decision, so neither overrides the other.
 
-Read [references/tropes.md](references/tropes.md) before you write. It catalogs the AI
-writing patterns that erode reader trust. STE removes many, and the trope list catches the
-rest.
+Read `../shared/tropes.md` (relative to this skill's base directory) before you write.
+It catalogs the AI writing patterns that erode reader trust. STE removes many, and the
+trope list catches the rest.
 
 Every rule applies to every job. No relaxed setting: a rule that applies only sometimes
 is one the reader cannot rely on. Section 1 keeps domain words legal, so "idempotent" and
@@ -151,7 +152,7 @@ target, not a reason to hold back on the edit.
 
 Length is not quality. Remove any section repeating a point already made, any summary of
 a section just read, any sentence carrying no fact (see "One-Point Dilution" and
-"Fractal Summaries" in `references/tropes.md`).
+"Fractal Summaries" in `../shared/tropes.md`).
 
 Two gates apply to every sentence, paragraph, and section. Failing either means it comes
 out.
@@ -355,7 +356,7 @@ question, and a working example, never chatty phrasing.
 - At least one introductory sentence after every heading, before a list or sub-heading.
 - Numbered lists for sequential steps, bullets otherwise. Items parallel in structure.
 - Never open every bullet with a bold keyword. It marks machine-written text ("Bold-First
-  Bullets" in `references/tropes.md`).
+  Bullets" in `../shared/tropes.md`).
 - Descriptive anchor text on every link. It makes sense out of context, "click here"
   never does.
 - Notes and warnings as blockquotes: `> **Note:**`, `> **Warning:**`.
@@ -409,7 +410,7 @@ Not optional. Run before delivering.
    `no longer`, `used to`, `as requested`. Each is a candidate leak of the moment of
    writing: delete it or restate the present-tense fact.
 10. Re-read every section against Gate 1. Delete what the reader does not need.
-11. Scan for the tropes in `references/tropes.md` and rewrite any passage carrying one.
+11. Scan for the tropes in `../shared/tropes.md` and rewrite any passage carrying one.
 12. Ask whether the page needs a larger change than you made. If yes, go back and make
     it. An edit that stopped at the comfortable size serves nobody.
 13. Run the docs formatter or linter, if any.
@@ -433,7 +434,7 @@ deliberate. Do not reverse one by accident.
 
 ## References
 
-- `references/tropes.md`: AI writing patterns to avoid. Read before writing.
+- `../shared/tropes.md`: AI writing patterns to avoid. Read before writing.
 - `references/ste-rules.md`: all 53 ASD-STE100 rules, an example per section. Read for a
   rule number, an unclear application, or check-mode violation reports.
 - `references/checklist.md`: the full verification pass with searchable patterns. For
