@@ -207,6 +207,7 @@ The slash command includes the plugin name, for example `/natelandau-toolkit:ref
 | ------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `safe-refactoring` | Auto   | Keeps a refactor behavior-preserving, in any language.                                                                                                          |
 | `technical-writer` | Auto   | Writes and reviews user-facing docs, such as READMEs, changelogs, and guides. Applies ASD-STE100 Simplified Technical English.                                  |
+| `prompt-writer`    | Auto   | Writes and reviews text that agents read, such as skills, subagents, CLAUDE.md, and prompts. Keeps the text short.                                              |
 | `/refactor`        | Manual | Reviews code for refactor opportunities with several subagents, rejects weak findings, and applies the safe ones with `--fix`. Use `--quick` for a single pass. |
 | `/organize`        | Manual | Reviews the project's file and module structure and writes a prioritized reorganization plan. It does not move files.                                           |
 | `/explain-diff`    | Manual | Explains a diff, branch, or PR as concepts and features, in an HTML page.                                                                                       |

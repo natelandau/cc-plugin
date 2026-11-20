@@ -223,9 +223,10 @@ def test_plugin_dependencies_resolve(plugin_root: Path) -> None:
 
 @pytest.mark.parametrize("skill_path", _skill_files(), ids=lambda p: p.parent.name)
 def test_skill_shared_refs_resolve(skill_path: Path) -> None:
-    """Verify every ../shared/ file a skill reads exists in that skill's own plugin."""
-    # Given the shared files the skill tells Claude to read
-    refs = _SHARED_REF_RE.findall(skill_path.read_text())
+    """Verify every ../shared/ file a skill or its references reads exists in its own plugin."""
+    # Given the shared files the skill and its reference files tell Claude to read
+    docs = [skill_path, *sorted(skill_path.parent.glob("references/**/*.md"))]
+    refs = [ref for doc in docs for ref in _SHARED_REF_RE.findall(doc.read_text())]
 
     # Then each one sits in the sibling shared directory, not in another plugin
     for ref in refs:

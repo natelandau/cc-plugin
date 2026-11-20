@@ -285,7 +285,7 @@ Every skill and command that Claude can start on its own puts its description in
 
 ### New skill
 
-Invoke the `skill-creator` skill inside Claude Code. It drafts the correct frontmatter and the required "Use when ..." description. Save the result to `plugins/<plugin>/skills/<name>/SKILL.md`. Optional supplementary content goes under `skills/<name>/references/`. Shared procedure goes in `skills/shared/*.md` of the same plugin, linked by relative path. A skill cannot read files from another plugin's directory, and the manifest test fails if a `../shared/` file is missing from the skill's own plugin.
+Write the skill with the `prompt-writer` skill inside Claude Code. It keeps the text short for the agent that reads it and gives the required "Use when ..." description. Save the result to `plugins/<plugin>/skills/<name>/SKILL.md`. Optional supplementary content goes under `skills/<name>/references/`. Shared procedure goes in `skills/shared/*.md` of the same plugin, linked by relative path. A skill cannot read files from another plugin's directory, and the manifest test fails if a `../shared/` file is missing from the skill's own plugin.
 
 Don't cross-reference sibling skills or commands inside a component body. The reader is an agent executing that one component, often in an unrelated project, so state the behavior directly. Naming a hook the component actually trips, for example `enforce_commit_message`, is fine.
 

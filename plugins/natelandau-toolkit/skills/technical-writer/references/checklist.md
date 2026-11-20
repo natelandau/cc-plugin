@@ -70,6 +70,8 @@ can pass every check above and still fail the reader.
 13. **Accuracy.** Every command, flag, config key, default value, and described
     behavior matches the implementation. Verify against the code, not against the
     previous version of the document.
+    A qualified claim you could not verify keeps its qualifier ("can"), and no
+    detail appears that the source or the code does not state.
 14. **Bottom line first.** The opening states what the reader accomplishes. It does
     not warm up.
 15. **Scope.** The depth matches the document type. A README stays scannable in
@@ -82,7 +84,8 @@ can pass every check above and still fail the reader.
     appear in the sidebar, the index, or the navigation config.
 19. **Repetition.** No section summarizes a section the reader just finished. No
     idea appears in three phrasings. See "Fractal Summaries" and "One-Point
-    Dilution" in `tropes.md`.
+    Dilution" in `../shared/tropes.md` (relative to the skill's base
+    directory).
 20. **Necessity.** Every section earns its place by helping the reader finish the
     task. Delete background nobody needs, an option nobody uses, and an internal
     detail that changes nothing for the caller.
@@ -93,8 +96,9 @@ can pass every check above and still fail the reader.
 22. **No decay.** No wording goes stale on the next release. "The latest version",
     "the upcoming API", and "soon" each name a version or state a durable fact
     instead.
-23. **Tropes.** Read the draft against `tropes.md`. Rewrite any passage that
-    carries one of those patterns.
+23. **Tropes.** Read the draft against `../shared/tropes.md` (relative to the
+    skill's base directory). Rewrite any passage that carries one of those
+    patterns.
 24. **Right size.** The change matches the gap between the page and its goal. A
     page that needed reordering got reordered, and a page that needed replacing
     got replaced. An edit that stopped at the comfortable size fails this check.

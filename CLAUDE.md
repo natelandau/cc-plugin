@@ -71,8 +71,10 @@ with no test harness. Run the gates before committing a code change.
 
 ## Skills, commands, agents
 
-- Author or revise a skill with the `skill-creator` skill. The entry file is
-  `skills/<name>/SKILL.md` and its description starts "Use when …".
+- Write or revise a skill, command, agent, or CLAUDE.md with the `prompt-writer`
+  skill.
+- A skill's entry file is `skills/<name>/SKILL.md` and its description starts
+  "Use when …".
 - Every model-invocable skill or command costs context in every session with its
   plugin. Run-on-request components get `disable-model-invocation: true`; agent
   descriptions stay one line naming who dispatches them.
