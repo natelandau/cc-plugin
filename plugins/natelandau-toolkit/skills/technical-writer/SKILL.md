@@ -1,136 +1,104 @@
 ---
 name: technical-writer
 description: >-
-    Use when writing, updating, editing, rewriting, reviewing, or improving
-    user-facing documentation of any kind, including README files, CHANGELOGs,
-    release notes, setup or install guides, API references, onboarding docs,
-    contributing guides, runbooks, and similar prose meant to help someone
-    understand or use a project. Trigger on requests like "update the docs",
-    "rewrite the README", "fix the documentation", "document this", "add a setup
-    guide", "polish this README", "review my docs", "the docs are out of date",
-    "make this readable", "de-slop this", "write for non-native readers", or any
-    task that produces or edits prose that explains how to install, configure, or
-    use something. Also trigger when the user names STE, Simplified Technical
-    English, or ASD-STE100. Always invoke this skill when documentation is created
-    or revised, even when the user never says "documentation" explicitly. Governs
-    both the structure of the document (what to include, how to order it, how deep
-    to go) and the craft of every sentence in it (ASD-STE100 rules for clear,
-    unambiguous prose that carries no AI slop). Not for text an agent reads, such
-    as skills, subagent definitions, CLAUDE.md, or prompts.
+    Use when writing, editing, rewriting, reviewing, or updating user-facing
+    documentation: README, CHANGELOG, release notes, setup or install guides,
+    API references, onboarding or contributing guides, runbooks, or any prose
+    that explains how to install, configure, or use a project, even when the
+    user never says "documentation". Trigger on "update the docs", "rewrite the
+    README", "document this", "add a setup guide", "review my docs", "de-slop
+    this", "write for non-native readers", or a mention of STE, Simplified
+    Technical English, or ASD-STE100. Not for text an agent reads, such as
+    skills, subagent definitions, CLAUDE.md, or prompts.
 metadata:
     standard: ASD-STE100 Issue 9 (2025-01-15)
 ---
 
 # Technical Writer
 
-You are an expert technical writer. Output must be accurate against the code, shaped for a reader who arrives with a goal,
-and impossible to misread for a tired reader who is not a native English speaker.
+Target: docs accurate against the code, shaped for a reader who arrives with a goal, and
+impossible to misread for a tired non-native English reader.
 
-Two layers, kept separate. A well-structured page of vague sentences fails, and so do
-perfect sentences in the wrong order.
+Two layers, never mixed. Each fails without the other.
 
-| Layer         | Question it answers                                                           | Source of its rules                                   |
-| ------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Structure** | Which document is this? What goes in it? In what order? How deep? Is it true? | Steps 1, 2, and 6 below                               |
-| **Sentence**  | How does each individual sentence read?                                       | ASD-STE100 Simplified Technical English, Steps 3 to 5 |
+| Layer     | Decides                                               | Rules              |
+| --------- | ----------------------------------------------------- | ------------------ |
+| Structure | Which document, what goes in, order, depth, accuracy  | Steps 1, 2, 6      |
+| Sentence  | How each sentence and paragraph reads (ASD-STE100)    | Steps 3 to 5       |
 
-Structure decides what is on the page. STE decides how each sentence and paragraph
-reads. They never touch the same decision, so neither overrides the other.
+Read `../shared/tropes.md` (relative to this skill's base directory) before writing. It
+catalogs AI writing patterns that erode reader trust. STE removes many; the trope list
+catches the rest.
 
-Read `../shared/tropes.md` (relative to this skill's base directory) before you write.
-It catalogs the AI writing patterns that erode reader trust. STE removes many, and the
-trope list catches the rest.
+Every rule applies to every job, with no relaxed setting. Section 1 keeps domain words
+legal, so "idempotent" and "webhook" survive.
 
-Every rule applies to every job. No relaxed setting: a rule that applies only sometimes
-is one the reader cannot rely on. Section 1 keeps domain words legal, so "idempotent" and
-"webhook" survive.
+## Mandate
 
-## Your Mandate
-
-You hold full authority over the document. A request to review, rewrite, polish, update,
-or improve a page asks you to judge the whole page against its goal and make whatever
-change that demands, never to reword each sentence in place.
-
-The size of the change comes only from the gap between page and goal. Each is a correct
-outcome:
+A request to review, rewrite, polish, update, or improve a page means: judge the whole
+page against its goal and make the change that demands. Never reword each sentence in
+place. The gap between page and goal sets the edit size. Each outcome is valid:
 
 - No change: the page does its job. Say so and stop.
-- A few edits: a stale command, a missing prerequisite, a paragraph that buries its
-  point.
-- A structural change: reorder sections, merge or split pages, move a topic to where the
+- A few edits: stale command, missing prerequisite, paragraph that buries its point.
+- Structural change: reorder sections, merge or split pages, move a topic to where the
   reader looks.
-- A new page: the document answers the wrong question or has the wrong shape. Write the
+- New page: the document answers the wrong question or has the wrong shape. Write the
   page the reader needs and discard the rest.
 
-### Never write timidly
+Do not stop at a half-correction; a half-fixed bad page still fails. Content that fails
+a Step 2 gate comes out regardless of length. Reorder when the order fights the reader.
+Add a missing prerequisite, flag, or error case even when the user did not name it.
+Wrong content in a neighboring section is in scope.
 
-A bad page half-corrected still fails, now with the look of maintenance. Content that
-fails a Step 2 gate comes out. Length earns no protection. Reorder when the order fights
-the reader. A gap is a defect whether or not the user named it: add the missing
-prerequisite, flag, or error case. Wrong content in a neighboring section is in scope.
-You own the page, not only the part that brought you here.
+Limits:
 
-### Where the authority stops
-
-- Verify against the code before changing a technical claim. Bold and wrong is the one
-  result worse than timid.
-- Keep the project's deliberate conventions, such as its tone, framework, and file layout.
-- Never delete content you merely fail to understand. Find out what it does first.
-- Tell the user in your summary when a rewrite changes what the document promises.
-  Never bury a large change in silence.
-- Report what you changed and why, so the user can overrule a judgment call.
+- Verify against the code before changing a technical claim. Bold and wrong is worse
+  than timid.
+- Keep the project's deliberate conventions: tone, framework, file layout.
+- Never delete content you do not understand. Find out what it does first.
+- Report what changed and why, so the user can overrule a judgment call. Call out any
+  rewrite that changes what the document promises.
 
 ## Step 1: Prepare
 
-Investigate before you write. Docs that clash with their surroundings read as an
-intrusion.
+Docs that clash with their surroundings read as an intrusion. Discover first:
 
-### Discover the project context
+1. Doc directories (`docs/`, `documentation/`, `wiki/`).
+2. Doc framework, if any (`mkdocs.yml`, `docusaurus.config.js`, `zensical.toml`,
+   `book.toml`, and similar).
+3. Structure, terminology, and conventions of some existing pages.
+4. The sidebar, navigation config, or index a new page must join.
+5. The docs formatter or linter, if any.
 
-1. Find existing doc directories (`docs/`, `documentation/`, `wiki/`).
-2. Identify the doc framework, if any (`mkdocs.yml`, `docusaurus.config.js`,
-   `zensical.toml`, `book.toml`, and similar).
-3. Read some existing pages for structure, terminology, and conventions.
-4. Find the sidebar, navigation config, or index a new page must join.
-5. Identify the docs formatter or linter, if any.
+Then plan:
 
-### Plan the work
-
-- Establish the page's goal. It decides the edit size. A broad request ("fix the docs",
+- Establish the page's goal; it sets the edit size. A broad request ("fix the docs",
   "review this page") is a mandate to judge the whole, not a question to send back.
-- Ask the user only when the goal stays unclear after reading the page and the code (for
-  example, an undeterminable audience).
-- Read the source code the docs describe. Accuracy comes from the code, never
-  assumption.
+- Read the source code the docs describe. Accuracy comes from the code, never assumption.
 - Read the current version of every related page. If behavior changed, find every page
   that references it.
 - Write a step-by-step plan before editing.
 
+Stops: ask the user only when the goal stays unclear after reading the page and the code
+(for example, an undeterminable audience), or when you cannot tell which document the
+user wants. That second question is about the target, never a reason to shrink the edit.
+
 ## Step 2: Decide the Document
 
-The structural layer. Decide before writing a sentence, because it decides which
-sentences need to exist.
+Decide before writing a sentence; it decides which sentences need to exist.
 
-### Calibrate the scope
+### Scope by document type
 
-- **README**: install, quick start, pointers to deeper docs. Scannable in under two
-  minutes.
-- **Setup or onboarding guide**: prerequisites, environment setup, numbered steps, a
-  section confirming the result works.
-- **API reference**: every public endpoint or function, with parameters, return values,
-  examples, error codes.
-- **Conceptual guide**: the mental model before the mechanics. Why it exists before how
-  it operates.
-- **Changelog or release notes**: one line per change, grouped by type (added, changed,
-  fixed, removed).
-- **Commit message or PR description**: form from the user's commit conventions and repo
-  tooling. The body is descriptive and gives the reason. The diff already shows the
-  content.
-- **Runbook**: imperative steps under pager stress. Conditions first, warnings before the
-  step they protect.
-
-If you cannot tell which document the user wants, ask. That is a question about the
-target, not a reason to hold back on the edit.
+| Document                       | Contents                                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| README                         | Install, quick start, pointers to deeper docs. Scannable in under two minutes.                              |
+| Setup or onboarding guide      | Prerequisites, environment setup, numbered steps, a section confirming the result works.                    |
+| API reference                  | Every public endpoint or function: parameters, return values, examples, error codes.                        |
+| Conceptual guide               | Mental model before mechanics. Why it exists before how it operates.                                        |
+| Changelog or release notes     | One line per change, grouped by type (added, changed, fixed, removed).                                      |
+| Commit message or PR description | Form from the user's commit conventions and repo tooling. Body is descriptive and gives the reason; the diff shows the content. |
+| Runbook                        | Imperative steps under pager stress. Conditions first, warnings before the step they protect.               |
 
 ### Shape the content
 
@@ -142,25 +110,24 @@ target, not a reason to hold back on the edit.
 - Set technical depth for the audience. A contributor guide reads differently from a
   first-time quickstart.
 - A practical example for every concept: complete, runnable, in the project's primary
-  language, showing expected output and common errors.
+  language, with expected output and common errors.
 - Real names in examples, never "foo" and "bar".
-- The concrete specific over the abstract: the actual command, file, or config value.
+- Concrete over abstract: the actual command, file, or config value.
 - Verify described behavior against the code. Never document assumptions.
-- Update navigation, sidebar, index, and cross-links when adding a page.
+- When adding a page, update navigation, sidebar, index, and cross-links.
 
 ### Cut before you add
 
-Length is not quality. Remove any section repeating a point already made, any summary of
-a section just read, any sentence carrying no fact (see "One-Point Dilution" and
-"Fractal Summaries" in `../shared/tropes.md`).
+Length is not quality. Remove any section repeating a point, any summary of a section
+just read, any sentence carrying no fact (see "One-Point Dilution" and "Fractal
+Summaries" in `../shared/tropes.md`).
 
-Two gates apply to every sentence, paragraph, and section. Failing either means it comes
-out.
+Two gates apply to every sentence, paragraph, and section. Failing either: it comes out.
 
 #### Gate 1: does it serve the task?
 
-The document holds what the reader needs to finish the job, nothing beyond. True and
-interesting is not enough. Every spare paragraph hides the one that matters. Cut:
+Keep only what the reader needs to finish the job. True and interesting is not enough;
+every spare paragraph hides the one that matters. Cut:
 
 - Background the reader never needs.
 - Internal detail that changes nothing for the caller.
@@ -169,11 +136,9 @@ interesting is not enough. Every spare paragraph hides the one that matters. Cut
 
 #### Gate 2: does it read correctly with no context?
 
-Write for someone opening the page a year from now, who never saw the conversation or
-the change behind it. That reader is the only one who matters. Every other is temporary.
-
-It fails when the moment of writing leaks into the text. Docs record behavior that holds
-now. They are not a change record or a report to whoever asked.
+Reader: someone opening the page a year from now who never saw the conversation or the
+change behind it. Docs record behavior that holds at read time, never a change record or
+a report to the requester.
 
 | Do not write                                      | Write instead                                          |
 | ------------------------------------------------- | ------------------------------------------------------ |
@@ -185,27 +150,25 @@ now. They are not a change record or a report to whoever asked.
 | "currently", "at the time of writing", "for now"  | (state the fact, or name the version it applies to)    |
 | "see the discussion in PR #412 for the reason"    | (state the reason, or delete the sentence)             |
 | "note that we have now fixed the timeout bug"     | (delete, because a fixed bug has no reader)            |
+| "the latest release", "the upcoming API", "soon"  | (name the version, or the fact that survives releases) |
 
-Test: a sentence that makes sense only to someone who watched the change belongs in the
-commit message.
-
-Version-relative wording ("the latest release", "the upcoming API", "soon") decays into
-lies. Name the version, or write the fact that survives the next release.
+A sentence that makes sense only to someone who watched the change belongs in the commit
+message.
 
 ## Step 3: Classify Every Passage
 
-Each passage is procedural or descriptive. Every sentence rule depends on this, so
-classify first.
+Every passage is procedural or descriptive. Sentence rules depend on it, so classify
+first. Never mix the two in one passage.
 
 |                | Procedural (instructions)          | Descriptive (explanations)                                 |
 | -------------- | ---------------------------------- | ---------------------------------------------------------- |
 | Purpose        | Tell the reader what to do         | Explain what a thing is or does                            |
 | Verb form      | Imperative: "Install the package." | Simple present, past, or future                            |
-| Sentence limit | **20 words** (Rule 5.1)            | **25 words** (Rule 6.3)                                    |
+| Sentence limit | 20 words (Rule 5.1)                | 25 words (Rule 6.3)                                        |
 | Unit rule      | One instruction per sentence (5.2) | One topic per paragraph (6.5), six sentences maximum (6.6) |
 
-Never mix the two in one passage. "Getting started" is procedural. "Architecture" is
-descriptive. A note inside a procedure is descriptive: 25-word limit, no imperative.
+"Getting started" is procedural. "Architecture" is descriptive. A note inside a
+procedure is descriptive: 25-word limit, no imperative.
 
 ## Step 4: Write the Sentences
 
@@ -214,53 +177,50 @@ descriptive. A note inside a procedure is descriptive: 25-word limit, no imperat
 Before drafting, pick one verb for the check/verify/confirm/validate concept and one noun
 for config/settings. Use no other word for them anywhere. Synonym rotation is the most
 common AI tell in technical prose and makes the reader wonder whether two words name two
-things. Choosing first is free. Fixing a rotation later is slow.
+things.
 
-### The rule catalog
+### Core rules
 
-All 53 rules are in [references/ste-rules.md](references/ste-rules.md), in 9 sections
-with a software example each. Read it when you need a rule number, when a rule's
-application is unclear, or when asked to check text rather than write it. Cite rule
-numbers only from that file, never memory.
+All 53 rules, in 9 sections with a software example each, are in
+[references/ste-rules.md](references/ste-rules.md). Read it for a rule number, an unclear
+application, or check mode. Cite rule numbers only from that file, never memory.
 
-These carry most of the catalog and apply to every sentence:
+These apply to every sentence:
 
-- **Verb forms** (3.1 to 3.7). Infinitive, imperative, simple present, simple past,
-  simple future, past participle as adjective. No perfect tense, no "-ing" form as a
-  verb. Active voice. Passive only in descriptive text with an unknown actor. Describe an
+- Verb forms (3.1 to 3.7): infinitive, imperative, simple present, simple past, simple
+  future, past participle as adjective. No perfect tense, no "-ing" form as a verb.
+  Active voice. Passive only in descriptive text with an unknown actor. Describe an
   action with a verb: "compress the file", not "perform compression of the file".
-- **Modals** (3.2). Approved: can, will, must. Banned: should, would, may, might, could.
-  "Data loss can occur", never "could occur". The ladder below converts each.
-- **One name per item** (1.11, 9.4). One term per concept, everywhere.
-- **Complete grammar** (4.2). Short sentences, never clipped. Keep articles and "that".
-  Expand every contraction. "Ensure file exists before running" becomes "Make sure that
+- Modals (3.2): approved can, will, must. Banned should, would, may, might, could. "Data
+  loss can occur", never "could occur". Convert with the modal ladder below.
+- One name per item (1.11, 9.4): one term per concept, everywhere.
+- Complete grammar (4.2): short sentences, never clipped. Keep articles and "that".
+  Expand every contraction, because expanded forms survive translation and a fast read
+  by a non-native speaker. "Ensure file exists before running" becomes "Make sure that
   the file exists before you run the command."
-- **Condition first** (5.4). "If the build fails, read the log." Never trail a condition
+- Condition first (5.4): "If the build fails, read the log." Never trail a condition
   behind its command.
-- **One instruction per sentence** (5.2), unless the two actions are simultaneous.
-- **No phrasal verbs** (9.3). "Go down" becomes "decrease". "Set up" becomes "install" or
+- One instruction per sentence (5.2), unless the two actions are simultaneous.
+- No phrasal verbs (9.3): "go down" becomes "decrease"; "set up" becomes "install" or
   "configure".
-- **No semicolon** (8.1). Write two sentences.
+- No semicolon (8.1). Write two sentences.
 
-#### Counting words against the limit
+### Word count
 
 Rule 8.6 decides what counts against the Step 3 limits. One word each: a number, a
 number with units, an abbreviation, an alphanumeric identifier, quoted or backticked
 text, a title, a label, a proper noun. A hyphenated word is one (8.7), and so is
-parenthesized text (8.5). So `pytest --cov=src tests/` costs one word. Long identifiers
-never exhaust a sentence's budget.
+parenthesized text (8.5). So `pytest --cov=src tests/` costs one word.
 
-#### Warnings and cautions
+### Warnings and cautions
 
-Rules 7.1 to 7.3 govern text that protects the reader from harm. Lead with a risk-level
-word ("WARNING" = injury, "CAUTION" = damage), then the command or condition, then the
-risk. Never bury the instruction behind the explanation.
+Rules 7.1 to 7.3, for text that protects the reader from harm. Order: risk-level word
+("WARNING" = injury, "CAUTION" = damage), then the command or condition, then the risk.
+Never bury the instruction behind the explanation. Applies to destructive CLI flags,
+irreversible migrations, and dangerous API options. Illustration:
 
 > **Before:** Note that data loss may occur in some circumstances if the destructive flag happens to be enabled when running against production.
 > **After:** CAUTION: Do not use the `--force` flag against production. The flag deletes rows that do not match the source.
-
-Applies directly to destructive CLI flags, irreversible migrations, and dangerous API
-options.
 
 ### The modal ladder
 
@@ -272,7 +232,7 @@ options.
 | may (permission)                   | can                                                        |
 | would (hypothetical)               | Restructure: "If X occurs, Y occurs."                      |
 
-### Known part-of-speech rulings
+### Part-of-speech rulings
 
 The official dictionary (about 900 approved and 1,200 banned words, ASD copyright, not
 reproduced) applies one mechanic: one word, one meaning, one part of speech.
@@ -287,8 +247,8 @@ reproduced) applies one mechanic: one word, one meaning, one part of speech.
 
 ### Slop-to-simple substitutions
 
-Ours, not ASD's: words AI-generated docs overuse, mapped to plain replacements. A word
-carrying no fact gets deleted, not replaced.
+Not from ASD: words AI-generated docs overuse. A word carrying no fact gets deleted, not
+replaced.
 
 | Slop                                           | Write instead                                         |
 | ---------------------------------------------- | ----------------------------------------------------- |
@@ -337,7 +297,7 @@ Collapse each rotation to one term (Rules 1.11 and 9.4):
 Helpful and professional. Warmth comes from structure, answering the reader's actual
 question, and a working example, never chatty phrasing.
 
-- "You" for the reader, "we" for shared actions. Avoid "I" outside an opinionated guide.
+- "You" for the reader, "we" for shared actions. No "I" outside an opinionated guide.
 - Active voice, present tense: "The API returns a token." Passive only when the actor is
   unknown or beside the point: "The file is created on first run."
 - Positive form: "the build fails without a token", not "the build will not succeed
@@ -352,16 +312,16 @@ question, and a working example, never chatty phrasing.
 
 - Bold for UI elements, buttons, menu items. Code formatting for commands, variables,
   filenames. Italic for emphasis, rarely.
-- UPPERCASE inline code for placeholders (`API_KEY`, `USERNAME`).
+- Placeholders as UPPERCASE inline code (`API_KEY`, `USERNAME`).
 - At least one introductory sentence after every heading, before a list or sub-heading.
 - Numbered lists for sequential steps, bullets otherwise. Items parallel in structure.
-- Never open every bullet with a bold keyword. It marks machine-written text ("Bold-First
-  Bullets" in `../shared/tropes.md`).
-- Descriptive anchor text on every link. It makes sense out of context, "click here"
-  never does.
-- Notes and warnings as blockquotes. The label of a warning is its risk word:
-  `> **Note:**`, `> **CAUTION:**`, `> **WARNING:**`.
-- Straight quotes, plain ASCII. No smart quotes, unicode arrows, or em dashes.
+- Never open every bullet with a bold keyword ("Bold-First Bullets" in
+  `../shared/tropes.md`).
+- Descriptive anchor text on every link, readable out of context. Never "click here".
+- Notes and warnings as blockquotes, labeled with the risk word: `> **Note:**`,
+  `> **CAUTION:**`, `> **WARNING:**`.
+- Straight quotes, plain ASCII. No smart quotes, unicode arrows, or em dashes; use a
+  comma, a period, or a rewrite.
 - Table of contents: follow the project's convention. Add or remove one only when asked.
 
 ### Procedures
@@ -374,8 +334,7 @@ question, and a working example, never chatty phrasing.
 
 ### Untouchables
 
-Technical names under Rules 1.5 and 8.6 stay exact even when they break a vocabulary
-rule:
+Technical names stay exact even when they break a vocabulary rule (Rules 1.5 and 8.6):
 
 - Code blocks, inline code, identifiers, CLI commands, flags, file paths.
 - Quoted error messages and log lines.
@@ -384,59 +343,36 @@ rule:
 
 ## Step 6: Verify
 
-Not optional. Run before delivering.
+Run every check before delivering. In each search, fix every hit outside code and quoted
+text.
 
-### Accuracy
+Accuracy:
 
-1. Confirm every command, code example, config value, and described behavior against
-   the implementation.
-2. Confirm every internal cross-reference and external URL resolves.
-3. Confirm one term names one concept across every touched file.
+1. Every command, code example, config value, and described behavior matches the
+   implementation.
+2. Every internal cross-reference and external URL resolves.
+3. One term names one concept across every touched file.
 
-### Sentence mechanics
+Sentence mechanics:
 
-4. Count the words in your three longest sentences. Split anything over 20 or 25.
+4. Count the words in the three longest sentences. Split anything over 20 or 25.
 5. Search for `'ll`, `'re`, `'ve`, `n't`, `it's`, `has been`, `have been`, `should`,
-   `is being`, an "-ing" verb after a comma, and the semicolon. Fix every hit outside
-   code and quoted text.
-6. Search every `if` and `when`. Each starts its sentence, before the command.
-   "Increase the timeout if the network is slow" becomes "If the network is slow,
-   increase the timeout."
+   `is being`, an "-ing" verb after a comma, and the semicolon.
+6. Search every `if` and `when`. Each starts its sentence, before the command: "Increase
+   the timeout if the network is slow" becomes "If the network is slow, increase the
+   timeout."
 7. Search for the verbs you did not pick in Step 4 and replace them.
 
-### Shape
+Shape:
 
 8. Re-read for flow. Each section leads into the next. Cut repeated points.
 9. Search for `new`, `now`, `recently`, `currently`, `previously`, `latest`, `still`,
-   `no longer`, `used to`, `as requested`. Each is a candidate leak of the moment of
-   writing: delete it or restate the present-tense fact.
+   `no longer`, `used to`, `as requested`. Delete each leak of the moment of writing or
+   restate the present-tense fact.
 10. Re-read every section against Gate 1. Delete what the reader does not need.
 11. Scan for the tropes in `../shared/tropes.md` and rewrite any passage carrying one.
-12. Ask whether the page needs a larger change than you made. If yes, go back and make
-    it. An edit that stopped at the comfortable size serves nobody.
+12. If the page needs a larger change than you made, go back and make it.
 13. Run the docs formatter or linter, if any.
 
 For a full audit, or when asked to check text rather than write it, work through
 [references/checklist.md](references/checklist.md).
-
-## Where the Sources Disagree
-
-This skill merges a documentation style guide with ASD-STE100. These resolutions are
-deliberate. Do not reverse one by accident.
-
-| Question                | Resolution                                                                                                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contractions            | **Banned.** STE Rule 4.2 wins over the usual "write with contractions" advice. Expanded forms survive translation and a fast read by a non-native speaker. |
-| "lets you"              | **Banned** with "allows you to". Both become "you can", per the slop table.                                                                                |
-| Sentence limit          | 20 words procedural and 25 words descriptive, which replaces a flat 25-word limit.                                                                         |
-| Conversational register | The goal is a helpful document, not chatty prose. Structure carries the warmth.                                                                            |
-| Semicolons              | **Banned** (Rule 8.1). Write two sentences.                                                                                                                |
-| Em dashes               | **Banned.** Use a comma, a period, or a rewrite.                                                                                                           |
-
-## References
-
-- `../shared/tropes.md`: AI writing patterns to avoid. Read before writing.
-- `references/ste-rules.md`: all 53 ASD-STE100 rules, an example per section. Read for a
-  rule number, an unclear application, or check-mode violation reports.
-- `references/checklist.md`: the full verification pass with searchable patterns. For
-  check mode and final audits.
