@@ -70,6 +70,8 @@ can pass every check above and still fail the reader.
 13. **Accuracy.** Every command, flag, config key, default value, and described
     behavior matches the implementation. Verify against the code, not against the
     previous version of the document.
+    A qualified claim you could not verify keeps its qualifier ("can"), and no
+    detail appears that the source or the code does not state.
 14. **Bottom line first.** The opening states what the reader accomplishes. It does
     not warm up.
 15. **Scope.** The depth matches the document type. A README stays scannable in

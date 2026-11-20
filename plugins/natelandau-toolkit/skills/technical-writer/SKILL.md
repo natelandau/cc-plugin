@@ -302,7 +302,9 @@ question, and a working example, never chatty phrasing.
   unknown or beside the point: "The file is created on first run."
 - Positive form: "the build fails without a token", not "the build will not succeed
   unless a token is present".
-- Definite assertions. A hedge says you did not check.
+- Definite assertions for what you verified against the code. A hedge says you did not
+  check. If you cannot verify a qualified claim, keep its qualifier as "can": "A value
+  of 0 can disable the cache", not "disables".
 - "must" for requirements, "we recommend" for recommendations, never "should".
 - Simple vocabulary. No hype, slang, emoji, "please", or other filler.
 - No anthropomorphism ("the server thinks").
