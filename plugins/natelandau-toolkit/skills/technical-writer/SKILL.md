@@ -359,7 +359,8 @@ question, and a working example, never chatty phrasing.
   Bullets" in `../shared/tropes.md`).
 - Descriptive anchor text on every link. It makes sense out of context, "click here"
   never does.
-- Notes and warnings as blockquotes: `> **Note:**`, `> **Warning:**`.
+- Notes and warnings as blockquotes. The label of a warning is its risk word:
+  `> **Note:**`, `> **CAUTION:**`, `> **WARNING:**`.
 - Straight quotes, plain ASCII. No smart quotes, unicode arrows, or em dashes.
 - Table of contents: follow the project's convention. Add or remove one only when asked.
 
