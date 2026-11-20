@@ -1,3 +1,9 @@
+## v0.29.0 (2026-11-20)
+
+### Feat
+
+- **toolkit**: add a prompt-writer skill for agent-read text (#25)
+
 ## v0.28.4 (2026-11-18)
 
 ## v0.28.3 (2026-11-18)
