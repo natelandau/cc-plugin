@@ -1,3 +1,9 @@
+## v0.29.1 (2026-11-22)
+
+### Refactor
+
+- tighten agent-facing text across all plugins
+
 ## v0.29.0 (2026-11-20)
 
 ### Feat
