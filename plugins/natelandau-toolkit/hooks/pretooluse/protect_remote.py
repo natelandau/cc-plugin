@@ -60,10 +60,9 @@ HOST_RULE_IDS = frozenset({"rsync-remote", "ssh-exec", "scp", "sftp"})
 
 # Advisory fed to the model when bypassPermissions suppresses the prompt.
 _BYPASS_CONTEXT = (
-    "[protect-remote] This command touches a remote host and permission "
-    "bypass is active. If no permission prompt appeared, proceed only if "
-    "the command is non-destructive on the remote machine; never run "
-    "destructive operations on remote hosts."
+    "[protect-remote] Remote-host command with permission bypass active. "
+    "If no permission prompt appeared, run it only if it is non-destructive "
+    "on the remote host."
 )
 
 

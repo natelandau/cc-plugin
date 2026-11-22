@@ -1,15 +1,13 @@
 ---
 name: htmx-expert
-description: Use when writing, debugging, or reviewing htmx attributes (hx-get, hx-post, hx-swap, hx-target, hx-trigger, hx-boost), AJAX interactions, server-side HTML fragment responses, out-of-band swaps, htmx events, loading indicators, or hypermedia-driven patterns. Also use when the user mentions htmx class names like htmx-indicator, htmx-request, or any hx-* attributes, even if they don't explicitly say "htmx."
+description: Use when writing, debugging, or reviewing htmx attributes (hx-get, hx-post, hx-swap, hx-target, hx-trigger, hx-boost), server-side HTML fragment responses, out-of-band swaps, htmx events, loading indicators, or hypermedia-driven patterns. Also when code or the user mentions any hx-* attribute or htmx class such as htmx-indicator or htmx-request, even without saying "htmx".
 ---
 
 # htmx Expert
 
-Target: **htmx 2.x**. See `references/v2-changes.md` for migration notes from 1.x.
+Target: htmx 2.x. Migration notes from 1.x: `references/v2-changes.md`.
 
-## Core Philosophy
-
-Servers respond with HTML fragments, not JSON. htmx extends HTML to handle AJAX requests, CSS transitions, WebSockets, and Server-Sent Events directly from attributes. The goal is hypermedia-driven applications where the server controls application state and the browser renders HTML.
+Servers respond with HTML fragments, not JSON. The server owns application state; the browser renders HTML.
 
 ## Core Attributes Reference
 
@@ -25,7 +23,7 @@ Servers respond with HTML fragments, not JSON. htmx extends HTML to handle AJAX 
 
 ### hx-boost: Progressive Enhancement in One Attribute
 
-`hx-boost="true"` on a parent element converts all child links and forms to AJAX requests. This is the easiest way to add htmx to an existing multi-page app, because no other attributes are needed.
+`hx-boost="true"` on a parent converts all child links and forms to AJAX requests. Easiest way to add htmx to an existing multi-page app; no other attributes needed.
 
 ```html
 <body hx-boost="true">
@@ -43,7 +41,7 @@ Servers respond with HTML fragments, not JSON. htmx extends HTML to handle AJAX 
 </body>
 ```
 
-Boosted requests swap the `<body>` content and push the URL to browser history. To exclude an element: `hx-boost="false"`.
+Boosted requests swap `<body>` content and push the URL to history. Exclude an element: `hx-boost="false"`.
 
 ### Request Control
 
@@ -73,7 +71,7 @@ Boosted requests swap the `<body>` content and push the URL to browser history. 
 - **hx-replace-url**: Replace current URL in history
 - **hx-history**: Control history snapshot behavior
 - **hx-history-elt**: Specify element to snapshot
-- **hx-preserve**: Keep an element unchanged during swaps. Use it for video and audio players, iframes, or any stateful DOM content. The element must have a stable `id`.
+- **hx-preserve**: Keep an element unchanged during swaps (video/audio players, iframes, stateful DOM). Requires a stable `id`.
 
 ### UI Indicators
 
@@ -122,7 +120,7 @@ Boosted requests swap the `<body>` content and push the URL to browser history. 
 <div id="search-results"></div>
 ```
 
-Use `input changed` instead of `keyup changed` (catches paste, autofill). The `search` trigger handles the clear button (X). `hx-sync="this:abort"` cancels stale in-flight requests.
+Use `input changed`, not `keyup changed` (catches paste, autofill). `search` handles the clear button (X). `hx-sync="this:abort"` cancels stale in-flight requests.
 
 ### Infinite Scroll
 
@@ -147,7 +145,7 @@ Use `input changed` instead of `keyup changed` (catches paste, autofill). The `s
 
 ### Out-of-Band Updates
 
-Server response can update multiple elements simultaneously:
+One response updates several elements:
 
 ```html
 <!-- Main response (swapped into hx-target as normal) -->
@@ -165,7 +163,7 @@ Server response can update multiple elements simultaneously:
 <img id="spinner" class="htmx-indicator" src="/spinner.gif" />
 ```
 
-CSS for indicators:
+Indicator CSS:
 
 ```css
 .htmx-indicator {
@@ -177,7 +175,7 @@ CSS for indicators:
 }
 ```
 
-CSS-only spinner (preferred over image files):
+Prefer a CSS-only spinner over an image file:
 
 ```css
 .htmx-indicator {
@@ -206,7 +204,7 @@ CSS-only spinner (preferred over image files):
 
 ### Form POST with Loading State
 
-Combine `hx-indicator` and `hx-disabled-elt` for complete UX:
+Combine `hx-indicator` and `hx-disabled-elt`:
 
 ```html
 <form hx-post="/api/submit" hx-target="#result" hx-indicator="#spinner" hx-disabled-elt="find button">
@@ -227,7 +225,7 @@ Combine `hx-indicator` and `hx-disabled-elt` for complete UX:
 </li>
 ```
 
-Server returns complete `<li>` element with new htmx attributes intact.
+Server returns the complete `<li>` with its htmx attributes intact.
 
 ### Combining Multiple Triggers
 
@@ -237,7 +235,7 @@ Server returns complete `<li>` element with new htmx attributes intact.
 
 ## Template Organization
 
-htmx apps need two versions of most views: a full page (for direct navigation) and a partial fragment (for AJAX). Use the `HX-Request` header to decide which to render.
+Most views need two versions: a full page (direct navigation) and a partial fragment (AJAX). Pick by the `HX-Request` header.
 
 ```python
 if request.headers.get('HX-Request'):
@@ -246,7 +244,7 @@ else:
     return render_template('full_page.html')
 ```
 
-Convention: prefix partial templates with `_` (for example `_search_results.html` and `_user_row.html`) to distinguish them from full-page templates at a glance.
+Prefix partial templates with `_` (`_search_results.html`, `_user_row.html`).
 
 ## Server Response Patterns
 
@@ -266,8 +264,6 @@ Convention: prefix partial templates with `_` (for example `_search_results.html
 
 ## View Transitions
 
-htmx integrates with the browser's View Transitions API for smooth visual updates during swaps.
-
 ```html
 <!-- Enable per-swap -->
 <button hx-get="/page" hx-swap="innerHTML transition:true" hx-target="#content">Navigate</button>
@@ -276,7 +272,7 @@ htmx integrates with the browser's View Transitions API for smooth visual update
 <meta name="htmx-config" content='{"globalViewTransitions":true}' />
 ```
 
-Style transitions with CSS:
+Style with CSS:
 
 ```css
 ::view-transition-old(root) {
@@ -287,7 +283,7 @@ Style transitions with CSS:
 }
 ```
 
-Requires browser support (Chrome 111+, Safari 18+). Without support, the swap still works, without the animation.
+Requires Chrome 111+ or Safari 18+. Elsewhere the swap works without animation.
 
 ## Events
 
@@ -307,7 +303,7 @@ Requires browser support (Chrome 111+, Safari 18+). Without support, the swap st
 
 ### Event Handling
 
-Using `hx-on:` (htmx 2.x syntax: a colon, then the event, with a `::` prefix for htmx events):
+`hx-on:` (htmx 2.x: single colon for DOM events, `::` for htmx events):
 
 ```html
 <button hx-get="/data" hx-on::before-request="console.log('Starting...')" hx-on::after-swap="console.log('Done!')">
@@ -318,7 +314,7 @@ Using `hx-on:` (htmx 2.x syntax: a colon, then the event, with a `::` prefix for
 <button hx-on:click="console.log('clicked')">Click</button>
 ```
 
-Using JavaScript:
+JavaScript:
 
 ```javascript
 document.body.addEventListener("htmx:configRequest", function (evt) {
@@ -326,21 +322,21 @@ document.body.addEventListener("htmx:configRequest", function (evt) {
 });
 ```
 
-## Security Best Practices
+## Security
 
-1. **Escape All User Content**: Prevent XSS through server-side template escaping
-2. **Use hx-disable**: Prevent htmx processing on untrusted content
-3. **Restrict Request Origins**: `htmx.config.selfRequestsOnly = true;`
-4. **Disable Script Processing**: `htmx.config.allowScriptTags = false;`
-5. **Include CSRF Tokens**:
+1. Escape all user content in server templates (XSS).
+2. Put `hx-disable` on untrusted content.
+3. Restrict request origins: `htmx.config.selfRequestsOnly = true;`
+4. Disable script processing: `htmx.config.allowScriptTags = false;`
+5. Send CSRF tokens:
     ```html
     <body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'></body>
     ```
-6. **Content Security Policy**: Layer browser-level protections
+6. Add a Content Security Policy.
 
 ## Extensions
 
-htmx 2.x ships extensions as separate packages. See `references/extensions.md` for detailed usage of each.
+htmx 2.x ships extensions as separate packages. Usage of each: `references/extensions.md`.
 
 ```html
 <script src="https://unpkg.com/htmx-ext-<name>@<version>/<name>.js"></script>
@@ -362,7 +358,7 @@ htmx.config.allowScriptTags = false; // recommended for security
 htmx.config.allowEval = true;
 ```
 
-Or via meta tag: `<meta name="htmx-config" content='{"selfRequestsOnly":true}' />`
+Or meta tag: `<meta name="htmx-config" content='{"selfRequestsOnly":true}' />`
 
 ## Debugging
 
@@ -389,8 +385,6 @@ htmx.process(document.getElementById("new-content")); // for programmatically ad
 4. Only named inputs are included in requests.
 5. History snapshots store innerHTML, not the full DOM state.
 6. htmx does not work over `file://`. Always serve over HTTP.
-7. In htmx 2.x, use `hx-on:click`, not `hx-on="click: ..."`. htmx events take a double colon: `hx-on::after-swap`.
-8. SSE, WebSockets, and other extensions load as separate scripts in htmx 2.x.
 
 ## Progressive Enhancement
 
@@ -402,4 +396,4 @@ htmx.process(document.getElementById("new-content")); // for programmatically ad
 <div id="results"></div>
 ```
 
-Non-JavaScript users get a form submission. JavaScript users get AJAX.
+Without JavaScript: form submission. With JavaScript: AJAX.

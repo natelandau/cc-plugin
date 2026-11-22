@@ -1,23 +1,21 @@
 ---
 name: walkthrough
-description: "Use when the user wants to see the UI or behavior an agent built, instead of launching the app and clicking through it themselves. Trigger on requests like \"show me what you built\", \"demo this\", \"walk me through the UI\", \"screenshots of the change\", \"record the interaction\", or /walkthrough. Captures stills and short clips of web, iOS, macOS, and Android front ends from the local build, in the background where the platform allows, and assembles them into a local HTML walkthrough with a one-command re-run script. Runs only on request, because captures are slow. Does not explain code: a request to understand how a change works, rather than what it does on screen, is not a walkthrough."
+description: "Use when the user wants to see the UI or behavior an agent built (web, iOS, macOS, Android) without launching the app themselves: \"show me what you built\", \"demo this\", \"walk me through the UI\", \"screenshots of the change\", \"record the interaction\". Produces a local HTML page of stills and clips. Not for explaining how a change works in code."
 disable-model-invocation: true
 ---
 
 # Walkthrough
 
-Capture stills and short clips of each front-end behavior you built and assemble them
-into one local HTML page, so the user can see the work without launching the app. From
-the page alone, the user must be able to tell whether each behavior works and looks
-right, and what you did not show.
+Capture stills and short clips of each front-end behavior you built into one local HTML
+page. From the page alone, the user must be able to tell whether each behavior works and
+looks right, and what you did not show.
 
 ## Skill files
 
-The skill directory is `${CLAUDE_SKILL_DIR}`; scripts are in
-`${CLAUDE_SKILL_DIR}/scripts/`. Only this file shows the resolved absolute path. The
-references and the `run.sh` skeleton write it as the shell-variable placeholder
-`CLAUDE_SKILL_DIR`: in a command you run, substitute the absolute path; in `run.sh`, set
-it once at the top as the skeleton shows.
+Skill directory: `${CLAUDE_SKILL_DIR}`; scripts in `${CLAUDE_SKILL_DIR}/scripts/`. Only
+this file shows the resolved absolute path. The references and the `run.sh` skeleton
+write the placeholder `CLAUDE_SKILL_DIR`: substitute the absolute path in a command you
+run; in `run.sh`, set it once at the top as the skeleton shows.
 
 Read only the references for the platforms you capture:
 
@@ -32,12 +30,13 @@ Read only the references for the platforms you capture:
 
 ## When you stop for the user
 
-The run waits for the user at these times and no others:
+Wait for the user at these points and no others:
 
 1. **The scene plan**, before any capture. The user confirms or trims it. Name in the
-   plan: the iOS simulator or Android virtual device the run installs on, and any project script that quits, replaces, or installs over a copy of the
-   app. Switching to another device mid-run is a new stop of this kind: name the device
-   and wait for a yes. Use a device the user already has, running or shut down. The
+   plan: the iOS simulator or Android virtual device the run installs on, and any
+   project script that quits, replaces, or installs over a copy of the app. Switching
+   to another device mid-run is a new stop of this kind: name the device and wait for
+   a yes. Use a device the user already has, running or shut down. The
    install replaces any build of the app on it.
 2. **A missing tool or permission** from preflight. Tool: show the install command and
    run it only on a yes. Permission: name the System Settings pane (for example
@@ -58,22 +57,21 @@ The run waits for the user at these times and no others:
 7. **A copy of the app already running**: ask the user to quit it. Never quit or signal
    it yourself. (Drivers stop a running app, and so do iOS and Android installs.)
 
-If the app does not launch, the run ends. Report the error; that failure is the finding.
-Don't look for a way around it.
+If the app does not launch, end the run and report the error as the finding. No
+workaround.
 
 ## Flow
 
 ### 1. Find the scope
 
-Start from the conversation: what did the user ask you to build? Then read the diff
+Start from what the user asked you to build in the conversation. Then read the diff
 (`git diff <default-branch>...HEAD` plus uncommitted changes) for UI changes the
 conversation didn't mention. If the change is already on the default branch, read its
 commits with `git show <sha>`.
 
 ### 2. Find the platforms
 
-From the files the diff touches, not every platform in the repo. A web-only change in a
-repo with an iOS app gets only web captures.
+Only platforms the diff touches, not every platform in the repo.
 
 ### 3. Plan the scenes, then stop
 
@@ -98,7 +96,7 @@ A project script can quit or replace a running copy of its app (for example, one
 installs a shared dev app and holds a lease on it). Use it as intended, but: do this
 skill's running-app check before calling it (stop 7), name its effects in the plan
 (stop 1), and run the project's matching quit or release command in cleanup. This
-skill's rules still apply to every command the skill itself runs.
+skill's rules still apply to every command it runs itself.
 
 Find how the project reaches each starting state: dev-server command, seed data,
 sample-mode launch arguments, test accounts. An unreachable starting state goes under
@@ -242,10 +240,8 @@ installed app.
 Seed data, sample modes, and test accounts only. No test account for a sign-in scene:
 ask the user for one. Never capture the user's own accounts, files, or data.
 
-## Always pair with technical-writer
+## Page text
 
-This skill covers the mechanics: what to capture, how without taking over the screen,
-and how to build the page. Writing quality lives in the `technical-writer` skill. Before
-assembling the page, invoke `technical-writer` and follow it for every piece of text in
-`index.html`: the summary, captions, steps, each "What to look for", and each "Not
-shown" reason.
+Before assembling the page, invoke the `technical-writer` skill and follow it for every
+piece of text in `index.html`: the summary, captions, steps, each "What to look for",
+and each "Not shown" reason.

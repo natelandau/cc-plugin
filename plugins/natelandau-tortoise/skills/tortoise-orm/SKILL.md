@@ -1,11 +1,39 @@
 ---
 name: tortoise-orm
-description: "Build Python applications using Tortoise ORM v1.x, the async Python ORM inspired by Django. Use when writing or modifying Tortoise Model definitions, queries, relations (ForeignKeyField, ManyToManyField, OneToOneField), transactions, signals, validators, Pydantic integration, or Tortoise initialization. Also use when the user mentions Tortoise ORM, tortoise-orm, async ORM with asyncpg/asyncmy, fields.ForeignKeyField, fields.ManyToManyField, prefetch_related, select_related, Tortoise.init, RegisterTortoise, tortoise.contrib.pydantic, or any Tortoise ORM patterns, even if they don't explicitly say 'Tortoise.' Covers the full lifecycle, model definition, CRUD, relations, querying, transactions, signals, migrations, testing, and Pydantic serialization."
+description: "Use when writing or modifying code that uses Tortoise ORM v1.x: Model definitions, fields, relations (ForeignKeyField, ManyToManyField, OneToOneField), queries, prefetch_related/select_related, transactions, signals, validators, migrations, tests, Tortoise.init, RegisterTortoise, or tortoise.contrib.pydantic. Also when the user mentions tortoise-orm or an async ORM on asyncpg/asyncmy, even without saying 'Tortoise'."
 ---
 
 # Tortoise ORM v1.x
 
-Async Python ORM inspired by Django, supporting **PostgreSQL** (asyncpg/psycopg), **MySQL** (asyncmy/aiomysql), **SQLite**, and **MSSQL**.
+Async Python ORM. Backends: PostgreSQL (asyncpg/psycopg), MySQL (asyncmy/aiomysql), SQLite, MSSQL.
+
+## Critical rules
+
+1. Await every QuerySet. QuerySets are lazy; `Model.filter(...)` without `await` silently returns a QuerySet object, not results.
+2. Fetch a relation before reading it. An unfetched relation raises `NoValuesFetched`; there is no lazy loading. Use `await obj.fetch_related("field")` or `select_related`/`prefetch_related` on the QuerySet.
+3. `generate_schemas()` is for development only. Use migrations in production.
+4. No transactions inside `asyncio.gather()` or other concurrent tasks. Transactions are stateful and sequential; concurrent use corrupts data.
+5. Use `Tortoise.get_connection()`, not `from tortoise import connections` (deprecated in v1.0+).
+6. Save both objects before M2M `.add()`.
+7. `auto_now`/`auto_now_add` are Python-side only and create no DB DEFAULT. When the database must set the value (raw SQL inserts, migrations), use `db_default=Now()`.
+8. Call `Tortoise.init_models()` before creating Pydantic models when full ORM init has not run; otherwise relations do not resolve.
+
+```python
+# WRONG: silently returns a QuerySet object, not a list
+users = Model.filter(active=True)
+# CORRECT
+users = await Model.filter(active=True)
+
+# WRONG: raises NoValuesFetched
+event = await Event.get(id=1)
+print(event.tournament.name)
+# CORRECT
+event = await Event.get(id=1)
+await event.fetch_related("tournament")
+print(event.tournament.name)
+# ALSO CORRECT: via QuerySet
+event = await Event.all().select_related("tournament").get(id=1)
+```
 
 ## Initialization
 
@@ -19,9 +47,9 @@ await Tortoise.init(
 await Tortoise.generate_schemas()  # DEV ONLY -- use migrations in production
 ```
 
-Multi-database config uses a dict with `connections` and `apps` keys. See `references/api-reference.md` for the full config structure.
+Multi-database config: a dict with `connections` and `apps` keys. Full structure: `references/api-reference.md`.
 
-**FastAPI integration (v1.x lifespan pattern):**
+FastAPI (v1.x lifespan pattern):
 
 ```python
 from contextlib import asynccontextmanager
@@ -39,14 +67,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 ```
 
-**Connection access (v1.0+ pattern):**
+Connection access (v1.0+):
 
 ```python
 conn = Tortoise.get_connection("default")
 await Tortoise.close_connections()
 ```
-
-The old `from tortoise import connections` import is **deprecated** in v1.0+. Always use `Tortoise.get_connection()`.
 
 ## Defining Models
 
@@ -64,11 +90,11 @@ class Tournament(Model):
         ordering = ["name"]
 ```
 
-If no primary key field is defined, an auto-incrementing `IntField` named `id` is created. Access any PK via the `.pk` alias.
+No primary key defined: an auto-incrementing `IntField` named `id` is created. `.pk` aliases any PK.
 
-**Meta options:** `table`, `schema`, `abstract`, `unique_together`, `indexes`, `ordering`, `table_description`, `fetch_db_defaults`, `manager`.
+Meta options: `table`, `schema`, `abstract`, `unique_together`, `indexes`, `ordering`, `table_description`, `fetch_db_defaults`, `manager`.
 
-**Inheritance** works via abstract base classes or mixins:
+Inheritance via abstract base classes or mixins:
 
 ```python
 class TimestampMixin:
@@ -85,7 +111,7 @@ class User(TimestampMixin, AbstractBase):
 
 ### Fields
 
-**Common parameters:** `null`, `default` (supports callables), `unique`, `db_index`, `source_field` (custom DB column name), `description`, `validators`, `generated`, `primary_key`.
+Common parameters: `null`, `default` (supports callables), `unique`, `db_index`, `source_field` (custom DB column name), `description`, `validators`, `generated`, `primary_key`.
 
 | Category | Fields                                                                                                            |
 | -------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -94,7 +120,7 @@ class User(TimestampMixin, AbstractBase):
 | Temporal | `DateField`, `DatetimeField(auto_now, auto_now_add)`, `TimeField`, `TimeDeltaField`                               |
 | Other    | `BooleanField`, `UUIDField`, `JSONField(encoder, decoder)`, `CharEnumField(enum_type)`, `IntEnumField(enum_type)` |
 
-**`auto_now` / `auto_now_add` are Python-only.** They do not create a DB DEFAULT clause. For database-level defaults, use `db_default`:
+Database-level defaults (see rule 7):
 
 ```python
 from tortoise.fields.db_defaults import Now, SqlDefault
@@ -104,7 +130,7 @@ fields.IntField(db_default=SqlDefault("0"))
 
 ### Relations
 
-**ForeignKey:**
+ForeignKey:
 
 ```python
 class Event(Model):
@@ -113,10 +139,10 @@ class Event(Model):
     )
 ```
 
-- The DB column is `tournament_id`. Read it directly when you do not need the related object.
-- `on_delete` options: `CASCADE`, `RESTRICT`, `SET_NULL` (requires `null=True`), `SET_DEFAULT`, `NO_ACTION`
+- DB column is `tournament_id`. Read it directly when the related object is not needed.
+- `on_delete`: `CASCADE`, `RESTRICT`, `SET_NULL` (requires `null=True`), `SET_DEFAULT`, `NO_ACTION`.
 
-**ManyToMany:**
+ManyToMany:
 
 ```python
 participants: fields.ManyToManyRelation["Team"] = fields.ManyToManyField(
@@ -124,9 +150,7 @@ participants: fields.ManyToManyRelation["Team"] = fields.ManyToManyField(
 )
 ```
 
-Both objects must be saved before calling `.add()`.
-
-**OneToOne:**
+OneToOne:
 
 ```python
 address: fields.OneToOneRelation[Address] = fields.OneToOneField(
@@ -134,7 +158,7 @@ address: fields.OneToOneRelation[Address] = fields.OneToOneField(
 )
 ```
 
-**Reverse relations.** Annotate them for type hints:
+Annotate reverse relations for type hints:
 
 ```python
 class Tournament(Model):
@@ -142,8 +166,6 @@ class Tournament(Model):
 ```
 
 ## Querying
-
-QuerySets are **lazy**. They build queries but do not execute until awaited.
 
 ```python
 # Create
@@ -169,43 +191,29 @@ obj, created = await Model.get_or_create(name="x", defaults={"field": "val"})
 obj, created = await Model.update_or_create(name="x", defaults={"field": "val"})
 ```
 
-**QuerySet methods:** `filter`, `exclude`, `all`, `first`, `last`, `count`, `exists`, `values`, `values_list`, `only`, `defer`, `order_by`, `limit`, `offset`, `distinct`, `group_by`, `annotate`, `select_related`, `prefetch_related`, `select_for_update`, `using_db`, `raw`, `explain`.
+QuerySet methods: `filter`, `exclude`, `all`, `first`, `last`, `count`, `exists`, `values`, `values_list`, `only`, `defer`, `order_by`, `limit`, `offset`, `distinct`, `group_by`, `annotate`, `select_related`, `prefetch_related`, `select_for_update`, `using_db`, `raw`, `explain`.
 
-**Filter operators** (double-underscore): `__gt`, `__gte`, `__lt`, `__lte`, `__in`, `__not_in`, `__not`, `__isnull`, `__contains`, `__icontains`, `__startswith`, `__istartswith`, `__endswith`, `__iendswith`, `__iexact`, `__search`, `__range`, `__year`, `__month`, `__day`, and more.
+Filter operators (double-underscore): `__gt`, `__gte`, `__lt`, `__lte`, `__in`, `__not_in`, `__not`, `__isnull`, `__contains`, `__icontains`, `__startswith`, `__istartswith`, `__endswith`, `__iendswith`, `__iexact`, `__search`, `__range`, `__year`, `__month`, `__day`, and more.
 
-**Q objects** for complex boolean logic:
+Q objects, F expressions, aggregation, bulk:
 
 ```python
-from tortoise.expressions import Q
+from tortoise.expressions import Q, F
+from tortoise.functions import Count, Sum, Avg, Max, Min
+
 await Event.filter(Q(id__in=[1, 2]) | Q(name="3"))
 await Event.filter(Q(name="x") & ~Q(tournament__name="y"))
-```
 
-**F expressions** for field references:
-
-```python
-from tortoise.expressions import F
 await Model.filter(field_a__gt=F("field_b"))
 await Model.filter(id=1).update(counter=F("counter") + 1)
-```
 
-**Aggregation:**
-
-```python
-from tortoise.functions import Count, Sum, Avg, Max, Min
 result = await Book.annotate(count=Count("id")).group_by("author_id").values("author_id", "count")
-```
 
-**Bulk operations:**
-
-```python
 await Model.bulk_create([obj1, obj2], batch_size=100)
 await Model.bulk_update([obj1, obj2], fields=["name"], batch_size=100)
 ```
 
 ### Fetching Relations
-
-Three approaches. Choose by context:
 
 | Method                             | Scope                       | When to use                       |
 | ---------------------------------- | --------------------------- | --------------------------------- |
@@ -213,18 +221,15 @@ Three approaches. Choose by context:
 | `prefetch_related("m2m_field")`    | QuerySet (separate queries) | M2M, reverse FK, nested           |
 | `await obj.fetch_related("field")` | Single instance             | After you already have the object |
 
-**Custom prefetch filtering:**
-
 ```python
 from tortoise.query_utils import Prefetch
+
+# Custom prefetch filtering
 await Tournament.all().prefetch_related(
     Prefetch("events", queryset=Event.filter(name="First"))
 )
-```
 
-**Cross-relation filtering:**
-
-```python
+# Cross-relation filtering
 await Team.filter(events__tournament__id=tournament.id)
 ```
 
@@ -244,7 +249,7 @@ async def create_pair(data):
     await Profile.create(user=user)
 ```
 
-Nested `in_transaction` blocks create **savepoints**. Multi-DB: pass `connection_name` parameter.
+Nested `in_transaction` blocks create savepoints. Multi-DB: pass `connection_name`.
 
 ## Signals
 
@@ -257,7 +262,7 @@ async def on_save(sender, instance, created, using_db, update_fields):
         print(f"New: {instance.id}")
 ```
 
-The `created` flag on `post_save` indicates INSERT vs UPDATE. Signal handlers must be imported before they can fire.
+`created` on `post_save`: INSERT vs UPDATE. A handler fires only after its module is imported.
 
 ## Pydantic Integration
 
@@ -272,11 +277,11 @@ pydantic_obj = await Tournament_Pydantic.from_tortoise_orm(instance)
 pydantic_obj = await Tournament_Pydantic.from_queryset_single(Tournament.get(id=1))
 ```
 
-If full ORM init has not run yet, call `Tortoise.init_models(["app.models"], "models")` before you create Pydantic models. Computed fields in `PydanticMeta` must have explicit return type hints.
+Before full ORM init: `Tortoise.init_models(["app.models"], "models")`. Computed fields in `PydanticMeta` need explicit return type hints.
 
-## Testing (v1.x -- pytest only)
+## Testing (v1.x, pytest only)
 
-The old unittest-based `TestCase`/`IsolatedTestCase` classes are **removed** in v1.0+.
+The unittest-based `TestCase`/`IsolatedTestCase` classes are removed in v1.0+.
 
 ```python
 import pytest_asyncio
@@ -305,68 +310,8 @@ tortoise downgrade models        # reverse
 tortoise history                 # list applied
 ```
 
-Data migrations use `RunPython` (with `apps.get_model()`) or `RunSQL`.
+Data migrations: `RunPython` (with `apps.get_model()`) or `RunSQL`.
 
----
+## Reference
 
-## Critical Rules
-
-These are the most common mistakes. Violating them causes bugs that are hard to trace.
-
-### 1. Always await QuerySets
-
-QuerySets are lazy. `Model.filter(name="x")` returns a QuerySet object, not results. You must `await` it.
-
-```python
-# WRONG -- silently returns a QuerySet object, not a list
-users = Model.filter(active=True)
-
-# CORRECT
-users = await Model.filter(active=True)
-```
-
-### 2. Always fetch relations before accessing them
-
-Accessing an unfetched relation raises `NoValuesFetched`. There are no lazy-loading shortcuts.
-
-```python
-# WRONG -- raises NoValuesFetched
-event = await Event.get(id=1)
-print(event.tournament.name)
-
-# CORRECT
-event = await Event.get(id=1)
-await event.fetch_related("tournament")
-print(event.tournament.name)
-
-# ALSO CORRECT -- via QuerySet
-event = await Event.all().select_related("tournament").get(id=1)
-```
-
-### 3. Never use `generate_schemas()` in production
-
-It is for development only. Use the migration system for production deployments.
-
-### 4. Never run concurrent transactions inside `asyncio.gather()`
-
-Transactions are stateful and expect sequential execution. Nesting transaction blocks inside `gather()` or concurrent tasks causes data corruption.
-
-### 5. Use `Tortoise.get_connection()`, not `from tortoise import connections`
-
-The `connections` import is deprecated in v1.0+.
-
-### 6. Save both objects before M2M `.add()`
-
-You cannot add to a ManyToMany relation if either object has not been persisted yet.
-
-### 7. Understand `auto_now` vs `db_default`
-
-`auto_now`/`auto_now_add` are Python-side only. They do not create DB DEFAULT clauses. If the database must set the default (for raw SQL inserts or migrations), use `db_default=Now()`.
-
-### 8. Call `init_models()` before Pydantic model creation
-
-If you create Pydantic models before full ORM init, relations will not resolve. Call `Tortoise.init_models()` first.
-
----
-
-For the complete field reference, DB URL formats, engine names, exception hierarchy, validator reference, and advanced patterns, see `references/api-reference.md`.
+`references/api-reference.md`: complete field reference, DB URL formats, engine names, exception hierarchy, validators, advanced patterns.

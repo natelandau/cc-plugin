@@ -1,6 +1,6 @@
 ---
 name: squash
-description: Use when the user asks to squash a branch into main or master, squash-merge the branch, land or merge the branch as a single commit, or collapse the branch (or its worktree) into one commit on the trunk, even when phrased casually ("squash this into main", "squash and land it"). Commits any outstanding work, squash-merges the whole branch into one commit on the local main or master branch, then deletes the branch and removes its worktree. Local only; never pushes. This is an irreversible, destructive workflow, so reach for it only when the user says squash or asks for a single commit: a plain "merge into main" means the fast-forward workflow, and opening a pull request is a different workflow.
+description: Use when the user says squash or asks for a single commit, such as to squash a branch into main or master, squash-merge it, land or merge it as one commit, or collapse the branch (or its worktree) into one commit on the trunk, even casually ("squash this into main", "squash and land it"). Local, destructive, never pushes. A plain "merge into main" means the fast-forward workflow, and opening a pull request is a different workflow.
 ---
 
 # Squash
@@ -21,91 +21,22 @@ Collapse a finished feature branch (or its worktree) into one commit on the loca
   commit` chain). The final commit must go through `git merge --squash` then
   `git commit`; never commit on the trunk another way.
 
-## Step 0: Detect the situation
+## Steps 0 and 1: Detect and sync
 
-```bash
-git branch --show-current       # the feature branch
-git rev-parse --git-dir         # differs from the next line inside a worktree
-git rev-parse --git-common-dir  # the real .git
-git worktree list               # every checkout and its branch
-```
-
-- Trunk: `main`, or `master` if that is the one that exists (`git rev-parse --verify main`).
-- Layout: if `--git-dir` and `--git-common-dir` differ, you are in a linked worktree;
-  the trunk is the checkout on the trunk in `git worktree list`. No checkout on the
-  trunk: stop and report. Otherwise it is a single checkout, switched to the trunk in
-  Step 4.
-
-Stop and explain if the current branch is the trunk, or if the branch has no commits
-beyond the trunk and `git status --porcelain` is empty. A branch level with the trunk
-but with uncommitted changes is fine: prep commits it, leaving one commit to squash.
-
-## Step 1: Sync the local trunk
-
-The local trunk can be ahead (unpushed squashes) or behind its remote. Bring it current
-before prep rebases onto it, so conflicts surface during prep. Skip on a local-only
-repo.
-
-```bash
-git fetch --all --prune
-```
-
-Fast-forward without rewinding a locally-ahead trunk:
-
-- Single checkout (trunk not checked out; the tree can be dirty). Update the ref only
-  when the remote is strictly ahead:
-
-  ```bash
-  ahead=$(git rev-list --count origin/<trunk>..<trunk>)    # local-only commits
-  behind=$(git rev-list --count <trunk>..origin/<trunk>)   # remote-only commits
-  if [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
-      echo "DIVERGED: both sides have unique commits"      # STOP and report, never force
-  elif [ "$behind" -gt 0 ]; then
-      git fetch . origin/<trunk>:<trunk>                   # remote strictly ahead: fast-forward
-  fi
-  # ahead-only or equal: nothing to do
-  ```
-
-- Worktree (trunk checked out elsewhere). Fast-forward in place:
-
-  ```bash
-  git -C <trunk-checkout> merge --ff-only origin/<trunk>   # diverged: fails, so stop
-  ```
-
-On divergence, stop and report. Never force.
+Read `../shared/trunk-sync.md` (relative to this skill's base directory). Run its
+Detect section, then its Sync the local trunk section. Its "Return to the trunk"
+section runs in Step 4.
 
 ## Steps A to D: Prepare the branch
 
 Read `../shared/finishing-prep.md` (relative to this skill's base directory) and do
 every step. Its commits go on the feature branch. Pass `<rebase-onto>` = the local
-`<trunk>` (synced in Step 1), not `origin/<trunk>`. Return here when done.
+`<trunk>` (synced in Step 1, can be ahead of the remote), not `origin/<trunk>`. Return
+here when done.
 
 ## Step 4: Squash onto the trunk
 
-Get onto the trunk checkout:
-
-- Single checkout: `git checkout <trunk>`.
-- Worktree: `cd` into the trunk's checkout. If `git status` shows a dirty tree, stop
-  and ask the user.
-
-Remote-backed repo: confirm the trunk is still current.
-
-```bash
-git merge --ff-only origin/<trunk>    # expected: "Already up to date"
-```
-
-Behind or diverged means the remote moved since Step 1: stop, report, restart from
-Step 1.
-
-Every repo, local-only included:
-
-```bash
-git merge-base --is-ancestor <trunk> <feature-branch>   # exit 0: still rebased on the trunk
-```
-
-Non-zero means the local trunk moved since Step B (for example, another worktree
-landed work). The squash would commit a tree Step D never gated and could silently
-undo the newer trunk work. Stop, report, restart from Step 1.
+Run the "Return to the trunk" section of `../shared/trunk-sync.md`.
 
 Squash-merge:
 
@@ -125,8 +56,7 @@ git diff --staged --stat                      # net change landing on the trunk
 ```
 
 Write one commit summarizing the whole branch, to the user's conventions, from the
-staged diff rather than the intermediate commits. Commit without an approval pause and
-confirm:
+staged diff, not the intermediate commits. Commit and confirm:
 
 ```bash
 git commit -m "<subject>" -m "<body>"

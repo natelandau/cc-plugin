@@ -1,35 +1,31 @@
 ---
 name: flask-development
-description: Build Python web applications with Flask 3+, using the application factory pattern and Blueprints. Use when developing Flask projects — blueprint structure, routes, authentication, error handling, working with sessions, implementing forms, configuring flask extensions, Jinja2 templates, CLI commands, logging, security, and deployment. Also use when the user mentions Flask routes, blueprints, app factory, Flask-Login, Flask-WTF, or any Flask extension, even if they don't explicitly say "Flask development."
+description: "Use when writing or modifying a Flask 3.x application: app factory, blueprints, routes, MethodViews, async views, authentication, sessions, forms, error handling, Jinja2 templates, CLI commands, logging, security, or Flask extensions such as Flask-Login and Flask-WTF, even if the user does not say 'Flask'."
 ---
 
-# Flask Development Skill
+# Flask Development
 
-Target: **Flask 3.x** (Python 3.9+)
+Target: Flask 3.x (Python 3.9+).
 
-### Minimal Working Example
+## Critical rules
 
-```python
-# app.py
-from flask import Flask
+Always:
 
-app = Flask(__name__)
+1. Use the application factory pattern. It enables testing and avoids globals.
+2. Put extensions in a separate module. That prevents circular imports.
+3. Import routes at the bottom of the blueprint `__init__.py`, after `bp` is created.
+4. Use `current_app`, not `app`, inside a request context.
 
-@app.route("/")
-def hello():
-    return {"message": "Hello, World!"}
+Never:
 
-if __name__ == "__main__":
-    app.run(debug=True)
-```
-
-Run: `uv run flask --app app run --debug`
+1. Import `app` in a module that `app` imports. That causes a circular import.
+2. Store secrets in code. Use environment variables.
+3. Use `app.run()` in production. Use Gunicorn.
+4. Skip CSRF protection. Keep Flask-WTF enabled for form submissions.
 
 ## Core Patterns
 
 ### Application Factory
-
-Always use the application factory pattern for production Flask applications:
 
 ```python
 # app/__init__.py
@@ -60,15 +56,9 @@ def create_app(config_class=Config):
     return app
 ```
 
-**Key Benefits**:
-
-- Multiple app instances with different configs (testing)
-- Avoids circular imports
-- Extensions initialized once, bound to app later
-
 ### Extensions Module
 
-Centralizing extensions in a separate file prevents circular imports, because other modules can import extensions without importing `app`.
+Other modules import extensions from here without importing `app`.
 
 ```python
 # app/extensions.py
@@ -81,33 +71,26 @@ login_manager.login_message_category = "info"
 
 ### Configuration
 
-Separate configurations for different environments:
-
 ```python
 # config.py
 import os
-from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv()
 
-@dataclass
 class Config:
     """Base configuration."""
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
 
-@dataclass
 class DevelopmentConfig(Config):
     """Development configuration."""
     DEBUG = True
 
-@dataclass
 class TestingConfig(Config):
     """Testing configuration."""
     TESTING = True
     WTF_CSRF_ENABLED = False
 
-@dataclass
 class ProductionConfig(Config):
     """Production configuration."""
     DEBUG = False
@@ -136,8 +119,6 @@ Run: `flask --app run run --debug`
 
 ### Creating a Blueprint
 
-Blueprints organize routes into logical groups.
-
 ```python
 # app/main/__init__.py
 from flask import Blueprint
@@ -165,7 +146,7 @@ def health():
 
 ### MethodViews
 
-MethodViews map HTTP methods to class methods, which is useful when a single URL needs to handle multiple methods with distinct logic:
+Use when one URL handles several HTTP methods with distinct logic:
 
 ```python
 # app/items/views.py
@@ -200,7 +181,7 @@ bp.add_url_rule("/items/<int:item_id>", view_func=item_view, methods=["GET", "DE
 
 ### Async Views
 
-Flask 3.x has native async support. Use async views for I/O-bound operations:
+Native in Flask 3.x. Use for I/O-bound work:
 
 ```python
 import asyncio
@@ -248,8 +229,6 @@ def send_email(to: str, subject: str, body: str):
 
 ### CLI Commands
 
-Register custom CLI commands for management tasks:
-
 ```python
 import click
 from flask import Flask
@@ -289,7 +268,7 @@ def some_action():
     return "ok"
 ```
 
-### Security Best Practices
+### Security
 
 ```python
 from flask_wtf.csrf import CSRFProtect
@@ -301,9 +280,9 @@ from flask_talisman import Talisman
 csrf = CSRFProtect()
 limiter = Limiter(key_func=get_remote_address)
 
-def create_app(config_name: str = "default") -> Flask:
+def create_app(config_class=Config) -> Flask:
     app = Flask(__name__)
-    app.config.from_object(config[config_name])
+    app.config.from_object(config_class)
 
     csrf.init_app(app)
     limiter.init_app(app)
@@ -373,31 +352,15 @@ def register_error_handlers(app: Flask):
 
 ## Authentication
 
-For authentication patterns with Flask-Login (forms, routes, protecting routes, custom decorators), see `references/authentication.md`.
-
-## Critical Rules
-
-### Always Do
-
-1. Use the application factory pattern. It enables testing and avoids globals.
-2. Put extensions in a separate file. That prevents circular imports.
-3. Import routes at the bottom of the blueprint `__init__.py`, after `bp` is created.
-4. Use `current_app`, not `app`, inside a request context.
-
-### Never Do
-
-1. Never import `app` in a module that `app` imports. That causes a circular import.
-2. Never store secrets in code. Use environment variables.
-3. Never use `app.run()` in production. Use Gunicorn.
-4. Never skip CSRF protection. Keep Flask-WTF enabled for form submissions.
+Flask-Login patterns (forms, routes, protecting routes, custom decorators): `references/authentication.md`.
 
 ## Common Errors & Fixes
 
 ### Circular Import Error
 
-**Error**: `ImportError: cannot import name 'X' from partially initialized module`
+Error: `ImportError: cannot import name 'X' from partially initialized module`
 
-**Fix**: Use deferred imports inside the factory function:
+Fix: Use deferred imports inside the factory function:
 
 ```python
 # WRONG
@@ -411,9 +374,9 @@ def create_app():
 
 ### Working Outside Application Context
 
-**Error**: `RuntimeError: Working outside of application context`
+Error: `RuntimeError: Working outside of application context`
 
-**Fix**: Wrap code in `app.app_context()`:
+Fix: Wrap code in `app.app_context()`:
 
 ```python
 app = create_app()
@@ -424,9 +387,9 @@ with app.app_context():
 
 ### Blueprint Not Found
 
-**Error**: `werkzeug.routing.BuildError: Could not build url for endpoint`
+Error: `werkzeug.routing.BuildError: Could not build url for endpoint`
 
-**Fix**: Include the blueprint name prefix in `url_for()`:
+Fix: Include the blueprint name prefix in `url_for()`:
 
 ```python
 # WRONG
@@ -438,9 +401,9 @@ url_for("auth.login")
 
 ### CSRF Token Missing
 
-**Error**: `Bad Request: The CSRF token is missing`
+Error: `Bad Request: The CSRF token is missing`
 
-**Fix**: Include the token in templates:
+Fix: Include the token in templates:
 
 ```html
 <form method="post">
@@ -482,25 +445,3 @@ def test_index(client):
 ```
 
 Run: `uv run pytest`
-
-## Deployment
-
-### Development
-
-```bash
-flask --app run run --debug
-```
-
-### Production with Gunicorn
-
-```bash
-uv add gunicorn
-uv run gunicorn -w 4 -b 0.0.0.0:8000 "run:app"
-```
-
-### Environment Variables (.env)
-
-```
-SECRET_KEY=your-production-secret-key
-FLASK_ENV=production
-```

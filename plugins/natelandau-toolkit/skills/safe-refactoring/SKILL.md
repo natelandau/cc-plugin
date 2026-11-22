@@ -1,75 +1,57 @@
 ---
 name: safe-refactoring
-description: Use when the user asks to refactor, restructure, reorganize, extract, simplify, deduplicate, or "clean up"/"make this more readable"/"break this apart" any code, in any language, even when they don't say "refactor" explicitly. Keeps refactoring behavior-preserving and disciplined rather than freeform editing.
+description: Use when the user asks to refactor, restructure, reorganize, extract, simplify, deduplicate, or "clean up"/"make this more readable"/"break this apart" any code, in any language, even when they don't say "refactor" explicitly.
 ---
 
 # Safe Refactoring
 
-Restructure code to improve readability, maintainability, and design without
-changing external behavior. This is a disciplined process, not freeform
-editing. It applies to any language.
+Restructure code for readability, maintainability, and design without changing external
+behavior. Any language.
 
-## When to point at a command instead
+## Rules
 
-This skill is the discipline for any refactor you do directly. Two commands
-cover the heavier passes. Suggest them when they fit:
+1. Preserve behavior. Change structure, never what the code does.
+2. Small, verifiable steps; never a big-bang rewrite.
+3. Tests are the safety net. Run the suite before (green baseline) and after each batch.
+4. One concern at a time. Never mix refactoring with feature changes or bug fixes.
+5. Commit before and after each coherent, green batch.
 
-- `/refactor <target>` runs a multi-angle review-and-apply pass (idioms,
-  reuse, simplification, structure, efficiency, conventions, docs), with each
-  finding verified independently. `--quick` runs a fast inline pass with no
-  subagents. `--fix` applies the safe, mechanical findings.
-- `/organize <target>` reviews project organization: file and directory
-  topology, naming, module boundaries, grab-bag files, and scattered
-  functions. It produces a report and an ordered plan but never moves files.
-  Execute that plan with this skill's discipline.
+## Process
 
-## The golden rules
+1. Pin the intent: which pain point (readability, duplication, coupling, testability)
+   and what is out of scope. Unclear: ask before touching code.
+2. Establish a baseline: run the existing tests. Target code lacks coverage: write
+   characterization tests that pin current behavior and commit them separately.
+3. Work in batches of one kind (all renames, all extractions). Run the tests after each
+   batch; commit only when green.
+4. Stop and reassess on drift: changing more files than planned, editing tests to match
+   new behavior, or adding functionality.
 
-1. Behavior is preserved. Refactoring changes structure, never what the code
-   does.
-2. Small steps. Make tiny, verifiable changes, never a big-bang rewrite.
-3. Tests are the safety net. Without tests that cover the code, you are
-   editing and hoping. Run the suite before (a green baseline) and after each
-   step.
-4. One concern at a time. Never mix refactoring with feature changes or bug
-   fixes.
-5. Commit safe states. Commit before and after each coherent, green batch.
+## Out of scope
 
-## How to approach it
+Bug fixes, features, and behavior-changing optimizations. Found one mid-refactor: tell
+the user and keep it out of the refactoring commits (a bug fix goes in its own commit).
 
-1. Understand the intent. Which pain point drives this: readability,
-   duplication, coupling, or testability? What is out of scope? If unclear,
-   ask before you touch code.
-2. Establish a baseline. Run the existing tests. If the target code lacks
-   coverage, write characterization tests that pin current behavior, and
-   commit them separately.
-3. Work in small, verifiable steps, grouped into coherent batches (all renames
-   together, all extractions together). Run the tests after each batch, and
-   commit only when green.
-4. Stop if you drift. Changing more files than planned, "fixing" tests to
-   match new behavior, or adding functionality means you have left
-   refactoring. Stop and reassess.
+## Heavier passes
 
-## What refactoring is not
+Suggest when they fit:
 
-- Not a bug fix. If you find a bug, note it and fix it in a separate commit.
-- Not a feature. Adding behavior is a separate task.
-- Not an optimization that changes behavior. Behavior-changing performance
-  work needs its own verification.
+- `/refactor [target]`: multi-angle review with independent verification. `--quick`:
+  fast inline pass. `--fix`: applies the safe, mechanical findings.
+- `/organize [target]`: reviews file and directory topology, naming, and module
+  boundaries; produces a report and ordered plan, never moves files. Execute its plan
+  with these rules.
 
-If you discover any of these during a refactor, tell the user and keep it out
-of the refactoring commits.
+## Techniques
 
-## Common techniques
-
-| Technique                             | When to use                                                 |
-| ------------------------------------- | ----------------------------------------------------------- |
-| Extract function or method            | Long function, repeated logic, unclear intent               |
-| Extract class or type                 | A unit that does too many things, or related functions      |
-| Move function or class                | Code in the wrong module, or circular dependencies          |
-| Rename                                | The name does not communicate intent                        |
-| Inline                                | An abstraction adds complexity without value                |
-| Replace conditional with polymorphism | Complex type-based if/else chains                           |
-| Introduce parameter object            | A function with many related parameters                     |
-| Split module or file                  | One file with mixed responsibilities                        |
-| Consolidate duplicates                | The same logic in several places                            |
+| Technique                             | When                                                 |
+| ------------------------------------- | ---------------------------------------------------- |
+| Extract function or method            | Long function, repeated logic, unclear intent        |
+| Extract class or type                 | A unit doing too many things, or related functions   |
+| Move function or class                | Code in the wrong module, or circular dependencies   |
+| Rename                                | The name does not communicate intent                 |
+| Inline                                | An abstraction adds complexity without value         |
+| Replace conditional with polymorphism | Complex type-based if/else chains                    |
+| Introduce parameter object            | A function with many related parameters              |
+| Split module or file                  | One file with mixed responsibilities                 |
+| Consolidate duplicates                | The same logic in several places                     |

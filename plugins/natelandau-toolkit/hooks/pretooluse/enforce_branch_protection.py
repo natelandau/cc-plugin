@@ -111,9 +111,7 @@ PROTECTED_BRANCH_HINT = (
 # Shown when a merge/pull would write a merge commit onto a protected branch.
 # Points at the two forms that land work without creating a merge commit there.
 MERGE_COMMIT_HINT = (
-    "A merge commit (from `git merge`/`git pull`) writes directly to the "
-    "protected branch, which is the same as committing to it. To land work "
-    "without a merge commit:\n"
+    "To land work without a merge commit:\n"
     "  - fast-forward only:  git merge --ff-only <branch>\n"
     "  - or squash-merge:    git merge --squash <branch> && git commit"
 )
@@ -173,10 +171,8 @@ GIT_WORKTREE_READONLY_RE = re.compile(
 )
 
 GIT_C_ADVISORY = (
-    "WARNING: Avoid using `git -C <path>`. "
-    "Check your current working directory and `cd` into the correct "
-    "directory first, then run `git` directly. "
-    "Only fall back to `git -C` if direct `git` fails."
+    "WARNING: Avoid using `git -C <path>`. `cd` into the repo and run `git` "
+    "directly; fall back to `git -C` only if plain `git` fails."
 )
 GIT_C_RE = re.compile(r"\bgit\s+-C\b")
 
@@ -1074,7 +1070,7 @@ def _git_op_decision(*, command: str, clause: str, repo_dir: str, branch: str) -
         return Decision.ask_user(
             ID,
             f"Merging into the protected '{branch}' branch writes a merge commit "
-            f"directly to it. {MERGE_COMMIT_HINT}",
+            f"to it, the same as committing to it directly. {MERGE_COMMIT_HINT}",
         )
     return None
 

@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: Use when the user asks to open, create, make, or raise a pull request, or uses the shorthand "pr" in any form ("pr", "pr this", "open a pr", "make a PR"), including requests to push the branch and open a PR or to send the branch for review without saying "PR" (for example "get this reviewed" or "put this up for review"). Use it whenever a pull request is wanted, rather than running git push and gh pr create by hand. Commits any outstanding work, runs the project's linters and tests, pushes the feature branch, and opens a PR against the repo's default branch. The title and the opening of the description become the future squash commit, so they follow the user's commit conventions; detail for reviewers follows in sections such as Changes. Do not use for merging, squashing, or fast-forwarding a branch into main locally; those are different workflows.
+description: Use when the user asks to open, create, make, or raise a pull request, or says "pr" in any form ("pr", "pr this", "open a pr", "make a PR"), including pushing the branch and opening a PR, or sending the branch for review without saying PR ("get this reviewed", "put this up for review"). Use it instead of running git push and gh pr create by hand. Not for merging, squashing, or fast-forwarding a branch into main locally.
 ---
 
 # Pull request
@@ -15,7 +15,7 @@ and lead block are the future squash commit.
 - Title and lead block land in `git log` byte for byte, so write them to the user's
   commit conventions. If rejected, fix them to the rules the block message lists.
 - Every claim in the description is true of this branch and visible in the diff. No
-  future work, open questions, or speculation; cut any that creeps in.
+  future work, open questions, or speculation.
 - A repo PR template replaces the default shape.
 - Open ready for review; draft only when the user asks.
 
@@ -43,18 +43,17 @@ git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null  # origin/main, th
 - Run "Existing PR for branch". If the PR already merged, stop before prep rebases
   anything: the work landed. Say so and offer to clean up the local branch and worktree
   and pull the trunk instead.
-- Check for unpushed local-trunk commits riding on the branch. Do it before prep,
-  because the rebase rewrites them and hides their origin. Skip when no local
-  `<default-branch>` exists.
+- Check for unpushed local-trunk commits riding on the branch, before prep (the rebase
+  rewrites them and hides their origin). Skip when no local `<default-branch>` exists.
 
   ```bash
   git fetch origin <default-branch>
   git log --oneline origin/<default-branch>..$(git merge-base <default-branch> HEAD)
   ```
 
-  Empty (the common case): move on. Otherwise the branch was cut from a local trunk
-  ahead of the remote, and the PR would carry those commits as this work. Stop, show
-  them, and ask the user to push the trunk first or confirm they belong in this PR.
+  Empty: move on. Otherwise the branch was cut from a local trunk ahead of the remote,
+  and the PR would carry those commits as this work. Stop, show them, and ask the user
+  to push the trunk first or confirm they belong in this PR.
 
 ### Commands per forge
 
@@ -86,11 +85,9 @@ reports none):
 
 Read `../shared/finishing-prep.md` (relative to this skill's base directory) and do
 every step, with `<rebase-onto>` = `origin/<default-branch>` (the PR merges into the
-remote trunk). Return here when done.
+remote trunk, refreshed by the prep fetch). Return here when done.
 
 ## Step 4: Regroup a sprawled history
-
-A few coherent commits review better than a trail of small or fixup commits.
 
 ```bash
 orig=$(git rev-parse HEAD)   # pre-rewrite tip, for the byte-identical check
@@ -116,7 +113,7 @@ user to run `! git push --force-with-lease`, then continue.
 
 ## Step 6: Write the title and description
 
-Read the whole branch; the diff is the ground truth:
+Read the whole branch; the diff is ground truth:
 
 ```bash
 git log --oneline <default-branch>..HEAD
@@ -168,7 +165,7 @@ branch is a one-liner.
 
 ## Step 7: Create the PR
 
-Write the body to a temp file (avoids shell quoting), then run "Create PR" for your
+Write the body to a temp file to avoid shell quoting, then run "Create PR" for your
 forge:
 
 ```bash
@@ -185,8 +182,7 @@ gh pr create --base <default-branch> --head "$(git branch --show-current)" \
   --title "<title>" --body-file /tmp/pr-body.md
 ```
 
-Draft (`--draft` for `gh`/`glab`, `[WIP]` title prefix for `tea`) only when asked.
-"a pull request already exists": show it and offer to update it.
+On "a pull request already exists": show it and offer to update it.
 
 Report the PR URL. State the feature branch was pushed and the trunk untouched; merging
 is the user's or a reviewer's call. Add that once the PR merges, the local branch and

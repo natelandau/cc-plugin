@@ -45,9 +45,9 @@ RULES_FILE = Path(__file__).parent / "config_protection.rules.toml"
 PYPROJECT = "pyproject.toml"
 
 _OVERRIDE_HINT = (
-    "Fix the code rather than weakening the rule. To override intentionally, "
-    "disable `config-protection` in natelandau-toolkit.toml or edit the file "
-    "outside Claude Code."
+    "Fix the code instead of weakening the rule. Only the user can override it, "
+    "by disabling `config-protection` in natelandau-toolkit.toml or editing the "
+    "file outside Claude Code; never change that config yourself."
 )
 
 

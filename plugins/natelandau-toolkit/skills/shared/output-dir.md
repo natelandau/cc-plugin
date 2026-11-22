@@ -1,11 +1,8 @@
-# Output directory: shared location rule
+# Output directory
 
-Where a skill writes a generated file for the user: a per-user cache directory outside
-the repo, so it never lands in version control and the repo is never changed to hide
-it. The cache survives a reboot, so the user can reopen the file or rerun a saved
-script.
-
-The calling skill picks a `<kind>` (such as `explanations`); substitute it below.
+Write generated files for the user to a per-user cache directory outside the repo, so
+nothing lands in version control and the repo is never changed to hide it. Substitute
+the calling skill's `<kind>` (such as `explanations`) below.
 
 ## Choose the location
 
@@ -26,9 +23,8 @@ The calling skill picks a `<kind>` (such as `explanations`); substitute it below
 
 ## Name the file
 
-Prefix each file or folder name with today's date as `YYYY-MM-DD-` so entries sort by
-time, for example
+Prefix each file or folder name with today's date as `YYYY-MM-DD-`, for example
 `~/.cache/natelandau-toolkit/<repo-name>/explanations/2026-07-08-explanation-<slug>.html`.
 
-Two repos can share a name, so never overwrite an existing entry. If the name is taken,
+Never overwrite an existing entry (two repos can share a name). If the name is taken,
 add `-2`, `-3`, and so on before the extension.

@@ -1,6 +1,6 @@
 ---
 name: fast-forward
-description: Use when the user asks to merge a finished branch into main or master, fast-forward main, land the branch on the trunk, or bring main up to date with the branch (or its worktree). A plain "merge into main" or "merge this branch" request means this skill even when the user never says "fast-forward"; only the explicit words squash or single commit mean the squash workflow instead. Commits any outstanding work, syncs and rebases onto the local trunk, regroups the history into a few reviewable commits whose messages read as public changelog entries, fast-forwards them onto the trunk with no merge commit, then deletes the branch and removes its worktree. Local only; never pushes. Irreversible and destructive. Do not use to open a pull request.
+description: Use when the user asks to merge a finished branch (or its worktree) into main or master, fast-forward main, land the branch on the trunk, or bring main up to date with the branch. A plain "merge into main" or "merge this branch" means this skill even without the word fast-forward; only the explicit words squash or single commit mean the squash workflow. Local, destructive, never pushes. Not for opening a pull request.
 ---
 
 # Fast-forward
@@ -27,65 +27,19 @@ and irreversible once deletions run.
   `git merge --ff-only` advances the trunk ref without writing a commit. A bare
   `git merge` or `--no-ff` writes a merge commit, which the hook holds for approval.
 
-## Step 0: Detect the situation
+## Steps 0 and 1: Detect and sync
 
-```bash
-git branch --show-current       # the feature branch
-git rev-parse --git-dir         # differs from the next line inside a worktree
-git rev-parse --git-common-dir  # the real .git
-git worktree list               # every checkout and its branch
-```
-
-- Trunk: `main`, or `master` if that is the one that exists (`git rev-parse --verify main`).
-- Layout: if `--git-dir` and `--git-common-dir` differ, you are in a linked worktree;
-  the trunk is the checkout on the trunk in `git worktree list`. No checkout on the
-  trunk: stop and report. Otherwise it is a single checkout, switched to the trunk in
-  Step 5.
-
-Stop and explain if the current branch is the trunk, or if the branch has no commits
-beyond the trunk and `git status --porcelain` is empty. A branch level with the trunk
-but with uncommitted changes is fine: prep commits it, leaving one commit to land.
-
-## Step 1: Sync the local trunk
-
-The local trunk can be ahead (unpushed landings) or behind its remote. Bring it current
-before prep rebases onto it, so conflicts surface during prep. Skip on a local-only
-repo.
-
-```bash
-git fetch --all --prune
-```
-
-Fast-forward without rewinding a locally-ahead trunk:
-
-- Single checkout (trunk not checked out; the tree can be dirty). Update the ref only
-  when the remote is strictly ahead:
-
-  ```bash
-  ahead=$(git rev-list --count origin/<trunk>..<trunk>)    # local-only commits
-  behind=$(git rev-list --count <trunk>..origin/<trunk>)   # remote-only commits
-  if [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
-      echo "DIVERGED: both sides have unique commits"      # STOP and report, never force
-  elif [ "$behind" -gt 0 ]; then
-      git fetch . origin/<trunk>:<trunk>                   # remote strictly ahead: fast-forward
-  fi
-  # ahead-only or equal: nothing to do
-  ```
-
-- Worktree (trunk checked out elsewhere). Fast-forward in place:
-
-  ```bash
-  git -C <trunk-checkout> merge --ff-only origin/<trunk>   # diverged: fails, so stop
-  ```
-
-On divergence, stop and report. Never force the trunk to either side.
+Read `../shared/trunk-sync.md` (relative to this skill's base directory). Run its
+Detect section, then its Sync the local trunk section. Its "Return to the trunk"
+section runs in Step 5.
 
 ## Steps A to D: Prepare the branch
 
 Read `../shared/finishing-prep.md` (relative to this skill's base directory) and do
 every step. Its commits go on the feature branch. Pass `<rebase-onto>` = the local
-`<trunk>` (synced in Step 1), not `origin/<trunk>`. That makes the feature a linear
-descendant of the exact commit it lands on, which guarantees the Step 5 fast-forward.
+`<trunk>` (synced in Step 1, can be ahead of the remote), not `origin/<trunk>`. That
+makes the feature a linear descendant of the commit it lands on, so Step 5 can
+fast-forward.
 Return here when done.
 
 ## Step 4: Regroup into changelog-worthy commits
@@ -108,30 +62,7 @@ regroup again before continuing.
 
 ## Step 5: Fast-forward onto the trunk
 
-Get onto the trunk checkout:
-
-- Single checkout: `git checkout <trunk>`.
-- Worktree: `cd` into the trunk's checkout. If `git status` shows a dirty tree, stop
-  and ask the user.
-
-Remote-backed repo: confirm the trunk is still current.
-
-```bash
-git merge --ff-only origin/<trunk>    # expected: "Already up to date"
-```
-
-Behind or diverged means the remote moved since Step 1: stop, report, restart from
-Step 1.
-
-Every repo, local-only included:
-
-```bash
-git merge-base --is-ancestor <trunk> <feature-branch>   # exit 0: still rebased on the trunk
-```
-
-Non-zero means the local trunk moved since Step B (for example, another worktree
-landed work). Stop, report, and restart from Step 1 so the feature rebases onto the
-current trunk.
+Run the "Return to the trunk" section of `../shared/trunk-sync.md`.
 
 ```bash
 git merge --ff-only <feature-branch>

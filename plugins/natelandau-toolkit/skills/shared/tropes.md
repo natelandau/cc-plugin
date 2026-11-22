@@ -1,12 +1,14 @@
 # Writing Tropes to Avoid
 
+AI writing patterns that erode reader trust. One use can be fine. The tell is several
+tropes together, or one trope repeated. Each entry: the pattern, then examples to avoid.
+
 ## Word Choice
 
 ### "Quietly" and Other Magic Adverbs
 
-Overuse of "quietly" and similar adverbs to convey subtle importance or understated power. AI reaches for these adverbs to make mundane descriptions feel significant. Also includes: "deeply", "fundamentally", "remarkably", "arguably".
-
-**Avoid patterns like:**
+Adverbs that make a mundane description feel significant: "quietly", "deeply",
+"fundamentally", "remarkably", "arguably".
 
 - "quietly orchestrating workflows, decisions, and interactions"
 - "the one that quietly suffocates everything else"
@@ -14,9 +16,9 @@ Overuse of "quietly" and similar adverbs to convey subtle importance or understa
 
 ### "Delve" and Friends
 
-Used to be the most infamous AI tell. "Delve" went from an uncommon English word to appearing in a staggering percentage of AI-generated text. Part of a family of overused AI vocabulary including "certainly", "utilize", "leverage" (as a verb), "robust", "streamline", "harness", "intricate", "interplay", "garner", "underscore", "showcase", "foster", "encompass", "resonate", "nestled", "boasts", and "meticulous".
-
-**Avoid patterns like:**
+Overused AI vocabulary: "delve", "certainly", "utilize", "leverage" (verb), "robust",
+"streamline", "harness", "intricate", "interplay", "garner", "underscore", "showcase",
+"foster", "encompass", "resonate", "nestled", "boasts", "meticulous".
 
 - "Let's delve into the details..."
 - "Delving deeper into this topic..."
@@ -24,9 +26,8 @@ Used to be the most infamous AI tell. "Delve" went from an uncommon English word
 
 ### "Tapestry" and "Landscape"
 
-Overuse of ornate or grandiose nouns where simpler words would do. "Tapestry" is used to describe anything interconnected. "Landscape" is used to describe any field or domain. Other offenders: "paradigm", "synergy", "ecosystem", "framework".
-
-**Avoid patterns like:**
+Grandiose nouns where a plain word works: "tapestry" for anything interconnected,
+"landscape" for any field, plus "paradigm", "synergy", "ecosystem", "framework".
 
 - "The rich tapestry of human experience..."
 - "Navigating the complex landscape of modern AI..."
@@ -34,9 +35,7 @@ Overuse of ornate or grandiose nouns where simpler words would do. "Tapestry" is
 
 ### The "Serves As" Dodge
 
-Replacing simple "is" or "are" with pompous alternatives like "serves as", "stands as", "marks", or "represents". AI avoids basic copulas because its repetition penalty pushes it toward fancier constructions (I've studied this!).
-
-**Avoid patterns like:**
+"Serves as", "stands as", "marks", or "represents" in place of a plain "is" or "are".
 
 - "The building serves as a reminder of the city's heritage."
 - "Gallery 825 serves as LAAA's exhibition space for contemporary art."
@@ -44,9 +43,11 @@ Replacing simple "is" or "are" with pompous alternatives like "serves as", "stan
 
 ### Inflated and Decorative Modifiers
 
-Significance words that inflate a plain fact ("pivotal", "crucial", "vital", "key", "testament", "watershed", "landmark", "legacy", "groundbreaking", "captivate") and decorative adjectives that add color but no information ("vibrant", "rich", "profound", "dynamic", "seamless"). State the fact plainly and earn every modifier: if removing the word doesn't change the meaning, cut it. "The library was rewritten in 2019" beats "The pivotal 2019 rewrite cemented the library's enduring legacy."
-
-**Avoid patterns like:**
+Significance words that inflate a plain fact ("pivotal", "crucial", "vital", "key",
+"testament", "watershed", "landmark", "legacy", "groundbreaking", "captivate") and
+decorative adjectives with no information ("vibrant", "rich", "profound", "dynamic",
+"seamless"). If removing the word keeps the meaning, cut it. "The library was rewritten
+in 2019" beats "The pivotal 2019 rewrite cemented the library's enduring legacy."
 
 - "a pivotal step in the project's journey"
 - "a rich, vibrant ecosystem of plugins"
@@ -54,23 +55,23 @@ Significance words that inflate a plain fact ("pivotal", "crucial", "vital", "ke
 
 ### Intensifier Filler
 
-Empty intensifiers and hedges that pad a statement without adding information: "very", "really", "quite", "pretty", "so", "just", "simply", "merely", "of course", "surely", "actually". Cut them, or replace the weak word they prop up with a precise one. Keep an intensifier only when it marks a specific, measurable degree ("the query runs twice as fast", not "the query is really fast").
-
-**Avoid patterns like:**
+Empty intensifiers and hedges: "very", "really", "quite", "pretty", "so", "just",
+"simply", "merely", "of course", "surely", "actually". Cut them, or replace the weak
+word they prop up. Keep one only for a specific, measurable degree ("the query runs
+twice as fast", not "the query is really fast").
 
 - "This can be quite frustrating."
 - "Setup is really very simple."
 - "This is, of course, a significant improvement."
 
----
-
 ## Sentence Structure
 
 ### Negative Parallelism
 
-The "It's not X -- it's Y" pattern, often with an em dash. The single most commonly identified AI writing tell. Man I f\*cking hate it. AI uses this to create false profundity by framing everything as a surprising reframe. One in a piece can be effective; ten in a blog post is a genuine insult to the reader. Before LLMs, people simply did not write like this at scale. Includes the causal variant "not because X, but because Y" where every explanation is framed as a surprise reveal, the em-dash dismissal "X -- not Y", and the cross-sentence reframe where the same noun is negated then repositioned: "The question isn't X. The question is Y."
-
-**Avoid patterns like:**
+"It's not X -- it's Y": false profundity by framing every point as a surprising reframe.
+The most common AI tell. Variants: the causal "not because X, but because Y", the
+dismissal "X -- not Y", and the cross-sentence reframe "The question isn't X. The
+question is Y."
 
 - "It's not bold. It's backwards."
 - "Feeding isn't nutrition. It's dialysis."
@@ -78,9 +79,7 @@ The "It's not X -- it's Y" pattern, often with an em dash. The single most commo
 
 ### "Not X. Not Y. Just Z."
 
-The dramatic countdown pattern. AI builds tension by negating two or more things before revealing the actual point. Creates a false sense of narrowing down to the truth.
-
-**Avoid patterns like:**
+A countdown that negates two or more things before the real point.
 
 - "Not a bug. Not a feature. A fundamental design flaw."
 - "Not ten. Not fifty. Five hundred and twenty-three lint violations across 67 files."
@@ -88,9 +87,7 @@ The dramatic countdown pattern. AI builds tension by negating two or more things
 
 ### "The X? A Y."
 
-Self-posed rhetorical questions answered immediately in the next sentence or clause. The model asks a question nobody was asking, then answers it for dramatic effect. Thinks this is the epitome of great writing.
-
-**Avoid patterns like:**
+A rhetorical question nobody asked, answered at once for effect.
 
 - "The result? Devastating."
 - "The worst part? Nobody saw it coming."
@@ -98,9 +95,7 @@ Self-posed rhetorical questions answered immediately in the next sentence or cla
 
 ### Anaphora Abuse
 
-Repeating the same sentence opening multiple times in quick succession.
-
-**Avoid patterns like:**
+The same sentence opening repeated in quick succession.
 
 - "They assume that users will pay... They assume that developers will build... They assume that ecosystems will emerge... They assume that..."
 - "They could expose... They could offer... They could provide... They could create... They could let... They could unlock..."
@@ -108,9 +103,8 @@ Repeating the same sentence opening multiple times in quick succession.
 
 ### Tricolon Abuse
 
-Overuse of the rule-of-three pattern, often extended to four or five. A single tricolon is elegant; three back-to-back tricolons are a pattern recognition failure.
-
-**Avoid patterns like:**
+The rule of three, overused or stretched to four or five. One tricolon is fine;
+back-to-back tricolons are a pattern.
 
 - "Products impress people; platforms empower them. Products solve problems; platforms create worlds. Products scale linearly; platforms scale exponentially."
 - "identity, payments, compute, distribution"
@@ -118,9 +112,9 @@ Overuse of the rule-of-three pattern, often extended to four or five. A single t
 
 ### "It's Worth Noting"
 
-Filler transitions that signal nothing. AI uses these phrases to introduce new points without actually connecting them to the previous argument. Also includes: "It bears mentioning", "Importantly", "Interestingly", "Notably", and the additive connectives "Additionally", "Furthermore", and "Moreover" when they just bolt on a point. The correlative "not only ... but also" is the same tic in construction form; a plain "and" almost always reads better.
-
-**Avoid patterns like:**
+Filler transitions that connect nothing: "It bears mentioning", "Importantly",
+"Interestingly", "Notably", and "Additionally", "Furthermore", "Moreover" when they bolt
+on a point. "Not only ... but also" is the same tic; a plain "and" reads better.
 
 - "It's worth noting that this approach has limitations."
 - "Importantly, we must consider the broader implications."
@@ -128,9 +122,8 @@ Filler transitions that signal nothing. AI uses these phrases to introduce new p
 
 ### Superficial Analyses
 
-Tacking a present participle ("-ing") phrase onto the end of a sentence to inject shallow analysis that says nothing. The model attaches significance, legacy, or broader meaning to mundane facts using phrases like "highlighting its importance", "reflecting broader trends", or "contributing to the development of...".
-
-**Avoid patterns like:**
+A trailing "-ing" phrase that attaches significance to a mundane fact: "highlighting its
+importance", "reflecting broader trends", "contributing to the development of...".
 
 - "contributing to the region's rich cultural heritage"
 - "This etymology highlights the enduring legacy of the community's resistance and the transformative power of unity in shaping its identity."
@@ -138,23 +131,18 @@ Tacking a present participle ("-ing") phrase onto the end of a sentence to injec
 
 ### False Ranges
 
-Using "from X to Y" constructions where X and Y aren't on any real scale. In legitimate use, "from X to Y" implies a spectrum with a meaningful middle. AI uses it as a fancy way to list two loosely related things. "From innovation to cultural transformation" -- what's in between???? Nothing!
-
-**Avoid patterns like:**
+"From X to Y" where X and Y sit on no real scale with a meaningful middle.
 
 - "From innovation to implementation to cultural transformation."
 - "From the singularity of the Big Bang to the grand cosmic web."
 - "From problem-solving and tool-making to scientific discovery, artistic expression, and technological innovation."
 
----
-
 ## Paragraph Structure
 
 ### Short Punchy Fragments
 
-Excessive use of very short sentences or sentence fragments as standalone paragraphs for manufactured emphasis. RLHF training has pushed models toward "writing for readability" aimed at the lowest common denominator: one thought per sentence, no mental state-keeping required. It's an inhuman style. No real person writes first drafts this way because it doesn't match how humans think or speak.
-
-**Avoid patterns like:**
+Very short sentences or fragments as standalone paragraphs for manufactured emphasis.
+No person writes or thinks this way.
 
 - "He published this. Openly. In a book. As a priest."
 - "These weren't just products. And the software side matched. Then it professionalized. But I adapted."
@@ -162,22 +150,18 @@ Excessive use of very short sentences or sentence fragments as standalone paragr
 
 ### Listicle in a Trench Coat
 
-Numbered or labeled points dressed up as continuous prose. The model writes what is essentially a listicle but wraps each point in a paragraph that starts with "The first... The second... The third..." to disguise the format. Perhaps you told it to stop generating lists and it decided to do this instead... still very common.
-
-**Avoid patterns like:**
+A list disguised as prose: paragraphs opening "The first... The second... The third...".
 
 - "The first wall is the absence of a free, scoped API... The second wall is the lack of delegated access... The third wall is the absence of scoped permissions..."
 - "The second takeaway is that... The third takeaway is that... The fourth takeaway is that..."
-
----
 
 ## Tone
 
 ### "Here's the Kicker"
 
-False suspense transitions that promise a revelation but deliver a point that did NOT need the buildup. The model uses these phrases to manufacture drama before an otherwise unremarkable observation LOL. Also includes: "Here's the thing", "Here's where it gets interesting", "Here's what most people miss", "Here's the starting point", "Here's the deal".
-
-**Avoid patterns like:**
+False-suspense transitions before an unremarkable point: "Here's the thing", "Here's
+where it gets interesting", "Here's what most people miss", "Here's the starting point",
+"Here's the deal".
 
 - "Here's the kicker."
 - "Here's the thing about AI adoption."
@@ -185,9 +169,8 @@ False suspense transitions that promise a revelation but deliver a point that di
 
 ### "Think of It As..."
 
-The patronizing analogy. AI constantly reaches for "Think of it as..." or "It's like a..." to simplify concepts. The model defaults to teacher mode and assumes the reader needs a metaphor to understand anything. Often produces analogies that are less clear than the original concept.
-
-**Avoid patterns like:**
+The patronizing analogy ("Think of it as...", "It's like a..."), often less clear than
+the concept itself.
 
 - "Think of it like a highway system for data."
 - "Think of it as a Swiss Army knife for your workflow."
@@ -195,18 +178,16 @@ The patronizing analogy. AI constantly reaches for "Think of it as..." or "It's 
 
 ### "Imagine a World Where..."
 
-The classic AI invitation to futurism. To sell the argument usually begins with "Imagine" followed by a list of wonderful things that will happen if the reader agrees with the premise.
-
-**Avoid patterns like:**
+An invitation to futurism: "Imagine" followed by the wonderful things that follow if the
+reader accepts the premise.
 
 - "Imagine a world where every tool you use -- your calendar, your inbox, your documents, your CRM, your code editor -- has a quiet intelligence behind it..."
 - "In that world, workflows stop being collections of manual steps and start becoming orchestrations."
 
 ### False Vulnerability
 
-Simulated self-awareness or honesty that reads as performative. The model pretends to break the fourth wall or admit a bias, creating a false sense of authenticity. Real vulnerability is specific and uncomfortable; AI vulnerability is polished and risk-free!!!!
-
-**Avoid patterns like:**
+Performed self-awareness or admitted bias. Real vulnerability is specific and
+uncomfortable; this is polished and risk-free.
 
 - "And yes, I'm openly in love with the platform model"
 - "And yes, since we're being honest: I'm looking at you, OpenAI, Google, Anthropic, Meta"
@@ -214,9 +195,9 @@ Simulated self-awareness or honesty that reads as performative. The model preten
 
 ### "The Truth Is Simple"
 
-Asserting that something is obvious, clear or simple instead of actually proving it. If you have to tell the reader your point is clear, it very likely isn't. Also includes the dramatic reveal variant: "but none of them is the real story. The real story is..." -- claiming privileged insight while waving away everything before it.
-
-**Avoid patterns like:**
+Asserting a point is obvious or clear instead of proving it. Includes the reveal "but
+none of them is the real story. The real story is...", which claims insight while
+dismissing everything before it.
 
 - "The reality is simpler and less flattering"
 - "History is unambiguous on this point"
@@ -224,9 +205,7 @@ Asserting that something is obvious, clear or simple instead of actually proving
 
 ### Grandiose Stakes Inflation
 
-Everything is the most important thing ever. AI inflates the stakes of every argument to world-historical significance. A blog post about API pricing becomes a meditation on the fate of civilization.
-
-**Avoid patterns like:**
+Every argument inflated to world-historical significance.
 
 - "This will fundamentally reshape how we think about everything."
 - "will define the next era of computing"
@@ -234,9 +213,8 @@ Everything is the most important thing ever. AI inflates the stakes of every arg
 
 ### "Let's Break This Down"
 
-The pedagogical voice that assumes the reader needs hand-holding. AI defaults to a teacher-student dynamic even when writing for expert audiences. Also includes: "Let's unpack this", "Let's explore", "Let's dive in".
-
-**Avoid patterns like:**
+The teacher voice, even for experts: "Let's unpack this", "Let's explore", "Let's dive
+in".
 
 - "Let's break this down step by step."
 - "Let's unpack what this really means."
@@ -244,9 +222,8 @@ The pedagogical voice that assumes the reader needs hand-holding. AI defaults to
 
 ### Vague Attributions
 
-Attributing claims to unnamed authorities instead of being specific. AI loves to invoke "experts", "observers", "industry reports", and "several publications" without naming anyone. It also inflates the quantity of sources -- presenting what one person said as a widely held view, or writing "several publications have cited" when it means two. If you can't name the expert, you don't have a source.
-
-**Avoid patterns like:**
+Claims credited to unnamed "experts", "observers", "industry reports", or "several
+publications", and one source inflated into a widely held view. No name, no source.
 
 - "Experts argue that this approach has significant drawbacks."
 - "Industry reports suggest that adoption is accelerating."
@@ -254,23 +231,20 @@ Attributing claims to unnamed authorities instead of being specific. AI loves to
 
 ### Invented Concept Labels
 
-AI clusters invented compound labels that sound analytical without being grounded. It appends abstract problem-nouns (paradox, trap, creep, divide, vacuum, inversion) to domain words — "supervision paradox", "acceleration trap", "workload creep" — and uses them as if they're established, rigorously defined terms. They function as rhetorical shorthand: name a thing, skip the argument. Multiple such labels in the same piece is a strong signal of AI slop.
-
-**Avoid patterns like:**
+Coined compound labels (a domain word plus paradox, trap, creep, divide, vacuum,
+inversion) used as if they were established terms, to name a thing and skip the
+argument. Several in one piece is a strong signal.
 
 - "the supervision paradox"
 - "the acceleration trap"
 - "workload creep"
 
----
-
 ## Formatting
 
 ### Em-Dash Addiction
 
-Compulsive overuse of em dashes for dramatic pauses, parenthetical asides and pivot points. A human writer might use 2-3 per piece (and naturally); AI will use 20+.
-
-**Avoid patterns like:**
+Em dashes for every pause, aside, and pivot. A person uses two or three per piece; AI
+uses 20 or more.
 
 - "The problem -- and this is the part nobody talks about -- is systemic."
 - "The tinkerer spirit didn't die of natural causes -- it was bought out."
@@ -278,9 +252,8 @@ Compulsive overuse of em dashes for dramatic pauses, parenthetical asides and pi
 
 ### Bold-First Bullets
 
-Every bullet point or list item starts with a bolded phrase or sentence. Extremely common in Claude and ChatGPT markdown output. Almost nobody formats lists this way when writing by hand. It's a telltale sign of AI-generated documentation and blog posts AND README files (especially with emojis).
-
-**Avoid patterns like:**
+Every list item opens with a bolded phrase. Common in AI-generated docs, blog posts, and
+READMEs (often with emoji); rare in hand-written lists.
 
 - "Every single bullet point begins with a bold keyword."
 - "**Security**: Environment-based configuration with..."
@@ -288,23 +261,19 @@ Every bullet point or list item starts with a bolded phrase or sentence. Extreme
 
 ### Unicode Decoration
 
-Use of unicode arrows (->), smart/curly quotes, and other special characters that can't be easily typed on a standard keyboard. Real writers typing in a text editor produce straight quotes and -> or =>. Claude in particular loves the -> arrow.
-
-**Avoid patterns like:**
+Unicode arrows (→), smart quotes, and other characters a keyboard does not type. People
+type straight quotes and `->` or `=>`.
 
 - "Input → Processing → Output"
 - "This leads to better outcomes → which means higher engagement"
 - "“Smart quotes” instead of straight "quotes" that you’d actually type"
 
----
-
 ## Composition
 
 ### Fractal Summaries
 
-"What I'm going to tell you; what I'm telling you; what I just told you" -- applied at every level of the document. Every subsection gets a summary. Every section gets a summary. The document itself gets a summary.
-
-**Avoid patterns like:**
+Tell them what you will say, say it, tell them what you said, at every level: each
+subsection, section, and the document gets a summary.
 
 - "In this section, we'll explore... [3000 words later] ...as we've seen in this section."
 - "A conclusion that restates every point already made in the previous 3000 words"
@@ -312,9 +281,7 @@ Use of unicode arrows (->), smart/curly quotes, and other special characters tha
 
 ### The Dead Metaphor
 
-Latching onto a single metaphor and beating it into the ground across the entire thing. A human writer would introduce a metaphor, use it then move on. AI will repeat the same metaphor 5-10 times.
-
-**Avoid patterns like:**
+One metaphor repeated five to ten times across the piece instead of used once.
 
 - "The ecosystem needs ecosystems to build ecosystem value."
 - "Walls and doors used 30+ times in the same article"
@@ -322,9 +289,8 @@ Latching onto a single metaphor and beating it into the ground across the entire
 
 ### Historical Analogy Stacking
 
-ESPECIALLY COMMON IN TECHNICAL WRITING: Rapid-fire listing of historical companies or tech revolutions to build false authority.
-
-**Avoid patterns like:**
+Rapid-fire lists of companies or tech revolutions for false authority. Common in
+technical writing.
 
 - "Apple didn't build Uber. Facebook didn't build Spotify. Stripe didn't build Shopify. AWS didn't build Airbnb."
 - "Every major technological shift -- the web, mobile, social, cloud -- followed the same pattern."
@@ -332,27 +298,22 @@ ESPECIALLY COMMON IN TECHNICAL WRITING: Rapid-fire listing of historical compani
 
 ### One-Point Dilution
 
-Making a single argument and restating it in 10 different ways across thousands of words. The model pads a simple thesis to feel "comprehensive" by rephrasing the same idea with different metaphors, examples, and framings. An 800-word argument becomes 4000 words of circular repetition.
-
-**Avoid patterns like:**
+One argument restated many ways with new metaphors and framings, so 800 words become
+4000.
 
 - "The same point, restated eight ways across 4000 words."
 - "Each section rephrases the thesis with a different metaphor but adds nothing new"
 
 ### Content Duplication
 
-Repeating entire sections or paragraphs verbatim within the same piece. This happens when the model loses track of what it has already written, especially in longer pieces. A dead giveaway of unedited AI output. Less common nowadays.
-
-**Avoid patterns like:**
+Sections or paragraphs repeated within the same piece.
 
 - "The same section appeared twice, word-for-word identical."
 - "Paragraph 3 and paragraph 17 are the same sentence reworded"
 
 ### The Signposted Conclusion
 
-Explicitly announcing the conclusion with "In conclusion", "To sum up", or "In summary". Competent writing doesn't need to tell you it's concluding. The reader can feel it. AI signals its structural moves because it's following a template, not writing organically.
-
-**Avoid patterns like:**
+Announcing the end with "In conclusion", "To sum up", or "In summary".
 
 - "In conclusion, the future of AI depends on..."
 - "To sum up, we've explored three key themes..."
@@ -360,21 +321,15 @@ Explicitly announcing the conclusion with "In conclusion", "To sum up", or "In s
 
 ### "Despite Its Challenges..."
 
-The rigid formula where AI acknowledges problems only to immediately dismiss them. Always follows the same beat: "Despite its [positive words], [subject] faces challenges..." then ends with "Despite these challenges, [optimistic conclusion].".
-
-**Avoid patterns like:**
+Problems acknowledged only to be dismissed: "Despite its [positive words], [subject]
+faces challenges..." then "Despite these challenges, [optimistic conclusion]."
 
 - "Despite these challenges, the initiative continues to thrive."
 - "Despite its industrial and residential prosperity, Korattur faces challenges typical of urban areas."
 - "Despite their promising applications, pyroelectric materials face several challenges that must be addressed for broader adoption."
 
----
+## Instead
 
-Remember: any of these patterns used once might be fine. The problem is when
-multiple tropes appear together or when a single trope is used repeatedly.
-Write like a human: varied, imperfect, specific.
-
-What to do instead: state concrete facts and trust the reader to draw the
-conclusion. Acknowledge gaps plainly ("the default is unset", "this behavior is
-undocumented") rather than papering over them. Let a term repeat instead of
-forcing synonyms, and let sentence and paragraph lengths stay uneven.
+State concrete facts and let the reader draw the conclusion. Name gaps plainly ("the
+default is unset", "this behavior is undocumented"). Repeat a term instead of rotating
+synonyms. Let sentence and paragraph lengths stay uneven.

@@ -1,6 +1,6 @@
 ---
 name: regroup-commits
-description: Use when the user invokes /regroup-commits to repackage the current branch's commits into fewer, logically grouped, reviewable commits without changing the resulting code. Creates a backup branch first, verifies the regrouped tree is byte-for-byte identical to the original, prints the new commit list, and offers to delete the backup. Local only; never pushes. User-invoked only.
+description: Use when the user runs /regroup-commits to repackage the current branch's commits into fewer, logically grouped commits without changing the code. Local only; never pushes.
 disable-model-invocation: true
 ---
 

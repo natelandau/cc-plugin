@@ -1,6 +1,6 @@
 ---
 name: cleanup-branch
-description: Use when a pull request or merge request has been merged on the remote and the local branch, its worktree, or the stale local trunk still need cleaning up, even when the user never says "cleanup" (for example "the PR merged", "clean up after the merge", "delete merged branches", "prune merged worktrees", "sync main after merging"). Confirms the merge with the forge (GitHub, Gitea/Forgejo, GitLab), or by patch equivalence when there is no forge, so it works for squash, rebase, and merge-commit merges. Cleans up confirmed branches without asking and asks before deleting any branch with work the merge did not include. Removes the worktree, force-deletes the branch, and fast-forwards the local trunk. Handles the current branch, a named branch, or a sweep of every local branch. Never pushes, except an opt-in delete of the remote branch. Not for merging a branch locally, opening a PR, or regrouping a branch's commits.
+description: Use when a pull request or merge request merged on the remote and the local branch, its worktree, or the stale local trunk still need cleanup, even without the word "cleanup" ("the PR merged", "clean up after the merge", "delete merged branches", "prune merged worktrees", "sync main after merging"). Covers squash, rebase, and merge-commit merges, and the current branch, a named branch, or a sweep of every local branch. Not for merging a branch locally, opening a PR, or regrouping a branch's commits.
 ---
 
 # Cleanup branch

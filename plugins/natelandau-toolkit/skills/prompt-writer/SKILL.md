@@ -57,7 +57,7 @@ Keep a line only when deleting it changes what the agent does. Cut:
 
 No-context gate: the text reads correctly for an agent in an unrelated project a year
 from now. Cut "new", "now", "currently", "previously", incident and ticket references,
-and pointers to sibling components the reader may not have.
+and pointers to sibling components the reader often lacks.
 
 Reasons: add a short "why" clause only when the rule needs judgment at its edges. The
 reason lets the agent handle cases the rule does not name. A mechanical rule gets no

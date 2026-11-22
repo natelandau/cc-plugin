@@ -133,12 +133,9 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:  # noqa: AR
         return None
     if old == "pip install":
         context = (
-            "Detected 'pip install' in a uv project. Use 'uv add' so the dependency "
+            "Use 'uv add', not 'pip install', in a uv project, so the dependency "
             "lands in pyproject.toml and the lockfile, not just the venv."
         )
     else:
-        context = (
-            f"Detected '{old}' in command. This project's .venv provides it, "
-            f"so use '{new}' to run the project-pinned version."
-        )
+        context = f"Use '{new}', not '{old}', to run the version this project's .venv pins."
     return Decision(block=False, context=context)

@@ -1,41 +1,30 @@
 ---
 name: zensical
-description: "Use when authoring, building, configuring, or reviewing documentation with the Zensical static-site engine. Trigger on any zensical.toml or mkdocs.yml work, running zensical new/build/serve, writing docs/ Markdown pages, or requests to make documentation richer with Mermaid diagrams, admonitions/call-outs, code annotations, content tabs, grids, or icons. Also use whenever writing Markdown that will be published with Zensical, even if the user does not say 'Zensical' by name. Actively reach for these rich elements whenever they make the docs clearer, not only when asked."
+description: "Use when authoring, building, configuring, or reviewing documentation with the Zensical static-site engine. Trigger on any zensical.toml or mkdocs.yml work, running zensical new/build/serve, writing docs/ Markdown pages, or requests to make documentation richer with Mermaid diagrams, admonitions/call-outs, code annotations, content tabs, grids, or icons. Also use whenever writing Markdown that will be published with Zensical, even if the user does not say 'Zensical' by name."
 ---
 
 # Zensical documentation
 
-Zensical is the static documentation engine from the makers of Material for
-MkDocs. It turns a `docs/` folder of Markdown plus a `zensical.toml` config into
-a fast, searchable, responsive site. Its value over plain Markdown is a large
-library of authoring extensions: admonitions, annotated code, tabbed content,
-Mermaid diagrams, grids, icons, and more. Use them.
-
-Zensical tracks live docs and evolves quickly. If a detail here looks stale or a
-build errors on a setting, check the current docs at <https://zensical.org/docs>
+Zensical (from the makers of Material for MkDocs) builds a site from a `docs/`
+folder of Markdown plus `zensical.toml`. It evolves quickly: if a detail here
+looks stale or a build errors on a setting, check <https://zensical.org/docs>
 before guessing.
 
-## Always pair with technical-writer
+## Pair with technical-writer
 
-This skill covers only the **mechanics** of Zensical Markdown: which element to
-use and how to write its syntax. It does not cover **writing quality**, meaning
-clear structure, user-focused framing, tone, and avoiding the AI writing patterns
-that erode reader trust. That lives in the `technical-writer` skill.
+This skill covers mechanics: which element to use and its syntax. Writing quality
+(structure, framing, tone, avoiding AI writing patterns) lives in the
+`natelandau-toolkit:technical-writer` skill. Whenever this skill is active, invoke
+`natelandau-toolkit:technical-writer` too and follow it for the prose.
 
-Whenever this skill is active, invoke the `technical-writer` skill as well
-and follow it for the prose. The two compose: `technical-writer` decides
-what to say and how to say it well. This skill decides how to render it richly.
-(The reverse is not required. Editing a plain README needs `technical-writer`
-alone, with no Zensical.)
+## Authoring mandate
 
-## The authoring mandate
+When writing or editing a Zensical page, do not default to plain paragraphs and
+fenced code. Look for places where a rich element communicates better and use it,
+even when the user only asked to "write the docs". Show structure rather than
+describe it.
 
-Great docs are not walls of prose. When you write or edit a Zensical page, do
-not default to plain paragraphs and fenced code. **Actively look for places
-where a rich element communicates better, and use it,** even when the user only
-asked you to "write the docs." Prefer showing structure over describing it.
-
-Reach for the right element by intent:
+Pick the element by intent:
 
 | When the content is... | Use | Why |
 | ---------------------- | --- | --- |
@@ -54,20 +43,17 @@ Reach for the right element by intent:
 
 Rules of thumb:
 
-- If you are about to write "first... then... if X... otherwise...", write a
-  **flowchart** or **content tabs** instead.
-- If you are about to add a caveat mid-paragraph, pull it into an
-  **admonition**.
-- If a code sample needs three sentences of explanation underneath, move some
-  of that into **code annotations**.
-- Do not overdo it. One well-placed diagram is worth more than five decorative
-  admonitions. Use richness where it earns its place.
+- About to write "first... then... if X... otherwise...": use a **flowchart** or
+  **content tabs**.
+- Caveat mid-paragraph: pull it into an **admonition**.
+- Code sample needing three sentences of explanation: move some into **code
+  annotations**.
+- Do not overdo it. One well-placed diagram beats five decorative admonitions.
 
 ## Quick start
 
-Zensical is a Python package. Install it with `uv add --dev zensical` (then
-prefix commands with `uv run`) or `pip install zensical` in a virtual
-environment.
+Install: `uv add --dev zensical` (then prefix commands with `uv run`), or
+`pip install zensical` in a virtual environment.
 
 ```sh
 zensical new mydocs   # scaffold docs/, zensical.toml, a GitHub Pages workflow
@@ -76,12 +62,11 @@ zensical serve        # live-reload preview at http://localhost:8000
 zensical build        # build the static site into site/
 ```
 
-`zensical new` enables a default set of Markdown extensions that already unlocks
-almost every feature below, so on a fresh project you can use them immediately.
-When you add a page, wire it into navigation (auto from the folder tree, or
+`zensical new` enables default Markdown extensions covering almost every feature
+below. Wire each added page into navigation (automatic from the folder tree, or
 explicit `nav` in `zensical.toml`).
 
-Page rules that hold everywhere:
+Page rules:
 
 - Start every page with one `# H1`. With an explicit `nav` and no H1, Zensical
   titles the page from its filename.
@@ -91,18 +76,15 @@ Page rules that hold everywhere:
 - Never put both `README.md` and `index.md` in one folder; the result is
   undefined.
 
-Full CLI options, project layout, and every config setting are in
-`references/configuration.md`.
+CLI options, project layout, every config setting: `references/configuration.md`.
 
 ## Feature syntax at a glance
 
-Enough to write good pages now. For the complete syntax of every feature (all
-admonition types, all Mermaid diagram types, per-block code options, grids,
-tables, math, images, and more), read `references/authoring.md`.
+Complete syntax for every feature (all admonition and Mermaid types, per-block
+code options, grids, tables, math, images): `references/authoring.md`.
 
-> **Four-space rule:** content nested inside an admonition, a tab, a multi-line
-> list item, or a footnote must be indented **four spaces**. This is the number
-> one cause of broken rendering.
+Four-space rule: content nested inside an admonition, tab, multi-line list item,
+or footnote must be indented four spaces. Most common cause of broken rendering.
 
 ### Admonitions
 
@@ -119,9 +101,8 @@ tables, math, images, and more), read `references/authoring.md`.
 Types: `note`, `abstract`, `info`, `tip`, `success`, `question`, `warning`,
 `failure`, `danger`, `bug`, `example`, `quote`.
 
-GitHub-style callouts (`> [!NOTE]`) also work once `pymdownx.quotes` is enabled
-with `callouts = true`. Prefer them when the same Markdown must render on GitHub
-too.
+GitHub-style callouts (`> [!NOTE]`) work once `pymdownx.quotes` is enabled with
+`callouts = true`. Prefer them when the Markdown must also render on GitHub.
 
 ### Code blocks with title, line highlight, and annotations
 
@@ -134,8 +115,8 @@ site_name = "My Project"   # (1)!
 1.  This shows in the page header and the HTML `<title>`.
 ````
 
-The `# (1)!` marker attaches the numbered note below to that exact line, and the
-`!` strips the comment characters. Annotations can hold any Markdown.
+`# (1)!` attaches numbered note 1 to that line; `!` strips the comment
+characters. Annotations can hold any Markdown.
 
 ### Content tabs
 
@@ -166,10 +147,9 @@ graph LR
 
 Officially themed types: flowchart (`graph`), `sequenceDiagram`,
 `stateDiagram-v2`, `classDiagram`, `erDiagram`. Other Mermaid types (pie, gantt,
-journey) render but are not themed by Zensical and read poorly on mobile, so
-prefer the themed ones.
+journey) render unthemed and read poorly on mobile; prefer the themed ones.
 
-### Card grid (great for index pages)
+### Card grid (index pages)
 
 ```html
 <div class="grid cards" markdown>
@@ -219,27 +199,25 @@ Icon shortcodes use the set prefix plus the icon name: `:lucide-check:`,
 
 ## Enabling features
 
-If a feature renders as literal text, its Markdown extension is not enabled. The
+A feature rendering as literal text means its Markdown extension is not enabled.
 `zensical new` defaults cover admonitions, code highlighting/annotation, content
 tabs, Mermaid, grids, icons, formatting, lists, footnotes, and abbreviations.
 
-A few features need an extension added to `zensical.toml`, and some behaviors are
-opt-in **theme features** (`content.code.copy`, `content.code.annotate`,
+Some features need an extension added to `zensical.toml`; some behaviors are
+opt-in theme features (`content.code.copy`, `content.code.annotate`,
 `content.tabs.link`, `content.tooltips`, `content.footnote.tooltips`, the
-`navigation.*` flags). The full default extensions block, the feature-to-extension
-map, and theme flags are in `references/configuration.md`.
+`navigation.*` flags). Default extensions block, feature-to-extension map, and
+theme flags: `references/configuration.md`.
 
 ## Reference files
 
-- **`references/authoring.md`**: complete, verbatim Markdown syntax for every
-  authoring feature, including directives. Read this whenever writing or
-  reviewing page content.
-- **`references/configuration.md`**: install and upgrade, CLI commands and
-  options, `zensical.toml` settings, file patterns, validation, theme variant,
-  colors/palette, navigation, theme feature flags, the full default extensions
-  block, and extra CSS/JS. Read this whenever setting up or configuring a
-  project.
-- **`references/site-features.md`**: plugins and their support status, search,
-  tags, blog, redirects, offline, repository links, analytics and consent,
-  language, publishing to GitHub/GitLab Pages, template overrides, and
-  versioning with mike. Read this when adding one of these features.
+- `references/authoring.md`: read when writing or reviewing page content.
+  Verbatim Markdown syntax for every authoring feature, including directives.
+- `references/configuration.md`: read when setting up or configuring a project.
+  Install/upgrade, CLI, `zensical.toml` settings, file patterns, validation,
+  theme variant, palette, navigation, theme feature flags, default extensions
+  block, extra CSS/JS.
+- `references/site-features.md`: read when adding one of these. Plugins and
+  support status, search, tags, blog, redirects, offline, repository links,
+  analytics and consent, language, GitHub/GitLab Pages publishing, template
+  overrides, versioning with mike.

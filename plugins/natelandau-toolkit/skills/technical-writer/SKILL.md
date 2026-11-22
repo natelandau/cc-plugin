@@ -1,15 +1,14 @@
 ---
 name: technical-writer
 description: >-
-    Use when writing, editing, rewriting, reviewing, or updating user-facing
-    documentation: README, CHANGELOG, release notes, setup or install guides,
-    API references, onboarding or contributing guides, runbooks, or any prose
-    that explains how to install, configure, or use a project, even when the
-    user never says "documentation". Trigger on "update the docs", "rewrite the
-    README", "document this", "add a setup guide", "review my docs", "de-slop
-    this", "write for non-native readers", or a mention of STE, Simplified
-    Technical English, or ASD-STE100. Not for text an agent reads, such as
-    skills, subagent definitions, CLAUDE.md, or prompts.
+    Use when writing, editing, reviewing, or updating user-facing documentation:
+    README, CHANGELOG, release notes, setup or onboarding guides, API references,
+    contributing guides, runbooks, or any prose explaining how to install,
+    configure, or use a project, even when the user never says "documentation".
+    Trigger on "update the docs", "rewrite the README", "document this", "review
+    my docs", "de-slop this", "write for non-native readers", or STE,
+    Simplified Technical English, ASD-STE100. Not for text an agent reads:
+    skills, subagents, CLAUDE.md, prompts.
 metadata:
     standard: ASD-STE100 Issue 9 (2025-01-15)
 ---
@@ -26,12 +25,11 @@ Two layers, never mixed. Each fails without the other.
 | Structure | Which document, what goes in, order, depth, accuracy  | Steps 1, 2, 6      |
 | Sentence  | How each sentence and paragraph reads (ASD-STE100)    | Steps 3 to 5       |
 
-Read `../shared/tropes.md` (relative to this skill's base directory) before writing. It
-catalogs AI writing patterns that erode reader trust. STE removes many; the trope list
-catches the rest.
+Before writing, read `../shared/tropes.md` (relative to this skill's base directory):
+AI writing patterns STE does not remove.
 
-Every rule applies to every job, with no relaxed setting. Section 1 keeps domain words
-legal, so "idempotent" and "webhook" survive.
+Every rule applies to every job, with no relaxed setting. STE Section 1 keeps domain
+words legal, so "idempotent" and "webhook" survive.
 
 ## Mandate
 
@@ -46,7 +44,7 @@ place. The gap between page and goal sets the edit size. Each outcome is valid:
 - New page: the document answers the wrong question or has the wrong shape. Write the
   page the reader needs and discard the rest.
 
-Do not stop at a half-correction; a half-fixed bad page still fails. Content that fails
+Never stop at a half-correction; a half-fixed bad page still fails. Content that fails
 a Step 2 gate comes out regardless of length. Reorder when the order fights the reader.
 Add a missing prerequisite, flag, or error case even when the user did not name it.
 Wrong content in a neighboring section is in scope.
@@ -62,7 +60,7 @@ Limits:
 
 ## Step 1: Prepare
 
-Docs that clash with their surroundings read as an intrusion. Discover first:
+Match the existing docs. Discover first:
 
 1. Doc directories (`docs/`, `documentation/`, `wiki/`).
 2. Doc framework, if any (`mkdocs.yml`, `docusaurus.config.js`, `zensical.toml`,
@@ -86,7 +84,7 @@ user wants. That second question is about the target, never a reason to shrink t
 
 ## Step 2: Decide the Document
 
-Decide before writing a sentence; it decides which sentences need to exist.
+Decide before writing a sentence; the document type decides which sentences exist.
 
 ### Scope by document type
 
@@ -113,7 +111,6 @@ Decide before writing a sentence; it decides which sentences need to exist.
   language, with expected output and common errors.
 - Real names in examples, never "foo" and "bar".
 - Concrete over abstract: the actual command, file, or config value.
-- Verify described behavior against the code. Never document assumptions.
 - When adding a page, update navigation, sidebar, index, and cross-links.
 
 ### Cut before you add
@@ -175,9 +172,8 @@ procedure is descriptive: 25-word limit, no imperative.
 ### Fix the vocabulary first
 
 Before drafting, pick one verb for the check/verify/confirm/validate concept and one noun
-for config/settings. Use no other word for them anywhere. Synonym rotation is the most
-common AI tell in technical prose and makes the reader wonder whether two words name two
-things.
+for config/settings. Use no other word for them anywhere: synonym rotation makes the
+reader wonder whether two words name two things.
 
 ### Core rules
 
@@ -294,8 +290,8 @@ Collapse each rotation to one term (Rules 1.11 and 9.4):
 
 ### Voice
 
-Helpful and professional. Warmth comes from structure, answering the reader's actual
-question, and a working example, never chatty phrasing.
+Helpful and professional. Warmth comes from structure, a direct answer, and a working
+example, never chatty phrasing.
 
 - "You" for the reader, "we" for shared actions. No "I" outside an opinionated guide.
 - Active voice, present tense: "The API returns a token." Passive only when the actor is

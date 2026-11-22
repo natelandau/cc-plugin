@@ -264,7 +264,7 @@ The skills start these subagents for part of their work. Each subagent runs in i
 
 | Subagent             | Plugin               | Job                                                                       |
 | -------------------- | -------------------- | ------------------------------------------------------------------------- |
-| `test-runner`        | `natelandau-toolkit` | Runs the project's linters and tests, and returns a pass or fail summary. |
+| `test-runner`        | `natelandau-toolkit` | Runs the project's quality gates, or only the ones its caller names, and returns a pass or fail summary. |
 | `review-finder`      | `natelandau-toolkit` | Examines code from one angle for `/refactor` and `/organize`.             |
 | `review-verifier`    | `natelandau-toolkit` | Accepts or rejects each finding from `review-finder`, with a reason.      |
 | `doc-drift-reviewer` | `natelandau-git`     | Finds docs that a branch made incorrect or incomplete.                    |

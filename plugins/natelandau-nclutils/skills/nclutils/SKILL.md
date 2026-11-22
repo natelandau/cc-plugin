@@ -1,18 +1,18 @@
 ---
 name: nclutils
-description: Use whenever writing or editing Python code in a project that depends on the `nclutils` package. Trigger on any `import nclutils` or `from nclutils.*` line, and whenever about to hand roll filesystem operations, subprocess/shell calls, console output, interactive prompts, case conversion, ISO timestamps, or git automation
+description: Use when writing or editing Python code in a project that depends on the `nclutils` package. Trigger on any `import nclutils` or `from nclutils.*` line, and whenever about to hand roll filesystem operations, subprocess/shell calls, console output, interactive prompts, case conversion, ISO timestamps, or git automation.
 ---
 
 # nclutils
 
-`nclutils` is a small Python package of utility helpers: filesystem ops, shell execution, console output, interactive prompts, string transforms, git operations, and a few odds and ends. This skill exists to help an agent edit a downstream project that has `nclutils` as a dependency. If `nclutils` is not installed, this skill does not apply.
+Utility helpers: filesystem, shell, console output, prompts, strings, git. Applies only when the project has `nclutils` installed.
 
 ## Import patterns
 
-The ONLY symbol re-exported from the top-level `nclutils` namespace is `pp`. Everything else must be imported from its submodule.
+`pp` is the only symbol re-exported from the top-level `nclutils` namespace. Import everything else from its submodule.
 
 ```python
-# This is the ONE shape of bare-namespace import that works:
+# The only bare-namespace import that works:
 from nclutils import pp
 
 pp.info("hello")
@@ -55,21 +55,21 @@ from nclutils.utils import (
 )
 ```
 
-`pp` symbols can also be pulled directly when the call site reads better that way:
+`pp` symbols can also be imported directly:
 
 ```python
 from nclutils.pp import info, success, step, configure, Verbosity
 ```
 
-### Wrong-import patterns to avoid
+### Wrong imports
 
 ```python
-# WRONG — these symbols don't exist on the bare nclutils namespace
+# WRONG: these symbols don't exist on the bare nclutils namespace
 from nclutils import copy_file        # use nclutils.fs.copy_file
 from nclutils import run_command       # use nclutils.sh.run_command
 from nclutils import snake_case        # use nclutils.strings.snake_case
 
-# DEPRECATED — emit DeprecationWarning and will be removed in v4.0.0
+# DEPRECATED: emit DeprecationWarning and will be removed in v4.0.0
 from nclutils.questions import ...     # use nclutils.ask instead
 from nclutils.network import ...       # use nclutils.net instead
 from nclutils.text_processing import ... # use nclutils.text instead
@@ -77,7 +77,7 @@ from nclutils.text_processing import ... # use nclutils.text instead
 
 ## What lives where
 
-A task-to-module lookup. When you are about to write code for one of these, reach for the listed helper first.
+Before writing code for one of these tasks, use the listed helper.
 
 | Task                                               | Reach for                                                                                               | Notes                                                                                 |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -126,14 +126,12 @@ A task-to-module lookup. When you are about to write code for one of these, reac
 
 ### 1. `pp` and stdlib `logging` are separate output paths. Do not bridge them.
 
-The project has two intentional, independent output channels:
+- `nclutils.pp`: user-facing output (Rich console, colored level markers, spinners, optional logfile). The host CLI configures it via `pp.configure(...)`.
+- stdlib `logging`: internal diagnostics from `nclutils.fs`, `nclutils.text`, `nclutils.sh`, and `nclutils.git`, under loggers `nclutils.fs`, `nclutils.text`, `nclutils.sh`. Silent until the host attaches a handler.
 
-- **`nclutils.pp`** writes user-facing output (Rich console, colored level markers, spinners, optional logfile). The host CLI configures it via `pp.configure(...)`.
-- **stdlib `logging`** is used internally by `nclutils.fs`, `nclutils.text`, `nclutils.sh`, and `nclutils.git` for diagnostic messages, under loggers `nclutils.fs`, `nclutils.text`, `nclutils.sh`. These are silent until the host attaches a handler.
+Do not pipe `pp` into a stdlib `logging.Handler`, and do not call `pp.info(...)` from a library module that is silent by default.
 
-Do not pipe `pp` into a stdlib `logging.Handler`, and do not call `pp.info(...)` from a library module that is silent by default. Keep them separate.
-
-If you want to see internal diagnostics during development:
+To see internal diagnostics during development:
 
 ```python
 import logging
@@ -147,35 +145,35 @@ logging.basicConfig()
 from nclutils.sh import run_command, ShellCommandError
 
 result = run_command(["git", "status", "--short"])
-result.stdout         # str — captured stdout (trailing newlines stripped)
-result.stderr         # str — captured stderr, separate from stdout (trailing newlines stripped)
+result.stdout         # str: captured stdout (trailing newlines stripped)
+result.stderr         # str: captured stderr, separate from stdout (trailing newlines stripped)
 result.returncode     # int
-result.ok             # bool — True if returncode == 0
-result.duration       # float — wall-clock seconds
-result.argv           # tuple[str, ...] — what actually ran
-result.command_line   # str — argv rendered via shlex.join, shell-safe
-result.stdout_lines   # list[str] — stdout.splitlines(), for iteration
+result.ok             # bool: True if returncode == 0
+result.duration       # float: wall-clock seconds
+result.argv           # tuple[str, ...]: what actually ran
+result.command_line   # str: argv rendered via shlex.join, shell-safe
+result.stdout_lines   # list[str]: stdout.splitlines(), for iteration
 result.stderr_lines   # list[str]
 ```
 
-Common wrong patterns:
+Wrong patterns:
 
 ```python
-# WRONG — no positional cmd/args form. Pass full argv as one list:
+# WRONG: no positional cmd/args form. Pass full argv as one list:
 run_command("git", ["status"])
 
-# WRONG — the return value is CompletedCommand, not a string:
+# WRONG: the return value is CompletedCommand, not a string:
 output = run_command(["git", "status"])
 if "modified" in output: ...           # TypeError-adjacent; use .stdout
 
-# WRONG — default raises on non-zero exit. grep returning 1 is a typed error:
+# WRONG: default raises on non-zero exit. grep returning 1 is a typed error:
 result = run_command(["grep", "needle", "file"])  # raises if no match
 # Right: opt into 1 as data
 result = run_command(["grep", "needle", "file"], okay_codes=(0, 1))
 # Or, less surgical: skip the failure check entirely
 result = run_command(["grep", "needle", "file"], check=False)
 
-# WRONG — env= REPLACES the environment; child sees nothing else:
+# WRONG: env= REPLACES the environment; child sees nothing else:
 run_command(["printenv", "PATH"], env={"MY_VAR": "x"})
 # Right: merge with parent env
 import os
@@ -192,11 +190,11 @@ Error hierarchy (all inherit from `ShellCommandError`):
 
 Catch `ShellCommandError` to handle all three uniformly.
 
-For interactive commands (editors, SSH, anything that drives the terminal), use `run_interactive(argv)` instead. It inherits the parent's streams and returns the exit code as an int.
+Interactive commands (editors, SSH, anything that drives the terminal): use `run_interactive(argv)`. It inherits the parent's streams and returns the exit code as an int.
 
 ### 3. Don't reinvent what `nclutils` already does
 
-When the project depends on `nclutils`, prefer the existing helper over a hand-rolled equivalent:
+Use the existing helper, not a hand-rolled equivalent:
 
 | Don't write                                  | Use instead                                                                         |
 | -------------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -204,7 +202,7 @@ When the project depends on `nclutils`, prefer the existing helper over a hand-r
 | `shutil.copy` with progress / backup logic   | `nclutils.fs.copy_file(src, dst, with_progress=True)`                               |
 | `shutil.copytree` with progress / backup     | `nclutils.fs.copy_directory(...)`                                                   |
 | `shutil.which`                               | `nclutils.sh.which`                                                                 |
-| `subprocess.run(...)` wrapper                | `nclutils.sh.run_command` — already logs at DEBUG, raises typed errors              |
+| `subprocess.run(...)` wrapper                | `nclutils.sh.run_command`: already logs at DEBUG, raises typed errors              |
 | `subprocess.run(["git", ...])` chains        | `nclutils.git` composites (`get_repo_state`, `sync_branch`, etc.) or `run_git(...)` |
 | `datetime.now(timezone.utc).isoformat()`     | `nclutils.utils.iso_timestamp()` (writes `Z` instead of `+00:00`)                   |
 | `uuid.uuid4().hex` for filename IDs          | `nclutils.utils.new_uid` (base-36, shorter) or `new_timestamp_uid` (sortable)       |
@@ -213,11 +211,11 @@ When the project depends on `nclutils`, prefer the existing helper over a hand-r
 | A handwritten `replace_in_file`              | `nclutils.text.replace_in_file(path, replacements)`                                 |
 | A handwritten "ensure lines in file"         | `nclutils.text.ensure_lines_in_file(path, lines)`                                   |
 
-This is not about style. The helpers do extra work (timestamped backups, separate stdout and stderr capture, typed exceptions, debug logging, dotfile filtering) that hand-rolled code tends to skip.
+The helpers do work hand-rolled code tends to skip: timestamped backups, separate stdout/stderr capture, typed exceptions, debug logging, dotfile filtering.
 
 ### 4. `pp.step()` does not nest
 
-Rich's `Live` rendering cannot stack. `pp.step()` raises `RuntimeError` if you try.
+Rich's `Live` rendering cannot stack; a nested `pp.step()` raises `RuntimeError`.
 
 ```python
 # WRONG
@@ -225,7 +223,7 @@ with pp.step("outer") as outer:
     with pp.step("inner") as inner:   # RuntimeError
         ...
 
-# Right — use Step.sub() for hierarchical progress under a single Live
+# Right: use Step.sub() for hierarchical progress under a single Live
 with pp.step("running migrations") as s:
     for m in pending:
         run(m)
@@ -252,7 +250,7 @@ Warnings, errors, dryrun notices, and `step()` always render. `pp.critical` is s
 
 ## Deeper module references
 
-When you need API details beyond the table above, read the relevant file in `references/`. Read them on demand, not eagerly.
+For API details beyond the table above, read the matching file on demand, not eagerly:
 
 - `references/pp.md`: the full pretty-printer surface (per-call tags, exceptions, kv, file logger, themes, ASCII fallback, isolated emitters)
 - `references/sh.md`: `run_command` options, the error hierarchy, migration from the old `sh`-package API
@@ -263,4 +261,4 @@ When you need API details beyond the table above, read the relevant file in `ref
 
 ## Python compatibility
 
-`nclutils` supports Python 3.10+. Use `nclutils.utils.check_python_version(major, minor)` to gate any new code that needs newer language or stdlib features, rather than raising the package's Python floor.
+`nclutils` supports Python 3.10+. Gate code that needs newer language or stdlib features with `nclutils.utils.check_python_version(major, minor)`; do not raise the package's Python floor.

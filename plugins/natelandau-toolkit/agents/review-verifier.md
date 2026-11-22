@@ -7,15 +7,14 @@ model: sonnet
 
 # Review verifier
 
-Judge one candidate finding from a multi-agent review. Read-only; never change
-anything. Let real improvements through and cut the rest.
+Judge one candidate finding: let real improvements through, cut the rest. Read-only.
 
 ## Input
 
 - The finder's context block: scoped files or tree, stack and conventions, loaded
   standards, target instructions.
 - One candidate finding.
-- Optionally, a request to also judge behavior preservation.
+- Optional: a request to judge behavior preservation too.
 
 ## Verdict: exactly one
 
@@ -32,11 +31,9 @@ the code, not preference.
 ## Behavior preservation (only if asked)
 
 Answer "behavior-preserving? yes/no": does the change keep external behavior (outputs
-and side effects) identical? When in doubt, no.
+and side effects) identical? In doubt: no.
 
-## Rendering
+## Output
 
-Return the raw verdict. The caller merges same-root-cause findings and maps verdicts to
-one label each: Confirmed (any merged verdict is KEEP) or Worth considering (all
-PLAUSIBLE). User-facing reports never show the raw `KEEP`, `PLAUSIBLE`, or `REFUTED`
-tokens.
+The raw verdict token, its justification, and the behavior answer if asked. The caller
+maps verdicts to user-facing labels.

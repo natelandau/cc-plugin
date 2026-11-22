@@ -1,26 +1,17 @@
 ---
 name: tufte-viz
-description: |
-    Ideate and critique data visualizations using Edward Tufte's principles from "The Visual Display of Quantitative Information." Use this skill when:
-    (1) Designing new data visualizations or charts
-    (2) Critiquing or improving existing visualizations
-    (3) Reviewing dashboards or reports for graphical integrity
-    (4) Deciding between visualization approaches
-    (5) Reducing chartjunk or improving data-ink ratio
-    (6) Planning small multiples or high-density displays
-    Applies principles: data-ink ratio, chartjunk elimination, graphical integrity, lie factor, small multiples, and data density.
+description: >-
+    Use when designing, critiquing, or choosing a data visualization, chart, or dashboard
+    with Edward Tufte's principles: graphical integrity, lie factor, data-ink ratio,
+    chartjunk, small multiples, data density.
 disable-model-invocation: true
 ---
 
 # Tufte Visualization Ideation
 
-Apply Edward Tufte's principles to design clear, honest, high-density data
-visualizations.
-
 ## Workflow for a new visualization
 
-1. Clarify the data story. Which comparisons matter? What is the key insight?
-   Who is the audience?
+1. Clarify the data story: the comparisons that matter, the key insight, the audience.
 
 2. Select the approach:
    - A strong comparison need calls for small multiples.
@@ -29,9 +20,8 @@ visualizations.
    - A part-to-whole relation calls for a bar chart or a table, not a pie
      chart.
 
-3. Design with data-ink in mind. Start minimal and add only what is
-   necessary. Every element must earn its ink. Default to grayscale, and use
-   color with purpose.
+3. Design for data-ink. Start minimal; add an element only when it earns its ink.
+   Default to grayscale; use color only with a purpose.
 
 4. Apply the eraser test. For every element (label, tick, gridline, border,
    annotation), ask whether it can be erased without losing information that
@@ -41,10 +31,9 @@ visualizations.
    elements compete for the same job, keep one.
 
 5. Apply the collision test. For every text element in the plot (axis labels,
-   point annotations, epoch labels, baseline labels, notes), draw its bounding
-   box in your mind. Does another text element, a data line, or a cluster of
-   dense markers cross that box? The eraser test catches redundant elements.
-   The collision test catches crowded ones. Both must pass. Standard fixes:
+   point annotations, epoch labels, baseline labels, notes), picture its bounding
+   box. It fails if another text element, a data line, or a cluster of dense markers
+   crosses that box. Both the eraser and collision tests must pass. Standard fixes:
    move explanatory prose out of the plot into the figcaption, relocate band
    or epoch labels to a strip above the plot, push baseline labels to the
    outside margin, and give each in-plot annotation a leader line. Watch
@@ -65,25 +54,23 @@ visualizations.
 
 ## References
 
-- `references/tufte-principles.md`: the core principles from The Visual
-  Display of Quantitative Information: lie factor, data-ink, chartjunk, small
-  multiples, integrity.
-- `references/analytical-design.md`: the extensions from Envisioning
-  Information, Visual Explanations, and Beautiful Evidence: the six principles
-  of analytical design, sparklines, layering and separation, micro and macro
-  readings, range-frames, causality, confections. Load it when designing
-  dashboards, dense displays, sparklines, or explanatory graphics.
+- `references/tufte-principles.md`: core principles (lie factor, data-ink,
+  chartjunk, small multiples, integrity) and the Tufte test.
+- `references/analytical-design.md`: the six principles of analytical design,
+  sparklines, layering and separation, micro and macro readings, range-frames,
+  causality, confections. Read it when designing dashboards, dense displays,
+  sparklines, or explanatory graphics.
 
 ## Quick checklist
 
-- [ ] The lie factor is close to 1.0, with no visual distortion.
-- [ ] The data-ink ratio is as high as the data allows.
-- [ ] There is no chartjunk.
-- [ ] The labels are clear.
-- [ ] The chart answers "compared to what?".
-- [ ] The chart shows causality or mechanism where relevant.
-- [ ] The chart is multivariate, not over-reduced.
-- [ ] Words, numbers, and images are integrated, not segregated.
-- [ ] The chart reveals several levels of detail, micro and macro.
-- [ ] The primary data dominates and the secondary data recedes.
-- [ ] The data density suits the display.
+- Lie factor close to 1.0, no visual distortion.
+- Data-ink ratio as high as the data allows.
+- No chartjunk.
+- Clear labels.
+- Answers "compared to what?".
+- Shows causality or mechanism where relevant.
+- Multivariate, not over-reduced.
+- Words, numbers, and images integrated, not segregated.
+- Several levels of detail, micro and macro.
+- Primary data dominates; secondary data recedes.
+- Data density suits the display.
