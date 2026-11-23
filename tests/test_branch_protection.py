@@ -2207,7 +2207,11 @@ def test_target_protected_branch(hooks_dir: Path, monkeypatch: pytest.MonkeyPatc
     base = "/repo"
     # No exempt roots: these cases are about the branch/gitignore predicate,
     # and the exemption has its own suite.
-    scope = m.Scope(exempt=m.exempt_paths.ExemptRoots(), protected=m.ProtectedBranches())
+    scope = m.Scope(
+        exempt=m.exempt_paths.ExemptRoots(),
+        protected=m.ProtectedBranches(),
+        heredoc_data_commands=m.bash.DataSinks(),
+    )
 
     # Then a target outside any repo is exempt -- a /tmp scratch path or a `..`
     # that resolves out of every repo both yield "" from the branch lookup
@@ -2249,7 +2253,11 @@ def test_target_protected_branch_follows_symlink_into_protected_repo(
         m._target_protected_branch(
             str(link),
             "",
-            m.Scope(exempt=m.exempt_paths.ExemptRoots(), protected=m.ProtectedBranches()),
+            m.Scope(
+                exempt=m.exempt_paths.ExemptRoots(),
+                protected=m.ProtectedBranches(),
+                heredoc_data_commands=m.bash.DataSinks(),
+            ),
         )
         == "master"
     )
@@ -2434,12 +2442,15 @@ def test_exempt_path_unusable_value_still_blocks(
     assert BLOCK_FILE_MOD in proc.stderr, case
 
 
+def _write_config(claude_dir: Path, toml: str) -> None:
+    """Write `toml` as the toolkit config in `claude_dir`."""
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    (claude_dir / "natelandau-toolkit.toml").write_text(toml, encoding="utf-8")
+
+
 def _write_toml(claude_dir: Path, exempt: str) -> None:
     """Write a toolkit config declaring `exempt` an exempt tree."""
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    (claude_dir / "natelandau-toolkit.toml").write_text(
-        f'exempt_paths = ["{exempt}"]\n', encoding="utf-8"
-    )
+    _write_config(claude_dir, toml=f"exempt_paths = {json.dumps([exempt])}\n")
 
 
 def test_exempt_path_from_the_global_config(
@@ -2481,6 +2492,27 @@ def test_exempt_path_in_a_project_config_is_ignored(
     # Then the edit is still blocked
     assert proc.returncode == 2, f"stderr={proc.stderr!r}"
     assert "Cannot modify files on the 'main' branch" in proc.stderr
+
+
+@pytest.mark.parametrize(("configured", "expect_exit"), [(["notes"], 0), ([], 2)])
+def test_heredoc_data_commands_from_the_global_config(
+    repos: Mapping[str, str],
+    hooks_dir: Path,
+    tmp_path: Path,
+    configured: list[str],
+    expect_exit: int,
+) -> None:
+    """Verify a configured command's heredoc prose is not judged as writes on main."""
+    # Given a global config naming the heredoc data commands
+    home = tmp_path / "home"
+    _write_config(home / ".claude", toml=f"heredoc_data_commands = {json.dumps(configured)}\n")
+    command = "notes add --body-file - <<'EOF'\nrm of dead code > summary\nEOF"
+
+    # When that command runs in a repo on a protected branch
+    proc = _run_hook(hooks_dir, _bash(command, cwd=repos["master"]), str(home))
+
+    # Then the body blocks only when the command is not listed
+    assert proc.returncode == expect_exit, f"stderr={proc.stderr!r}"
 
 
 # === Tilde paths ============================================================
@@ -2558,10 +2590,8 @@ def make_repo(tmp_path: Path) -> Callable[[str], str]:
 
 def _write_branches_toml(claude_dir: Path, branches: list[str]) -> None:
     """Write a toolkit config listing `branches` as protected."""
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    (claude_dir / "natelandau-toolkit.toml").write_text(
-        f"[hooks.branch-protection]\nprotected_branches = {json.dumps(branches)}\n",
-        encoding="utf-8",
+    _write_config(
+        claude_dir, toml=f"[hooks.branch-protection]\nprotected_branches = {json.dumps(branches)}\n"
     )
 
 

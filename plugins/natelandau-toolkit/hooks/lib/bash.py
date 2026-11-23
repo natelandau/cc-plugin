@@ -33,13 +33,16 @@ from __future__ import annotations
 
 import re
 import shlex
+import sys
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
 from lib.paths import expand_user
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 # Sequence operators that end one statement and begin the next. A bare newline
 # is one of them, so the lines of a multi-line script are separate clauses; a
@@ -756,6 +759,25 @@ def _scrub_stdin_heredocs(command: str) -> str:
 # judge. Any other consumer may run its stdin as shell (`sh`, `su`, `sudo -s`,
 # `script`, `exec 3<<`, `$SHELL`), so its body is kept and judged.
 _DATA_SINKS = frozenset({"cat", "tee", "node", "ruby", "perl"})
+# Words whose real executable is the next non-flag word (`sudo rm`, `nice sh`).
+COMMAND_LAUNCHERS = frozenset(
+    {"sudo", "doas", "env", "command", "builtin", "exec", "nice", "nohup", "time"}
+)
+# Commands that run their stdin, or a command they are given, as shell. A
+# configured data sink naming one is dropped, so no setting can waive the
+# judging of a heredoc that runs. Launchers that take an operand before the
+# command (`timeout 5 bash`) belong here too, though not in COMMAND_LAUNCHERS.
+_SHELL_RUNNERS = COMMAND_LAUNCHERS | {
+    "sh", "bash", "rbash", "zsh", "dash", "ash", "ksh", "mksh", "oksh", "yash",
+    "posh", "fish", "csh", "tcsh", "nu", "pwsh", "elvish", "xonsh", "busybox",
+    "su", "runuser", "pkexec", "sg", "newgrp", "eval", "xargs", "parallel",
+    "script", "ssh", "at", "batch", "crontab", "timeout", "stdbuf", "setsid",
+    "chroot", "flock", "caffeinate", "arch", "ionice", "chrt", "taskset",
+    "unbuffer", "watch", "nsenter", "unshare", "systemd-run", "sandbox-exec",
+}  # fmt: skip
+# A version suffix on a shell's name (`bash5.2`, `zsh-5.9`), dropped before the
+# name is checked against _SHELL_RUNNERS.
+_VERSION_SUFFIX_RE = re.compile(r"-?[\d.]+$")
 _PYTHON_RE = re.compile(r"^python\d*(?:\.\d+)?$")
 # Launchers allowed in front of a data sink, when given no flags of their own.
 _SINK_LAUNCHERS = frozenset({"sudo", "env"})
@@ -778,13 +800,83 @@ def _sink_head(consumer_masked: str) -> str:
             return ""
     if i + 1 < len(words) and words[i] == "uv" and words[i + 1] == "run":
         i += 2
-    return words[i].rsplit("/", 1)[-1] if i < len(words) else ""
+    return words[i] if i < len(words) else ""
+
+
+@dataclass(frozen=True, slots=True)
+class DataSinks:
+    """Configured commands whose heredoc is data, built by `resolve_data_sinks`.
+
+    Each entry is a bare command name, matched against a bare command word, or
+    an absolute path, matched exactly. So a `notes` entry never covers a
+    `./notes` or `/tmp/notes` script that happens to share the name.
+    """
+
+    commands: frozenset[str] = frozenset()
+
+
+def resolve_data_sinks(configured: Sequence[str]) -> DataSinks:
+    """Return the usable `heredoc_data_commands` entries, warning about each one dropped.
+
+    Resolve once per hook run and pass the result to `drop_data_heredocs`. An
+    entry is dropped when it cannot name one command (empty, holding a space,
+    a relative path, a `..` segment) or names a shell or launcher, because
+    listing a command that runs its input would let every heredoc it reads
+    write unjudged.
+
+    Args:
+        configured: The raw `heredoc_data_commands` entries from the config.
+
+    Returns:
+        DataSinks: The entries kept.
+    """
+    kept: set[str] = set()
+    for raw in configured:
+        entry = raw.strip()
+        name = entry.rsplit("/", 1)[-1]
+        if (
+            not name
+            or any(c.isspace() for c in entry)
+            or ("/" in entry and not entry.startswith("/"))
+            or ".." in entry.split("/")
+        ):
+            reason = "expected one command name or an absolute path"
+        elif _VERSION_SUFFIX_RE.sub("", name) in _SHELL_RUNNERS:
+            reason = "it names a shell or launcher, which runs its input as commands"
+        else:
+            kept.add(entry)
+            continue
+        print(  # noqa: T201
+            f"natelandau-toolkit: ignoring heredoc_data_commands entry {raw!r}: {reason}",
+            file=sys.stderr,
+        )
+    return DataSinks(frozenset(kept))
+
+
+# An output redirect operator at the start of a word (`>`, `2>>`, `>|`, `&>`, `<>`),
+# optionally with its target glued on.
+_OUTPUT_REDIRECT_RE = re.compile(r"^\d*(?:<>|>>?\|?|&>>?)")
+
+
+def _redirect_targets(words: Sequence[str]) -> list[str]:
+    """Return the files that the output redirects among `words` write."""
+    targets: list[str] = []
+    for i, word in enumerate(words):
+        operator = _OUTPUT_REDIRECT_RE.match(word)
+        if operator is None:
+            continue
+        glued = word[operator.end() :]
+        if glued:
+            targets.append(glued)
+        elif i + 1 < len(words):
+            targets.append(words[i + 1])
+    return targets
 
 
 _ENV_ASSIGN_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
-def _is_data_heredoc(h: _Heredoc) -> bool:
+def _is_data_heredoc(h: _Heredoc, *, extra_sinks: DataSinks) -> bool:
     """Return whether the shell hands this heredoc's body to a command that reads it as data."""
     if _MESSAGE_CMD_RE.match(h.consumer):
         return True
@@ -794,14 +886,22 @@ def _is_data_heredoc(h: _Heredoc) -> bool:
     if _SINK_TAIL_FORBIDDEN.search(tail):
         return False
     consumer_masked = h.masked_line[len(h.masked_line) - len(h.consumer) :]
-    head = _sink_head(consumer_masked)
-    if head not in _DATA_SINKS and not _PYTHON_RE.match(head):
+    command_word = _sink_head(consumer_masked)
+    head = command_word.rsplit("/", 1)[-1]
+    builtin_sink = head in _DATA_SINKS or bool(_PYTHON_RE.match(head))
+    if not builtin_sink and command_word not in extra_sinks.commands:
         return False
     # A file the heredoc writes and a later line runs (`bash /tmp/s.sh`) makes
-    # the body a script, so any later mention of a written name keeps it.
-    for word in h.consumer.split()[1:]:
-        if "<<" in word or word.startswith("-"):
-            continue
+    # the body a script, so any later mention of a written name keeps it. A
+    # configured CLI's arguments are subcommands and options, not files, so
+    # only its redirects count as files it writes.
+    args = h.consumer.split()[1:]
+    written = (
+        [w for w in args if "<<" not in w and not w.startswith("-")]
+        if builtin_sink
+        else _redirect_targets(args)
+    )
+    for word in written:
         name = Path(strip_quotes(word.lstrip("<>|&0123456789"))).name
         if name and re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w.-])", h.rest):
             return False
@@ -961,33 +1061,38 @@ def _after_heredoc(command: str, op: re.Match[str]) -> int:
     return len(command)
 
 
-def drop_data_heredocs(command: str) -> str:
+def drop_data_heredocs(command: str, *, extra_sinks: DataSinks | None = None) -> str:
     """Return `command` with each heredoc body that the shell treats as data removed.
 
     Use before reading a command line by line for commands, so the text of a
     file written with `cat > notes.md <<'EOF'` is not mistaken for commands
     to run. A body is dropped only when its consumer is a known data sink: a
     single `cat` or `tee` stage (optionally after a bare `sudo` or `env`), a
-    non-shell interpreter (`python3 -`, `node`), or a commit or PR message
-    command, with no pipe, list, or substitution after the heredoc operator,
-    and no later mention of a file it writes. Every other body stays. When an
+    non-shell interpreter (`python3 -`, `node`), a command in `extra_sinks`,
+    or a commit or PR message command, with no pipe, list, or substitution
+    after the heredoc operator, and no later mention of a file it writes.
+    Every other body stays. When an
     unquoted tag lets a data body run `$(...)` or backtick substitutions, only
     their bodies stay, each as its own line. The line that opens the heredoc,
     with its redirects, always stays, and so does the delimiter line.
 
     Args:
         command: The Bash command string to scrub.
+        extra_sinks: Further commands whose heredoc is data, such as a CLI
+            that reads a note body from stdin, from `resolve_data_sinks`.
+            Defaults to none.
     """
-    return _rewrite_heredocs(command, _data_heredoc_commands)
+    sinks = extra_sinks or DataSinks()
+    return _rewrite_heredocs(command, partial(_data_heredoc_commands, extra_sinks=sinks))
 
 
-def _data_heredoc_commands(h: _Heredoc) -> list[str] | None:
+def _data_heredoc_commands(h: _Heredoc, *, extra_sinks: DataSinks) -> list[str] | None:
     """Return the lines of a data heredoc body that still run, or None to keep the body.
 
     A data body runs nothing, except the substitutions of an unquoted tag,
     which run when the shell expands the body.
     """
-    if not _is_data_heredoc(h):
+    if not _is_data_heredoc(h, extra_sinks=extra_sinks):
         return None
     if h.quoted_tag:
         return []

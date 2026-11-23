@@ -599,25 +599,64 @@ def test_scrub_message_args_ignores_heredoc_operator_inside_message_body(
 
 
 @pytest.mark.parametrize(
-    ("command", "kept"),
+    ("command", "extra_sinks", "kept"),
     [
         # A data body goes; the opening line and the delimiter stay.
-        ("cat > f <<'EOF'\nrm x\nEOF", False),
-        ("cat <<EOF > f\nrm x\nEOF", False),
+        ("cat > f <<'EOF'\nrm x\nEOF", (), False),
+        ("cat <<EOF > f\nrm x\nEOF", (), False),
         # A body a shell runs, or one with a live substitution, stays.
-        ("bash <<'EOF'\nrm x\nEOF", True),
-        ("cat <<'EOF' | sh\nrm x\nEOF", True),
+        ("bash <<'EOF'\nrm x\nEOF", (), True),
+        ("cat <<'EOF' | sh\nrm x\nEOF", (), True),
         # Only the substitution in an unquoted data body runs, so only it stays.
-        ("cat > f <<EOF\n$(rm x)\nEOF", True),
-        ("cat > f <<EOF\n$(date)\nrm x\nEOF", False),
+        ("cat > f <<EOF\n$(rm x)\nEOF", (), True),
+        ("cat > f <<EOF\n$(date)\nrm x\nEOF", (), False),
+        # A configured sink is data: a bare name matches a bare command word,
+        # and a path entry matches that exact path only.
+        ("notes add <<'EOF'\nrm x\nEOF", (), True),
+        ("notes add <<'EOF'\nrm x\nEOF", ("notes",), False),
+        ("./notes add <<'EOF'\nrm x\nEOF", ("notes",), True),
+        ("/opt/bin/notes add <<'EOF'\nrm x\nEOF", ("/opt/bin/notes",), False),
+        ("notes add <<'EOF'\nrm x\nEOF", ("/opt/bin/notes",), True),
+        # A configured sink's subcommand mentioned later is not a file it wrote,
+        # but a file its redirect writes and a later line runs is.
+        ("notes add <<'EOF'\nrm x\nEOF\ngit add .", ("notes",), False),
+        ("notes add > s.sh <<'EOF'\nrm x\nEOF\nbash s.sh", ("notes",), True),
+        ("notes add 1<> s.sh <<'EOF'\nrm x\nEOF\nbash s.sh", ("notes",), True),
+        # A shell or launcher in the setting waives nothing.
+        ("bash <<'EOF'\nrm x\nEOF", ("bash",), True),
+        ("nice bash <<'EOF'\nrm x\nEOF", ("/usr/bin/nice",), True),
+        ("timeout 5 bash <<'EOF'\nrm x\nEOF", ("timeout",), True),
+        ("bash5.2 <<'EOF'\nrm x\nEOF", ("bash5.2",), True),
     ],
 )
-def test_drop_data_heredocs(bash: ModuleType, command: str, kept: bool) -> None:  # noqa: FBT001
+def test_drop_data_heredocs(
+    bash: ModuleType,
+    command: str,
+    extra_sinks: tuple[str, ...],
+    kept: bool,  # noqa: FBT001
+) -> None:
     """Verify a heredoc body is dropped only when the shell treats it as data."""
-    result = bash.drop_data_heredocs(command)
+    result = bash.drop_data_heredocs(command, extra_sinks=bash.resolve_data_sinks(extra_sinks))
     assert ("rm x" in result) is kept
     assert result.split("\n")[0] == command.split("\n", maxsplit=1)[0]
-    assert result.endswith("EOF")
+    assert "\nEOF" in result
+
+
+def test_resolve_data_sinks_warns_about_each_dropped_entry(
+    bash: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify an unusable heredoc data command is dropped with a warning naming it."""
+    # Given entries that cannot name one command, or name a shell
+    configured = ["notes", "/opt/bin/notes", "notes add", "bin/notes", "/a/../notes", "", "zsh"]
+
+    # When resolving them
+    sinks = bash.resolve_data_sinks(configured)
+
+    # Then only the usable entries are kept, and each dropped one is named
+    assert sinks.commands == {"notes", "/opt/bin/notes"}
+    warnings = capsys.readouterr().err
+    for dropped in ("'notes add'", "'bin/notes'", "'/a/../notes'", "''", "'zsh'"):
+        assert dropped in warnings
 
 
 # === substitution_bodies ===

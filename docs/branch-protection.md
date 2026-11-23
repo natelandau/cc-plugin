@@ -87,7 +87,8 @@ environment as trusting that repository with the carve-out.
 `.claude/natelandau-toolkit.toml` is a committed file inside the very repository
 branch protection is guarding, so honoring the key there would let a repo waive
 the guard for everyone who clones it. The key is silently ignored in a project
-config.
+config. For the same reason, `heredoc_data_commands` is also read from the
+global config only.
 
 The exemption is keyed off the path, like every other rule. An edit to a file in
 an exempt tree passes from any shell, a `git -C <exempt-tree> commit` passes from
@@ -155,8 +156,8 @@ The hook reads the write targets from the command and checks each one:
 | In-place and download writers | `sed -i` and `gsed -i` (also `-Ei`, BSD `-I`, `--in-place` and its prefixes such as `--in`), `perl -i` (also `-pi`), `curl -o`/`-O`, `wget`, `tee` |
 | Bulk and in-place writers without a positional target | `truncate`, `dd of=<path>` (except `of=/dev/null`), `find ... -delete`, `xargs rm` |
 
-The command name is read past a leading launcher (`sudo`, `env`, `command`,
-`nice`, `time`), an absolute path (`/bin/rm`), or a subshell/group opener
+The command name is read past a leading launcher (`sudo`, `doas`, `env`,
+`command`, `builtin`, `exec`, `nice`, `nohup`, `time`), an absolute path (`/bin/rm`), or a subshell/group opener
 (`( rm ... )`), so these do not slip the rules. Metacharacters inside quotes are
 treated as data, not syntax, so a quoted program like `awk 'c>=2'` or
 `grep 'a>b'` is not mistaken for a redirect.
@@ -214,10 +215,19 @@ line by line. The data sinks are:
 - A single `cat` or `tee` command, optionally after a bare `sudo` or `env`.
 - A non-shell interpreter: `python3 -`, `node`, `ruby`, or `perl`.
 - A commit or PR message command, such as `git commit -F -`.
+- A command in `heredoc_data_commands` in the global config, such as a notes
+  CLI that reads a page body with `--body-file - <<'EOF'`. An entry is a command
+  name, which matches the command typed without a path, or an absolute path,
+  which matches that exact path. The hook ignores an entry that names a shell
+  or a launcher (`bash`, `sudo`, `xargs`, `ssh`) and prints a warning. A
+  project config cannot set this key.
 
 For a sink, nothing can follow the heredoc on its line except redirects: no
 pipe, list, background `&`, or substitution. No later line can mention a file
-that the heredoc writes, as in `bash /tmp/s.sh`. For any other consumer, the
+that the heredoc writes, as in `bash /tmp/s.sh`. For a command in
+`heredoc_data_commands`, only its output redirects count as files that it
+writes, because its other arguments are subcommands and options. For any other
+consumer, the
 hook checks the body as commands, because the consumer can run it as shell
 (`sh`, `su`, `sudo -s`, `script`, `exec 3<<`, `$SHELL`). The command that opens
 the heredoc is always checked, so `cat > app.py <<'EOF'` is blocked. If a data

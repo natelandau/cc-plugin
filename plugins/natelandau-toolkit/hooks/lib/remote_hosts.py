@@ -33,12 +33,14 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
+from lib.bash import COMMAND_LAUNCHERS
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 # Words that run the next word as the program. One followed by its own option
 # (`sudo -u root ssh`) makes the program ambiguous, so the parse gives up.
-_LAUNCHERS = frozenset({"sudo", "doas", "env", "command", "exec", "nice", "nohup", "time"})
+_LAUNCHERS = COMMAND_LAUNCHERS
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 # A hostname, alias, or IP as written. Excludes `$`, backticks, and parentheses,

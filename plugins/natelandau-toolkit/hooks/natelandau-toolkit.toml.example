@@ -54,6 +54,21 @@ disabled_hooks = []
 # ":"-separated, for roots that differ per machine:
 #   export NATELANDAU_TOOLKIT_EXEMPT_PATHS="$SHARED_CONTEXT_VAULT"
 
+# --- Heredoc data commands ------------------------------------------------
+# Commands that read heredoc text as data, such as a notes CLI that reads a
+# page body from stdin with `--body-file - <<'EOF'`. The branch-protection
+# hook reads the text of any other heredoc as shell commands, so prose with a
+# ">" or a line that starts with "rm" is blocked on a protected branch.
+# Each entry is a command name, which matches the command typed without a
+# path, or an absolute path, which matches that exact path. The heredoc stays
+# subject to the same limits as `cat`: a pipe after it, or a substitution in
+# an unquoted heredoc, is still judged. The hook ignores an entry that names
+# a shell, or a command that runs its input as shell (sudo, xargs, ssh), and
+# prints a warning.
+#
+# READ FROM THE GLOBAL FILE ONLY, for the same reason as exempt_paths.
+# heredoc_data_commands = ["notes-cli"]
+
 # --- Trusted remote hosts -------------------------------------------------
 # Hosts the protect-remote hook lets through without a permission prompt.
 # Each entry is a hostname, ssh config alias, or IP as you type it in the

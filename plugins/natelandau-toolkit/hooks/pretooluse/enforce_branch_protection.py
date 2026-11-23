@@ -20,7 +20,9 @@ runs, so it is judged as a command of its own, inside double quotes too
 (`echo "$(rm foo.py)"` is a write).
 A heredoc body is read as commands unless a known data sink consumes it
 (`cat > notes.md <<'EOF'`, `python3 - <<'EOF'`, a commit message); see
-`lib.bash.drop_data_heredocs`.
+`lib.bash.drop_data_heredocs`. The global `heredoc_data_commands` setting names
+further commands whose heredoc is data, such as a CLI that reads a note body
+from stdin, whose prose would otherwise read as writes.
 
 A write whose target cannot be read off the command (`sed -i`, `wget`) is
 judged by the branch of the effective working directory instead, so it is
@@ -96,6 +98,7 @@ class Scope:
 
     exempt: ExemptRoots
     protected: ProtectedBranches
+    heredoc_data_commands: bash.DataSinks
 
 
 # Single hint appended to every protected-branch block message. Both
@@ -597,7 +600,7 @@ _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # these `sudo rm`, `env rm`, `command rm`, ... would slip the rm/wget/truncate
 # rules. `xargs` is deliberately absent: it has its own rule because its command
 # can be preceded by its own flags.
-_CMD_WRAPPERS = frozenset({"sudo", "doas", "env", "command", "builtin", "exec", "nice", "time"})
+_CMD_WRAPPERS = bash.COMMAND_LAUNCHERS
 
 # Leading characters stripped off a command token to recover its real name: a
 # backslash (alias-bypass `\rm`), a subshell/group opener glued to the command
@@ -1160,7 +1163,7 @@ def _judge_bash(
     protected-branch checks.
     """
     if output_is_data:
-        command = bash.drop_data_heredocs(command)
+        command = bash.drop_data_heredocs(command, extra_sinks=scope.heredoc_data_commands)
     command = _unquote_flags(command)
     reason = check_destructive(command) or check_protected_branch_delete(command, scope.protected)
     if reason:
@@ -1230,6 +1233,7 @@ def evaluate(event: dict[str, Any], cfg: Config) -> Decision | None:
     scope = Scope(
         exempt=exempt_paths.resolve(cfg.exempt_paths),
         protected=ProtectedBranches.from_config(cfg),
+        heredoc_data_commands=bash.resolve_data_sinks(cfg.heredoc_data_commands),
     )
     if tool_name != "Bash":
         return _evaluate_file_tool(event, scope)

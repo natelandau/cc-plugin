@@ -10,9 +10,10 @@ is swallowed so a broken config never blocks tool execution.
 of strings. A value of any other shape is dropped with a warning, and a hook
 reading an option whose type differs from its default gets the default.
 
-`exempt_paths` and `trusted_remote_hosts` are read from the global layer
-alone. They waive a safety guard, for a directory tree or a remote host, and
-the project layer is a file inside the very repo a guard protects. Honoring
+`exempt_paths`, `trusted_remote_hosts`, and `heredoc_data_commands` are read
+from the global layer alone. They waive a safety guard, for a directory tree,
+a remote host, or the stdin text of a command, and the project layer is a
+file inside the very repo a guard protects. Honoring
 them there would let a repo exempt itself, and because that file is committed
 it would do so for everyone who clones it. Style options such as
 `[hooks.commit-message]` carry no such risk, so a project may loosen them.
@@ -55,6 +56,9 @@ class Config:
     exempt_paths: tuple[str, ...] = ()
     # Hosts protect-remote lets through without a prompt. Global layer only.
     trusted_remote_hosts: tuple[str, ...] = ()
+    # Commands whose heredoc body branch-protection reads as data rather than
+    # as shell. Global layer only.
+    heredoc_data_commands: tuple[str, ...] = ()
 
     def option[T: (str, int, bool, tuple[str, ...])](
         self, hook_id: str, key: str, *, default: T
@@ -192,6 +196,7 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
     # guards protecting it.
     exempt_paths = _string_list(global_layer.get("exempt_paths"))
     trusted_remote_hosts = _string_list(global_layer.get("trusted_remote_hosts"))
+    heredoc_data_commands = _string_list(global_layer.get("heredoc_data_commands"))
     if project_dir:
         proj_path = Path(project_dir) / ".claude" / CONFIG_NAME
         _apply(_read_toml(proj_path), acc)
@@ -210,4 +215,5 @@ def load_config(*, home: Path | None = None, project_dir: str | None = None) -> 
         project_dir=project_dir,
         exempt_paths=exempt_paths,
         trusted_remote_hosts=trusted_remote_hosts,
+        heredoc_data_commands=heredoc_data_commands,
     )

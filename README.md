@@ -153,6 +153,12 @@ exempt_paths = []                     # for example ["~/repos/notes-vault"]
 # IP addresses, or globs. GLOBAL FILE ONLY.
 trusted_remote_hosts = []             # for example ["nas", "*.lan"]
 
+# Commands that read heredoc text as data, such as a notes CLI that reads a
+# page body from stdin. branch-protection does not read that text as shell
+# commands. Each entry is a command name or an absolute path. The hook ignores
+# an entry that names a shell. GLOBAL FILE ONLY.
+heredoc_data_commands = []            # for example ["notes-cli"]
+
 [hooks.branch-protection]
 # Branches to protect in addition to main and master, by name or glob.
 # The global and project lists combine, so a project cannot remove a branch.

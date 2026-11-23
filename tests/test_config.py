@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from tests._helpers import load_hook_module
 
 if TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
-
-    import pytest
 
 
 def _load_config_mod(hooks_dir: Path) -> ModuleType:
@@ -201,24 +201,34 @@ def test_trusted_remote_hosts_read_from_the_global_layer(hooks_dir: Path, tmp_pa
     assert cfg.trusted_remote_hosts == ("nas", "*.lan")
 
 
-def test_trusted_remote_hosts_ignored_in_the_project_layer(hooks_dir: Path, tmp_path: Path) -> None:
-    """Verify a project config can neither add nor clear trusted hosts.
+@pytest.mark.parametrize(
+    ("key", "global_value", "project_value"),
+    [
+        ("trusted_remote_hosts", "nas", "prod"),
+        ("heredoc_data_commands", "notes", "bash"),
+    ],
+)
+def test_global_only_lists_ignore_the_project_layer(
+    hooks_dir: Path, tmp_path: Path, key: str, global_value: str, project_value: str
+) -> None:
+    """Verify a project config can neither add nor clear a global-only safety waiver.
 
-    Trusting a host waives the protect-remote prompt, and the project layer is
-    a committed file inside the repository, so honoring it would let one repo
-    silence the prompt for everyone who clones it.
+    Trusting a host waives the protect-remote prompt, and a heredoc data
+    command waives branch-protection's reading of its stdin. The project layer
+    is a committed file inside the repository, so honoring it would let one
+    repo waive the guard for everyone who clones it.
     """
     # Given a global list and a project config that tries to replace it
     home = tmp_path / "home"
     proj = tmp_path / "proj"
-    _write(home / ".claude" / "natelandau-toolkit.toml", 'trusted_remote_hosts = ["nas"]\n')
-    _write(proj / ".claude" / "natelandau-toolkit.toml", 'trusted_remote_hosts = ["prod"]\n')
+    _write(home / ".claude" / "natelandau-toolkit.toml", f'{key} = ["{global_value}"]\n')
+    _write(proj / ".claude" / "natelandau-toolkit.toml", f'{key} = ["{project_value}"]\n')
 
     # When loading the config
     cfg = _load_config_mod(hooks_dir).load_config(home=home, project_dir=str(proj))
 
     # Then only the global list stands
-    assert cfg.trusted_remote_hosts == ("nas",)
+    assert getattr(cfg, key) == (global_value,)
 
 
 def test_hook_options_typed_values_cascade(hooks_dir: Path, tmp_path: Path) -> None:

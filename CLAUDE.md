@@ -53,11 +53,11 @@ with no test harness. Run the gates before committing a code change.
 
 ## Config invariants
 
-- A project config layer can only tighten safety. `exempt_paths` and
-  `trusted_remote_hosts` are read from the global layer alone, because the project
-  file is committed inside the repo the guard protects. A safety list option goes in
-  `config.ADDITIVE_OPTIONS` so layers union it. Style options such as
-  `[hooks.commit-message]` can be loosened.
+- A project config layer can only tighten safety. `exempt_paths`,
+  `trusted_remote_hosts`, and `heredoc_data_commands` are read from the global layer
+  alone, because the project file is committed inside the repo the guard protects. A
+  safety list option goes in `config.ADDITIVE_OPTIONS` so layers union it. Style
+  options such as `[hooks.commit-message]` can be loosened.
 - Put nothing configurable in the plugin dir; updates replace it. Users own all
   configuration.
 - Run every command-extracted path through `lib.paths.expand_user`: the hook sees the
